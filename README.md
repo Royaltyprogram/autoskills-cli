@@ -82,6 +82,14 @@ If `sync` or `apply --yes` fails before the plan starts, check the local runner 
 make check-codex-runner
 ```
 
+To rerun the mock dashboard approve -> local agent sync -> rollback flow without touching your real workspace:
+
+```bash
+make mock-e2e
+```
+
+That test starts the real analytics routes in-process, issues a dashboard CLI token, approves a change plan through the web auth flow, runs `agentopt sync` with a stub Codex runner against a temp workspace, verifies the file change, and rolls it back.
+
 ## Research Agent MVP
 
 The cloud research agent is intentionally narrow in this MVP:

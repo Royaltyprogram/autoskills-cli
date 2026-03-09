@@ -131,6 +131,26 @@ go run ./cmd/agentopt impact
 go run ./cmd/agentopt audit
 ```
 
+## 8-1. 모의 approve -> local sync -> rollback 자동 테스트
+
+실제 temp 서버와 temp workspace를 띄워서 아래 흐름을 자동으로 검증한다.
+
+- 대시보드 로그인
+- CLI 토큰 발급
+- `agentopt login/connect/snapshot/session`
+- 추천 apply + approve
+- `agentopt sync`
+- `agentopt rollback`
+
+실행:
+
+```bash
+cd /Users/doyechan/Desktop/codes/aiops
+make mock-e2e
+```
+
+이 테스트는 real Codex API 대신 stub runner를 써서 백엔드-로컬 에이전트 연계만 검증한다.
+
 ## 9. 문제 생겼을 때 복구
 
 현재 CLI가 shared workspace에 연결되어 있는지 확인:
