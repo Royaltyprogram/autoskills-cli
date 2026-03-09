@@ -3,6 +3,7 @@ package configs
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -135,8 +136,52 @@ func InitConfig() (*Config, error) {
 	if err := applyEnvOverrides(&cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
+}
+
+func (c *Config) Validate() error {
+	issues := make([]string, 0)
+
+	switch strings.TrimSpace(c.DB.Dialect) {
+	case "sqlite3", "mysql":
+	case "":
+		issues = append(issues, "DB.Dialect is required")
+	default:
+		issues = append(issues, fmt.Sprintf("DB.Dialect %q is unsupported", c.DB.Dialect))
+	}
+	if strings.TrimSpace(c.DB.DSN) == "" {
+		issues = append(issues, "DB.DSN is required")
+	}
+	if c.HTTP.RateLimitPerMinute < 0 {
+		issues = append(issues, "HTTP.RateLimitPerMinute must be zero or greater")
+	}
+	issues = append(issues, validateCIDRList("HTTP.AllowedCIDRs", c.HTTP.AllowedCIDRs)...)
+	issues = append(issues, validateCIDRList("HTTP.TrustedProxyCIDRs", c.HTTP.TrustedProxyCIDRs)...)
+	issues = append(issues, validateBootstrapUsers(c.Auth.BootstrapUsers)...)
+
+	if c.Auth.StaticTokenEnabled && strings.TrimSpace(c.App.APIToken) == "" {
+		issues = append(issues, "App.APIToken is required when Auth.StaticTokenEnabled is true")
+	}
+	if c.IsReleaseMode() {
+		if strings.TrimSpace(c.Jwt.Secret) == "" {
+			issues = append(issues, "Jwt.Secret is required in release mode")
+		}
+		if c.Auth.AllowDemoUser {
+			issues = append(issues, "Auth.AllowDemoUser must be false in release mode")
+		}
+		if c.Auth.StaticTokenEnabled {
+			issues = append(issues, "Auth.StaticTokenEnabled must be false in release mode")
+		}
+	}
+
+	if len(issues) > 0 {
+		return fmt.Errorf("invalid config: %s", strings.Join(issues, "; "))
+	}
+	return nil
 }
 
 func applyEnvOverrides(cfg *Config) error {
@@ -234,4 +279,65 @@ func splitCSV(raw string) []string {
 		out = append(out, part)
 	}
 	return out
+}
+
+func validateCIDRList(label string, values []string) []string {
+	issues := make([]string, 0)
+	for _, value := range values {
+		if _, _, err := net.ParseCIDR(value); err != nil {
+			issues = append(issues, fmt.Sprintf("%s contains invalid CIDR %q", label, value))
+		}
+	}
+	return issues
+}
+
+func validateBootstrapUsers(users []BootstrapUser) []string {
+	issues := make([]string, 0)
+	seenIDs := make(map[string]struct{}, len(users))
+	seenEmails := make(map[string]struct{}, len(users))
+
+	for i, user := range users {
+		prefix := fmt.Sprintf("Auth.BootstrapUsers[%d]", i)
+		id := strings.TrimSpace(user.ID)
+		orgID := strings.TrimSpace(user.OrgID)
+		orgName := strings.TrimSpace(user.OrgName)
+		email := strings.TrimSpace(user.Email)
+		name := strings.TrimSpace(user.Name)
+		password := strings.TrimSpace(user.Password)
+
+		if id == "" {
+			issues = append(issues, prefix+".ID is required")
+		}
+		if orgID == "" {
+			issues = append(issues, prefix+".OrgID is required")
+		}
+		if orgName == "" {
+			issues = append(issues, prefix+".OrgName is required")
+		}
+		if email == "" {
+			issues = append(issues, prefix+".Email is required")
+		}
+		if name == "" {
+			issues = append(issues, prefix+".Name is required")
+		}
+		if password == "" {
+			issues = append(issues, prefix+".Password is required")
+		}
+
+		if id != "" {
+			if _, exists := seenIDs[id]; exists {
+				issues = append(issues, prefix+".ID must be unique")
+			}
+			seenIDs[id] = struct{}{}
+		}
+		if email != "" {
+			emailKey := strings.ToLower(email)
+			if _, exists := seenEmails[emailKey]; exists {
+				issues = append(issues, prefix+".Email must be unique")
+			}
+			seenEmails[emailKey] = struct{}{}
+		}
+	}
+
+	return issues
 }

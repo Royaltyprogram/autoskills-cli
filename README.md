@@ -184,6 +184,8 @@ go run .
 
 If `HTTP_TRUSTED_PROXY_CIDRS` is empty, AgentOpt only trusts the direct socket remote address and ignores forwarded IP headers.
 
+`APP_MODE=prod` now fails fast during startup if critical closed beta settings are unsafe or incomplete, including a missing `JWT_SECRET`, invalid CIDR values, demo-user enablement, static token bypass enablement, or malformed bootstrap users.
+
 ## Research Agent MVP
 
 The cloud research agent is intentionally narrow in this MVP:

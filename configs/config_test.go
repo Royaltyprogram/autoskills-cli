@@ -38,3 +38,106 @@ func TestLookupEnvTrimsWhitespace(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "value", value)
 }
+
+func TestConfigValidateRejectsInvalidReleaseSecurityConfig(t *testing.T) {
+	cfg := &Config{
+		App: App{
+			Mode: "prod",
+		},
+		DB: DB{
+			Dialect: "sqlite3",
+			DSN:     "data/agentopt.db?_fk=1",
+		},
+		Auth: Auth{
+			AllowDemoUser:      true,
+			StaticTokenEnabled: true,
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Jwt.Secret is required in release mode")
+	require.Contains(t, err.Error(), "Auth.AllowDemoUser must be false in release mode")
+	require.Contains(t, err.Error(), "Auth.StaticTokenEnabled must be false in release mode")
+	require.Contains(t, err.Error(), "App.APIToken is required when Auth.StaticTokenEnabled is true")
+}
+
+func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
+	cfg := &Config{
+		App: App{
+			Mode: "local",
+		},
+		DB: DB{
+			Dialect: "sqlite3",
+			DSN:     "data/agentopt-local.db?_fk=1",
+		},
+		HTTP: HTTP{
+			AllowedCIDRs:      []string{"not-a-cidr"},
+			TrustedProxyCIDRs: []string{"10.0.0.0/8", "also-bad"},
+		},
+		Auth: Auth{
+			BootstrapUsers: []BootstrapUser{
+				{
+					ID:      "beta-user-1",
+					OrgID:   "beta-org",
+					OrgName: "Beta Org",
+					Email:   "beta@example.com",
+					Name:    "",
+				},
+				{
+					ID:       "beta-user-1",
+					OrgID:    "beta-org",
+					OrgName:  "Beta Org",
+					Email:    "beta@example.com",
+					Name:     "Beta Operator",
+					Password: "secret",
+				},
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `HTTP.AllowedCIDRs contains invalid CIDR "not-a-cidr"`)
+	require.Contains(t, err.Error(), `HTTP.TrustedProxyCIDRs contains invalid CIDR "also-bad"`)
+	require.Contains(t, err.Error(), "Auth.BootstrapUsers[0].Name is required")
+	require.Contains(t, err.Error(), "Auth.BootstrapUsers[0].Password is required")
+	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].ID must be unique")
+	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].Email must be unique")
+}
+
+func TestConfigValidateAllowsLocalClosedBetaDefaults(t *testing.T) {
+	cfg := &Config{
+		App: App{
+			Mode:     "local",
+			APIToken: "agentopt-dev-token",
+		},
+		DB: DB{
+			Dialect: "sqlite3",
+			DSN:     "data/agentopt-local.db?_fk=1",
+		},
+		Jwt: Jwt{
+			Secret: "dev-secret",
+		},
+		Auth: Auth{
+			AllowDemoUser:      true,
+			StaticTokenEnabled: true,
+			BootstrapUsers: []BootstrapUser{
+				{
+					ID:       "beta-user-1",
+					OrgID:    "beta-org",
+					OrgName:  "Beta Org",
+					Email:    "beta@example.com",
+					Name:     "Beta Operator",
+					Password: "secret",
+				},
+			},
+		},
+		HTTP: HTTP{
+			AllowedCIDRs:      []string{"127.0.0.1/32"},
+			TrustedProxyCIDRs: []string{"10.0.0.0/8"},
+		},
+	}
+
+	require.NoError(t, cfg.Validate())
+}
