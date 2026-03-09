@@ -35,8 +35,17 @@ type state struct {
 }
 
 type applyBackup struct {
-	ApplyID        string         `json:"apply_id"`
-	ProjectID      string         `json:"project_id"`
+	ApplyID        string            `json:"apply_id"`
+	ProjectID      string            `json:"project_id"`
+	Files          []applyFileBackup `json:"files"`
+	FilePath       string            `json:"file_path"`
+	FileKind       string            `json:"file_kind"`
+	OriginalExists bool              `json:"original_exists"`
+	OriginalJSON   map[string]any    `json:"original_json"`
+	OriginalText   string            `json:"original_text"`
+}
+
+type applyFileBackup struct {
 	FilePath       string         `json:"file_path"`
 	FileKind       string         `json:"file_kind"`
 	OriginalExists bool           `json:"original_exists"`
@@ -52,19 +61,26 @@ type envelope struct {
 
 type localApplyResult struct {
 	FilePath        string
+	FilePaths       []string
 	AppliedSettings map[string]any
 	AppliedText     string
 }
 
 type preflightResult struct {
-	ApplyID      string `json:"apply_id"`
-	Allowed      bool   `json:"allowed"`
+	ApplyID string          `json:"apply_id"`
+	Allowed bool            `json:"allowed"`
+	Reason  string          `json:"reason"`
+	Steps   []preflightStep `json:"steps"`
+}
+
+type preflightStep struct {
 	TargetFile   string `json:"target_file"`
 	Operation    string `json:"operation"`
 	PreviewFile  string `json:"preview_file"`
 	Guard        string `json:"guard"`
 	Reason       string `json:"reason"`
 	TargetSource string `json:"target_source"`
+	Allowed      bool   `json:"allowed"`
 }
 
 type apiClient struct {
@@ -793,28 +809,32 @@ func runRollback(args []string) error {
 		return err
 	}
 
-	if backup.OriginalExists {
-		if err := os.MkdirAll(filepath.Dir(backup.FilePath), 0o755); err != nil {
-			return err
-		}
-		switch backup.FileKind {
-		case "text_append", "text_replace":
-			if err := os.WriteFile(backup.FilePath, []byte(backup.OriginalText), 0o644); err != nil {
+	files := normalizeApplyBackupFiles(backup)
+	for i := len(files) - 1; i >= 0; i-- {
+		file := files[i]
+		if file.OriginalExists {
+			if err := os.MkdirAll(filepath.Dir(file.FilePath), 0o755); err != nil {
 				return err
 			}
-		default:
-			data, err := json.MarshalIndent(backup.OriginalJSON, "", "  ")
-			if err != nil {
+			switch file.FileKind {
+			case "text_append", "text_replace":
+				if err := os.WriteFile(file.FilePath, []byte(file.OriginalText), 0o644); err != nil {
+					return err
+				}
+			default:
+				data, err := json.MarshalIndent(file.OriginalJSON, "", "  ")
+				if err != nil {
+					return err
+				}
+				data = append(data, '\n')
+				if err := os.WriteFile(file.FilePath, data, 0o644); err != nil {
+					return err
+				}
+			}
+		} else {
+			if err := os.Remove(file.FilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			data = append(data, '\n')
-			if err := os.WriteFile(backup.FilePath, data, 0o644); err != nil {
-				return err
-			}
-		}
-	} else {
-		if err := os.Remove(backup.FilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
 		}
 	}
 
@@ -824,9 +844,9 @@ func runRollback(args []string) error {
 		ApplyID:         backup.ApplyID,
 		Success:         true,
 		Note:            *note,
-		AppliedFile:     backup.FilePath,
-		AppliedSettings: backup.OriginalJSON,
-		AppliedText:     backup.OriginalText,
+		AppliedFile:     rollbackAppliedFile(files),
+		AppliedSettings: rollbackAppliedSettings(files),
+		AppliedText:     rollbackAppliedText(files),
 		RolledBack:      true,
 	}, &result); err != nil {
 		return err
@@ -1040,73 +1060,49 @@ func executeLocalApply(st state, applyID string, previews []response.PatchPrevie
 		return localApplyResult{}, fmt.Errorf("local guard rejected apply %s: %s", applyID, preflight.Reason)
 	}
 
-	preview := previews[0]
-	filePath := preflight.TargetFile
+	backups := make([]applyFileBackup, 0, len(previews))
+	appliedPaths := make([]string, 0, len(previews))
+	aggregatedSettings := map[string]any{}
+	appliedTexts := make([]string, 0, len(previews))
 
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+	for index, preview := range previews {
+		filePath := preflight.Steps[index].TargetFile
+		backup, stepResult, err := executeApplyStep(filePath, preview)
+		if err != nil {
+			restoreErr := rollbackAppliedSteps(backups)
+			if restoreErr != nil {
+				return localApplyResult{}, fmt.Errorf("apply failed: %v; rollback failed: %w", err, restoreErr)
+			}
+			return localApplyResult{}, err
+		}
+		backups = append(backups, backup)
+		appliedPaths = append(appliedPaths, stepResult.FilePath)
+		if len(stepResult.AppliedSettings) > 0 {
+			mergeMap(aggregatedSettings, stepResult.AppliedSettings)
+		}
+		if stepResult.AppliedText != "" {
+			appliedTexts = append(appliedTexts, stepResult.AppliedText)
+		}
+	}
+
+	if err := saveApplyBackup(applyBackup{
+		ApplyID:   applyID,
+		ProjectID: st.ProjectID,
+		Files:     backups,
+	}); err != nil {
+		restoreErr := rollbackAppliedSteps(backups)
+		if restoreErr != nil {
+			return localApplyResult{}, fmt.Errorf("save backup failed: %v; rollback failed: %w", err, restoreErr)
+		}
 		return localApplyResult{}, err
 	}
-	switch preview.Operation {
-	case "append_block", "text_append":
-		originalBytes, err := os.ReadFile(filePath)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return localApplyResult{}, err
-		}
-		originalExists := err == nil
-		backup := applyBackup{
-			ApplyID:        applyID,
-			ProjectID:      st.ProjectID,
-			FilePath:       filePath,
-			FileKind:       "text_append",
-			OriginalExists: originalExists,
-			OriginalText:   string(originalBytes),
-		}
-		newText := string(originalBytes)
-		if !strings.Contains(newText, preview.ContentPreview) {
-			newText += preview.ContentPreview
-		}
-		if err := os.WriteFile(filePath, []byte(newText), 0o644); err != nil {
-			return localApplyResult{}, err
-		}
-		if err := saveApplyBackup(backup); err != nil {
-			return localApplyResult{}, err
-		}
-		return localApplyResult{
-			FilePath:    filePath,
-			AppliedText: preview.ContentPreview,
-		}, nil
-	default:
-		config := map[string]any{}
-		originalExists, err := readOptionalJSONMap(filePath, &config)
-		if err != nil {
-			return localApplyResult{}, err
-		}
-		backup := applyBackup{
-			ApplyID:        applyID,
-			ProjectID:      st.ProjectID,
-			FilePath:       filePath,
-			FileKind:       "json_merge",
-			OriginalExists: originalExists,
-			OriginalJSON:   cloneAnyMap(config),
-		}
-		mergeMap(config, preview.SettingsUpdates)
-		data, err := json.MarshalIndent(config, "", "  ")
-		if err != nil {
-			return localApplyResult{}, err
-		}
-		data = append(data, '\n')
-		if err := os.WriteFile(filePath, data, 0o644); err != nil {
-			return localApplyResult{}, err
-		}
-		if err := saveApplyBackup(backup); err != nil {
-			return localApplyResult{}, err
-		}
 
-		return localApplyResult{
-			FilePath:        filePath,
-			AppliedSettings: cloneAnyMap(preview.SettingsUpdates),
-		}, nil
-	}
+	return localApplyResult{
+		FilePath:        appliedFileSummary(appliedPaths),
+		FilePaths:       appliedPaths,
+		AppliedSettings: aggregatedSettings,
+		AppliedText:     strings.Join(appliedTexts, "\n"),
+	}, nil
 }
 
 func cloneAnyMap(input map[string]any) map[string]any {
@@ -1118,6 +1114,160 @@ func cloneAnyMap(input map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func executeApplyStep(filePath string, preview response.PatchPreviewItem) (applyFileBackup, localApplyResult, error) {
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return applyFileBackup{}, localApplyResult{}, err
+	}
+	switch preview.Operation {
+	case "append_block", "text_append":
+		originalBytes, err := os.ReadFile(filePath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return applyFileBackup{}, localApplyResult{}, err
+		}
+		originalExists := err == nil
+		backup := applyFileBackup{
+			FilePath:       filePath,
+			FileKind:       "text_append",
+			OriginalExists: originalExists,
+			OriginalText:   string(originalBytes),
+		}
+		newText := string(originalBytes)
+		if !strings.Contains(newText, preview.ContentPreview) {
+			newText += preview.ContentPreview
+		}
+		if err := os.WriteFile(filePath, []byte(newText), 0o644); err != nil {
+			return applyFileBackup{}, localApplyResult{}, err
+		}
+		return backup, localApplyResult{
+			FilePath:    filePath,
+			FilePaths:   []string{filePath},
+			AppliedText: preview.ContentPreview,
+		}, nil
+	default:
+		config := map[string]any{}
+		originalExists, err := readOptionalJSONMap(filePath, &config)
+		if err != nil {
+			return applyFileBackup{}, localApplyResult{}, err
+		}
+		backup := applyFileBackup{
+			FilePath:       filePath,
+			FileKind:       "json_merge",
+			OriginalExists: originalExists,
+			OriginalJSON:   cloneAnyMap(config),
+		}
+		mergeMap(config, preview.SettingsUpdates)
+		data, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return applyFileBackup{}, localApplyResult{}, err
+		}
+		data = append(data, '\n')
+		if err := os.WriteFile(filePath, data, 0o644); err != nil {
+			return applyFileBackup{}, localApplyResult{}, err
+		}
+		return backup, localApplyResult{
+			FilePath:        filePath,
+			FilePaths:       []string{filePath},
+			AppliedSettings: cloneAnyMap(preview.SettingsUpdates),
+		}, nil
+	}
+}
+
+func rollbackAppliedSteps(files []applyFileBackup) error {
+	for i := len(files) - 1; i >= 0; i-- {
+		file := files[i]
+		if file.OriginalExists {
+			if err := os.MkdirAll(filepath.Dir(file.FilePath), 0o755); err != nil {
+				return err
+			}
+			switch file.FileKind {
+			case "text_append", "text_replace":
+				if err := os.WriteFile(file.FilePath, []byte(file.OriginalText), 0o644); err != nil {
+					return err
+				}
+			default:
+				data, err := json.MarshalIndent(file.OriginalJSON, "", "  ")
+				if err != nil {
+					return err
+				}
+				data = append(data, '\n')
+				if err := os.WriteFile(file.FilePath, data, 0o644); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if err := os.Remove(file.FilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func normalizeApplyBackupFiles(backup applyBackup) []applyFileBackup {
+	if len(backup.Files) > 0 {
+		out := make([]applyFileBackup, 0, len(backup.Files))
+		for _, file := range backup.Files {
+			out = append(out, applyFileBackup{
+				FilePath:       file.FilePath,
+				FileKind:       file.FileKind,
+				OriginalExists: file.OriginalExists,
+				OriginalJSON:   cloneAnyMap(file.OriginalJSON),
+				OriginalText:   file.OriginalText,
+			})
+		}
+		return out
+	}
+	if strings.TrimSpace(backup.FilePath) == "" {
+		return nil
+	}
+	return []applyFileBackup{{
+		FilePath:       backup.FilePath,
+		FileKind:       backup.FileKind,
+		OriginalExists: backup.OriginalExists,
+		OriginalJSON:   cloneAnyMap(backup.OriginalJSON),
+		OriginalText:   backup.OriginalText,
+	}}
+}
+
+func rollbackAppliedFile(files []applyFileBackup) string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.FilePath)
+	}
+	return appliedFileSummary(paths)
+}
+
+func rollbackAppliedSettings(files []applyFileBackup) map[string]any {
+	combined := map[string]any{}
+	for _, file := range files {
+		if file.FileKind == "json_merge" {
+			combined[file.FilePath] = cloneAnyMap(file.OriginalJSON)
+		}
+	}
+	return combined
+}
+
+func rollbackAppliedText(files []applyFileBackup) string {
+	texts := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.FileKind == "text_append" || file.FileKind == "text_replace" {
+			texts = append(texts, file.OriginalText)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+func appliedFileSummary(paths []string) string {
+	switch len(paths) {
+	case 0:
+		return ""
+	case 1:
+		return paths[0]
+	default:
+		return strings.Join(paths, ",")
+	}
 }
 
 func applyBackupPath(applyID string) (string, error) {
@@ -1160,6 +1310,7 @@ func loadApplyBackup(applyID string) (applyBackup, error) {
 	if err := json.Unmarshal(data, &backup); err != nil {
 		return applyBackup{}, err
 	}
+	backup.Files = normalizeApplyBackupFiles(backup)
 	return backup, nil
 }
 
@@ -1202,50 +1353,53 @@ func preflightLocalApply(st state, applyID string, previews []response.PatchPrev
 	if len(previews) == 0 {
 		return preflightResult{}, errors.New("no patch preview available for apply")
 	}
-	if len(previews) > 1 {
-		return preflightResult{}, fmt.Errorf("apply %s has %d patch steps; local executor currently supports exactly 1 step", applyID, len(previews))
-	}
 
-	preview := previews[0]
-	if !isAllowedOperation(preview.Operation) {
-		return preflightResult{
-			ApplyID:     applyID,
-			Allowed:     false,
-			Operation:   preview.Operation,
-			PreviewFile: preview.FilePath,
-			Guard:       "operation",
-			Reason:      "unsupported patch operation",
-		}, nil
+	result := preflightResult{
+		ApplyID: applyID,
+		Allowed: true,
+		Reason:  "preflight passed",
+		Steps:   make([]preflightStep, 0, len(previews)),
 	}
-
-	resolvedPath, source, err := resolveApplyTarget(preview.FilePath, targetOverride)
-	if err != nil {
-		return preflightResult{}, err
-	}
-
-	if !isAllowedTarget(preview.FilePath, resolvedPath) {
-		return preflightResult{
-			ApplyID:      applyID,
-			Allowed:      false,
+	resolvedSeen := map[string]struct{}{}
+	for index, preview := range previews {
+		resolvedPath, source, err := resolveApplyTarget(preview.FilePath, stepTargetOverride(targetOverride, index))
+		if err != nil {
+			return preflightResult{}, err
+		}
+		step := preflightStep{
 			TargetFile:   resolvedPath,
 			Operation:    preview.Operation,
 			PreviewFile:  preview.FilePath,
-			Guard:        "file_scope",
-			Reason:       "target file is outside the local guard allowlist",
 			TargetSource: source,
-		}, nil
+			Allowed:      true,
+			Guard:        "strict",
+			Reason:       "preflight passed",
+		}
+		switch {
+		case !isAllowedOperation(preview.Operation):
+			step.Allowed = false
+			step.Guard = "operation"
+			step.Reason = "unsupported patch operation"
+		case !isAllowedTarget(preview.FilePath, resolvedPath):
+			step.Allowed = false
+			step.Guard = "file_scope"
+			step.Reason = "target file is outside the local guard allowlist"
+		default:
+			if _, exists := resolvedSeen[resolvedPath]; exists {
+				step.Allowed = false
+				step.Guard = "duplicate_target"
+				step.Reason = "multiple change plan steps target the same file"
+			}
+		}
+		if step.Allowed {
+			resolvedSeen[resolvedPath] = struct{}{}
+		} else {
+			result.Allowed = false
+			result.Reason = "one or more change plan steps failed preflight"
+		}
+		result.Steps = append(result.Steps, step)
 	}
-
-	return preflightResult{
-		ApplyID:      applyID,
-		Allowed:      true,
-		TargetFile:   resolvedPath,
-		Operation:    preview.Operation,
-		PreviewFile:  preview.FilePath,
-		Guard:        "strict",
-		Reason:       "preflight passed",
-		TargetSource: source,
-	}, nil
+	return result, nil
 }
 
 func defaultString(value, fallback string) string {
@@ -1283,6 +1437,21 @@ func resolveApplyTarget(previewPath, targetOverride string) (string, string, err
 		return "", "", err
 	}
 	return filepath.Clean(filepath.Join(cwd, target)), source, nil
+}
+
+func stepTargetOverride(raw string, index int) string {
+	parts := splitComma(raw)
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	default:
+		if index < len(parts) {
+			return parts[index]
+		}
+		return ""
+	}
 }
 
 func isAllowedOperation(operation string) bool {

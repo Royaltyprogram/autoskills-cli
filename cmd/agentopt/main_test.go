@@ -23,13 +23,16 @@ func TestApplyBackupRoundTrip(t *testing.T) {
 	t.Setenv("AGENTOPT_HOME", root)
 
 	backup := applyBackup{
-		ApplyID:        "apply-1",
-		ProjectID:      "project-1",
-		FilePath:       "/tmp/config.json",
-		OriginalExists: true,
-		OriginalJSON: map[string]any{
-			"baseline": true,
-		},
+		ApplyID:   "apply-1",
+		ProjectID: "project-1",
+		Files: []applyFileBackup{{
+			FilePath:       "/tmp/config.json",
+			FileKind:       "json_merge",
+			OriginalExists: true,
+			OriginalJSON: map[string]any{
+				"baseline": true,
+			},
+		}},
 	}
 
 	require.NoError(t, saveApplyBackup(backup))
@@ -37,8 +40,9 @@ func TestApplyBackupRoundTrip(t *testing.T) {
 	loaded, err := loadApplyBackup("apply-1")
 	require.NoError(t, err)
 	require.Equal(t, backup.ApplyID, loaded.ApplyID)
-	require.Equal(t, backup.FilePath, loaded.FilePath)
-	require.Equal(t, backup.OriginalJSON["baseline"], loaded.OriginalJSON["baseline"])
+	require.Len(t, loaded.Files, 1)
+	require.Equal(t, backup.Files[0].FilePath, loaded.Files[0].FilePath)
+	require.Equal(t, backup.Files[0].OriginalJSON["baseline"], loaded.Files[0].OriginalJSON["baseline"])
 
 	require.NoError(t, deleteApplyBackup("apply-1"))
 
@@ -81,8 +85,9 @@ func TestExecuteLocalApplyCreatesBackupAndWritesConfig(t *testing.T) {
 
 	backup, err := loadApplyBackup("apply-1")
 	require.NoError(t, err)
-	require.True(t, backup.OriginalExists)
-	require.Equal(t, true, backup.OriginalJSON["baseline"])
+	require.Len(t, backup.Files, 1)
+	require.True(t, backup.Files[0].OriginalExists)
+	require.Equal(t, true, backup.Files[0].OriginalJSON["baseline"])
 }
 
 func TestExecuteLocalApplyAppendsTextFile(t *testing.T) {
@@ -123,19 +128,77 @@ func TestPreflightLocalApplyRejectsUnsafeTarget(t *testing.T) {
 	}, "")
 	require.NoError(t, err)
 	require.False(t, result.Allowed)
-	require.Equal(t, "file_scope", result.Guard)
+	require.Len(t, result.Steps, 1)
+	require.Equal(t, "file_scope", result.Steps[0].Guard)
 }
 
-func TestPreflightLocalApplyRejectsMultipleSteps(t *testing.T) {
+func TestPreflightLocalApplyAllowsMultipleDistinctSteps(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENTOPT_HOME", root)
 
-	_, err := preflightLocalApply(state{ProjectID: "project-1"}, "apply-multi", []response.PatchPreviewItem{
+	result, err := preflightLocalApply(state{ProjectID: "project-1"}, "apply-multi", []response.PatchPreviewItem{
 		{FilePath: ".codex/config.json", Operation: "merge_patch"},
 		{FilePath: "AGENTS.md", Operation: "append_block"},
+	}, filepath.Join(root, "config.json")+","+filepath.Join(root, "AGENTS.md"))
+	require.NoError(t, err)
+	require.True(t, result.Allowed)
+	require.Len(t, result.Steps, 2)
+	require.True(t, result.Steps[0].Allowed)
+	require.True(t, result.Steps[1].Allowed)
+}
+
+func TestPreflightLocalApplyRejectsDuplicateTargets(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTOPT_HOME", root)
+
+	result, err := preflightLocalApply(state{ProjectID: "project-1"}, "apply-dup", []response.PatchPreviewItem{
+		{FilePath: ".codex/config.json", Operation: "merge_patch"},
+		{FilePath: ".codex/config.json", Operation: "merge_patch"},
 	}, "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exactly 1 step")
+	require.NoError(t, err)
+	require.False(t, result.Allowed)
+	require.Equal(t, "duplicate_target", result.Steps[1].Guard)
+}
+
+func TestExecuteLocalApplySupportsMultipleSteps(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTOPT_HOME", root)
+
+	configTarget := filepath.Join(root, "config.json")
+	textTarget := filepath.Join(root, "AGENTS.md")
+	err := os.WriteFile(configTarget, []byte("{\"baseline\":true}\n"), 0o644)
+	require.NoError(t, err)
+
+	result, err := executeLocalApply(state{ProjectID: "project-1"}, "apply-multi", []response.PatchPreviewItem{
+		{
+			FilePath:  ".codex/config.json",
+			Operation: "merge_patch",
+			SettingsUpdates: map[string]any{
+				"shell_profile": "safe",
+			},
+		},
+		{
+			FilePath:       "AGENTS.md",
+			Operation:      "append_block",
+			ContentPreview: "\n## AgentOpt\n- rollout\n",
+		},
+	}, configTarget+","+textTarget)
+	require.NoError(t, err)
+	require.Len(t, result.FilePaths, 2)
+	require.Contains(t, result.FilePath, configTarget)
+	require.Contains(t, result.FilePath, textTarget)
+
+	configData, err := os.ReadFile(configTarget)
+	require.NoError(t, err)
+	require.Contains(t, string(configData), "\"shell_profile\": \"safe\"")
+
+	textData, err := os.ReadFile(textTarget)
+	require.NoError(t, err)
+	require.Contains(t, string(textData), "AgentOpt")
+
+	backup, err := loadApplyBackup("apply-multi")
+	require.NoError(t, err)
+	require.Len(t, backup.Files, 2)
 }
 
 func TestRunSyncRejectsInvalidIntervalInWatchMode(t *testing.T) {

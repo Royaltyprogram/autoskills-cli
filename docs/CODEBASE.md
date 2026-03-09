@@ -151,3 +151,4 @@ Persisted entities:
 - no raw code or transcript upload exists
 - the OpenAI API integration is intentionally left as a placeholder in this branch
 - the local CLI executor only applies allowlisted config files such as `AGENTS.md`, `.mcp.json`, `.codex/config.json`, and `.claude/settings.local.json`
+- approved change plans may contain multiple local patch steps, and rollback restores them in reverse order

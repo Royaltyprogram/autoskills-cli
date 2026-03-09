@@ -75,3 +75,4 @@ The cloud research agent is intentionally implemented as a placeholder:
 - no live OpenAI API call is made yet
 - recommendation generation remains deterministic and metrics-driven until the API integration is enabled
 - the local executor now enforces a strict file allowlist before any approved plan is applied
+- the local executor can now apply and roll back multi-step plans across allowlisted files
