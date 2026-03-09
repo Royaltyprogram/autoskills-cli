@@ -34,7 +34,11 @@ func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 			ID:        "session_1",
 			ProjectID: "project_1",
 			Tool:      "codex",
-			TaskType:  "bugfix",
+			TokenIn:   480,
+			TokenOut:  120,
+			RawQueries: []string{
+				"Inspect the controller before editing it.",
+			},
 			Timestamp: now,
 		},
 	}

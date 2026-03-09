@@ -237,41 +237,17 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 	}
 
 	summary := &SessionSummary{
-		ID:                       sessionID,
-		ProjectID:                req.ProjectID,
-		Tool:                     req.Tool,
-		ProjectHash:              req.ProjectHash,
-		LanguageMix:              cloneFloatMap(req.LanguageMix),
-		TotalPromptsCount:        req.TotalPromptsCount,
-		TotalToolCalls:           req.TotalToolCalls,
-		BashCallsCount:           req.BashCallsCount,
-		ReadOps:                  req.ReadOps,
-		EditOps:                  req.EditOps,
-		WriteOps:                 req.WriteOps,
-		MCPUsageCount:            req.MCPUsageCount,
-		PermissionRejectCount:    req.PermissionRejectCount,
-		RetryCount:               req.RetryCount,
-		TokenIn:                  req.TokenIn,
-		TokenOut:                 req.TokenOut,
-		RawQueries:               cloneStringSlice(req.RawQueries),
-		EstimatedCost:            req.EstimatedCost,
-		TaskType:                 req.TaskType,
-		RepoSizeBucket:           req.RepoSizeBucket,
-		ConfigProfileID:          req.ConfigProfileID,
-		TaskTypeDistribution:     cloneFloatMap(req.TaskTypeDistribution),
-		RepoExplorationIntensity: req.RepoExplorationIntensity,
-		ShellHeavy:               req.ShellHeavy,
-		WorkloadTags:             cloneStringSlice(req.WorkloadTags),
-		AcceptanceProxy:          req.AcceptanceProxy,
-		EventSummaries:           cloneStringSlice(req.EventSummaries),
-		Timestamp:                recordedAt,
+		ID:         sessionID,
+		ProjectID:  req.ProjectID,
+		Tool:       req.Tool,
+		TokenIn:    req.TokenIn,
+		TokenOut:   req.TokenOut,
+		RawQueries: cloneStringSlice(req.RawQueries),
+		Timestamp:  recordedAt,
 	}
 
 	s.AnalyticsStore.sessionSummaries[req.ProjectID] = append(s.AnalyticsStore.sessionSummaries[req.ProjectID], summary)
 	project.LastIngestedAt = &recordedAt
-	if summary.ConfigProfileID != "" {
-		project.LastProfileID = summary.ConfigProfileID
-	}
 
 	recommendations := s.refreshRecommendationsLocked(project)
 	ids := make([]string, 0, len(recommendations))
@@ -311,34 +287,13 @@ func (s *AnalyticsService) ListSessionSummaries(ctx context.Context, req *reques
 	items := make([]response.SessionSummaryItem, 0, len(s.AnalyticsStore.sessionSummaries[req.ProjectID]))
 	for _, session := range s.AnalyticsStore.sessionSummaries[req.ProjectID] {
 		items = append(items, response.SessionSummaryItem{
-			ID:                       session.ID,
-			ProjectID:                session.ProjectID,
-			Tool:                     session.Tool,
-			ProjectHash:              session.ProjectHash,
-			LanguageMix:              cloneFloatMap(session.LanguageMix),
-			TotalPromptsCount:        session.TotalPromptsCount,
-			TotalToolCalls:           session.TotalToolCalls,
-			BashCallsCount:           session.BashCallsCount,
-			ReadOps:                  session.ReadOps,
-			EditOps:                  session.EditOps,
-			WriteOps:                 session.WriteOps,
-			MCPUsageCount:            session.MCPUsageCount,
-			PermissionRejectCount:    session.PermissionRejectCount,
-			RetryCount:               session.RetryCount,
-			TokenIn:                  session.TokenIn,
-			TokenOut:                 session.TokenOut,
-			RawQueries:               cloneStringSlice(session.RawQueries),
-			EstimatedCost:            session.EstimatedCost,
-			TaskType:                 session.TaskType,
-			RepoSizeBucket:           session.RepoSizeBucket,
-			ConfigProfileID:          session.ConfigProfileID,
-			TaskTypeDistribution:     cloneFloatMap(session.TaskTypeDistribution),
-			RepoExplorationIntensity: session.RepoExplorationIntensity,
-			ShellHeavy:               session.ShellHeavy,
-			WorkloadTags:             cloneStringSlice(session.WorkloadTags),
-			AcceptanceProxy:          session.AcceptanceProxy,
-			EventSummaries:           cloneStringSlice(session.EventSummaries),
-			Timestamp:                session.Timestamp,
+			ID:         session.ID,
+			ProjectID:  session.ProjectID,
+			Tool:       session.Tool,
+			TokenIn:    session.TokenIn,
+			TokenOut:   session.TokenOut,
+			RawQueries: cloneStringSlice(session.RawQueries),
+			Timestamp:  session.Timestamp,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -402,12 +357,8 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 
 	var (
 		totalSessions        int
-		totalCost            float64
 		totalTokens          int
 		totalQueries         int
-		totalToolCalls       int
-		totalRejects         int
-		totalRetries         int
 		totalActiveRecs      int
 		totalApplyOps        int
 		totalSuccessfulApply int
@@ -415,24 +366,14 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		totalRollbacks       int
 		totalPendingReview   int
 		totalApprovedQueue   int
-		totalAcceptProxy     float64
 		lastIngestedAt       *time.Time
-		taskCounts           = map[string]int{}
 	)
 
 	for _, projectID := range projectIDs {
 		for _, session := range s.AnalyticsStore.sessionSummaries[projectID] {
 			totalSessions++
-			totalCost += session.EstimatedCost
 			totalTokens += session.TokenIn + session.TokenOut
 			totalQueries += queryCountForSession(session)
-			totalToolCalls += session.TotalToolCalls
-			totalRejects += session.PermissionRejectCount
-			totalRetries += session.RetryCount
-			totalAcceptProxy += session.AcceptanceProxy
-			if taskType := strings.TrimSpace(session.TaskType); taskType != "" {
-				taskCounts[taskType]++
-			}
 			if lastIngestedAt == nil || session.Timestamp.After(*lastIngestedAt) {
 				ts := session.Timestamp
 				lastIngestedAt = &ts
@@ -470,12 +411,6 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		}
 	}
 
-	topTaskTypes := sortedTaskBreakdown(taskCounts)
-	primaryTaskType := ""
-	if len(topTaskTypes) > 0 {
-		primaryTaskType = topTaskTypes[0].TaskType
-	}
-	inferredAcceptRate := safeDiv(totalAcceptProxy, float64(maxInt(totalSessions, 1)))
 	rollbackRate := safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1)))
 
 	return &response.DashboardOverviewResp{
@@ -488,20 +423,16 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		ApprovedQueueCount:      totalApprovedQueue,
 		SuccessfulRolloutCount:  totalSuccessfulApply,
 		FailedExecutionCount:    totalFailedApply,
-		TotalEstimatedCost:      round(totalCost),
+		TotalTokens:             totalTokens,
 		AvgTokensPerQuery:       safeDiv(float64(totalTokens), float64(totalQueries)),
-		AvgToolCallsPerQuery:    safeDiv(float64(totalToolCalls), float64(totalQueries)),
-		PermissionRejectRate:    safeDiv(float64(totalRejects), float64(maxInt(totalToolCalls, 1))),
-		RetryRate:               safeDiv(float64(totalRetries), float64(maxInt(totalQueries, 1))),
+		AvgTokensPerSession:     safeDiv(float64(totalTokens), float64(maxInt(totalSessions, 1))),
+		AvgQueriesPerSession:    safeDiv(float64(totalQueries), float64(maxInt(totalSessions, 1))),
 		RecommendationApplyRate: safeDiv(float64(totalSuccessfulApply), float64(maxInt(totalActiveRecs+totalSuccessfulApply, 1))),
-		InferredAcceptRate:      inferredAcceptRate,
 		RollbackRate:            rollbackRate,
-		PrimaryTaskType:         primaryTaskType,
-		ActionSummary:           buildDashboardActionSummary(primaryTaskType, totalPendingReview, totalApprovedQueue, totalActiveRecs),
-		OutcomeSummary:          buildDashboardOutcomeSummary(totalSuccessfulApply, totalFailedApply, inferredAcceptRate, rollbackRate),
+		ActionSummary:           buildDashboardActionSummary(totalPendingReview, totalApprovedQueue, totalActiveRecs),
+		OutcomeSummary:          buildDashboardOutcomeSummary(totalSuccessfulApply, totalFailedApply, rollbackRate),
 		ResearchProvider:        s.researchAgent.Provider,
 		ResearchMode:            s.researchAgent.Mode,
-		TopTaskTypes:            topTaskTypes,
 		LastIngestedAt:          lastIngestedAt,
 	}, nil
 }
@@ -789,26 +720,25 @@ func (s *AnalyticsService) ImpactSummary(ctx context.Context, req *request.Impac
 		}
 
 		before, after := splitSessionsByApplyTime(sessions, *op.AppliedAt)
-		beforeCost, beforeRetry, beforeReject := summarizeSessions(before)
-		afterCost, afterRetry, afterReject := summarizeSessions(after)
+		beforeStats := summarizeSessions(before)
+		afterStats := summarizeSessions(after)
 
 		items = append(items, response.ImpactSummaryItem{
-			ApplyID:             op.ID,
-			RecommendationID:    op.RecommendationID,
-			Status:              op.Status,
-			AppliedAt:           op.AppliedAt,
-			SessionsBefore:      len(before),
-			SessionsAfter:       len(after),
-			AvgCostBefore:       beforeCost,
-			AvgCostAfter:        afterCost,
-			AvgRetryRateBefore:  beforeRetry,
-			AvgRetryRateAfter:   afterRetry,
-			AvgRejectRateBefore: beforeReject,
-			AvgRejectRateAfter:  afterReject,
-			CostDelta:           round(afterCost - beforeCost),
-			RetryDelta:          round(afterRetry - beforeRetry),
-			RejectDelta:         round(afterReject - beforeReject),
-			Interpretation:      interpretImpact(beforeCost, afterCost, beforeRetry, afterRetry, beforeReject, afterReject, len(after)),
+			ApplyID:                   op.ID,
+			RecommendationID:          op.RecommendationID,
+			Status:                    op.Status,
+			AppliedAt:                 op.AppliedAt,
+			SessionsBefore:            len(before),
+			SessionsAfter:             len(after),
+			QueriesBefore:             beforeStats.QueryCount,
+			QueriesAfter:              afterStats.QueryCount,
+			AvgTokensPerQueryBefore:   beforeStats.AvgTokensPerQuery,
+			AvgTokensPerQueryAfter:    afterStats.AvgTokensPerQuery,
+			AvgTokensPerSessionBefore: beforeStats.AvgTokensPerSession,
+			AvgTokensPerSessionAfter:  afterStats.AvgTokensPerSession,
+			TokensPerQueryDelta:       round(afterStats.AvgTokensPerQuery - beforeStats.AvgTokensPerQuery),
+			TokensPerSessionDelta:     round(afterStats.AvgTokensPerSession - beforeStats.AvgTokensPerSession),
+			Interpretation:            interpretImpact(beforeStats, afterStats, len(after)),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1165,7 +1095,7 @@ func queryCountForSession(session *SessionSummary) int {
 	if len(session.RawQueries) > 0 {
 		return len(session.RawQueries)
 	}
-	return maxInt(session.TotalPromptsCount, 1)
+	return 1
 }
 
 func splitSessionsByApplyTime(sessions []*SessionSummary, appliedAt time.Time) ([]*SessionSummary, []*SessionSummary) {
@@ -1181,62 +1111,54 @@ func splitSessionsByApplyTime(sessions []*SessionSummary, appliedAt time.Time) (
 	return before, after
 }
 
-func summarizeSessions(sessions []*SessionSummary) (float64, float64, float64) {
-	if len(sessions) == 0 {
-		return 0, 0, 0
-	}
-
-	var (
-		totalCost   float64
-		totalRetry  float64
-		totalReject float64
-	)
-	for _, session := range sessions {
-		totalCost += session.EstimatedCost
-		totalRetry += safeDiv(float64(session.RetryCount), float64(queryCountForSession(session)))
-		totalReject += safeDiv(float64(session.PermissionRejectCount), float64(maxInt(session.TotalToolCalls, 1)))
-	}
-
-	count := float64(len(sessions))
-	return round(totalCost / count), round(totalRetry / count), round(totalReject / count)
+type sessionSummaryStats struct {
+	QueryCount          int
+	AvgTokensPerQuery   float64
+	AvgTokensPerSession float64
 }
 
-func interpretImpact(beforeCost, afterCost, beforeRetry, afterRetry, beforeReject, afterReject float64, afterCount int) string {
+func summarizeSessions(sessions []*SessionSummary) sessionSummaryStats {
+	if len(sessions) == 0 {
+		return sessionSummaryStats{}
+	}
+
+	totalTokens := 0
+	totalQueries := 0
+	for _, session := range sessions {
+		totalTokens += session.TokenIn + session.TokenOut
+		totalQueries += queryCountForSession(session)
+	}
+
+	return sessionSummaryStats{
+		QueryCount:          totalQueries,
+		AvgTokensPerQuery:   safeDiv(float64(totalTokens), float64(maxInt(totalQueries, 1))),
+		AvgTokensPerSession: safeDiv(float64(totalTokens), float64(len(sessions))),
+	}
+}
+
+func interpretImpact(before, after sessionSummaryStats, afterCount int) string {
 	if afterCount == 0 {
 		return "Waiting for post-apply sessions."
 	}
-	if beforeCost == 0 && afterCost == 0 && beforeRetry == 0 && afterRetry == 0 && beforeReject == 0 && afterReject == 0 {
-		return "The MVP is collecting follow-up usage, but impact deltas still need richer operational metrics."
-	}
-
-	improvements := 0
-	if afterCost < beforeCost || beforeCost == 0 {
-		improvements++
-	}
-	if afterRetry < beforeRetry || beforeRetry == 0 {
-		improvements++
-	}
-	if afterReject < beforeReject || beforeReject == 0 {
-		improvements++
+	if before.QueryCount == 0 {
+		return "Collect a few more baseline sessions to compare token usage before and after the rollout."
 	}
 
 	switch {
-	case improvements >= 3:
-		return "Positive early signal across cost, retry, and rejection metrics."
-	case improvements == 2:
-		return "Mixed but promising signal after rollout."
-	case improvements == 1:
-		return "Weak signal so far; collect more sessions."
+	case after.AvgTokensPerQuery < before.AvgTokensPerQuery:
+		return "Follow-up sessions are reaching answers with fewer tokens per query."
+	case after.AvgTokensPerQuery > before.AvgTokensPerQuery:
+		return "Follow-up sessions are spending more tokens per query so far."
+	case after.AvgTokensPerSession < before.AvgTokensPerSession:
+		return "Per-session token usage is trending down after the rollout."
+	case after.AvgTokensPerSession > before.AvgTokensPerSession:
+		return "Per-session token usage is trending up after the rollout."
 	default:
-		return "No improvement detected yet."
+		return "Token usage looks flat so far; collect more sessions for a clearer comparison."
 	}
 }
 
-func buildDashboardActionSummary(primaryTaskType string, pendingReview, approvedQueue, activeRecommendations int) string {
-	taskHint := ""
-	if primaryTaskType != "" {
-		taskHint = " for " + strings.ReplaceAll(primaryTaskType, "-", " ") + " work"
-	}
+func buildDashboardActionSummary(pendingReview, approvedQueue, activeRecommendations int) string {
 	switch {
 	case pendingReview > 0 && approvedQueue > 0:
 		return fmt.Sprintf("%d plan(s) need approval and %d more are ready for the next local sync.", pendingReview, approvedQueue)
@@ -1245,25 +1167,21 @@ func buildDashboardActionSummary(primaryTaskType string, pendingReview, approved
 	case approvedQueue > 0:
 		return fmt.Sprintf("%d approved plan(s) are ready for the next local sync.", approvedQueue)
 	case activeRecommendations > 0:
-		return fmt.Sprintf("%d recommendation(s) are ready to review%s.", activeRecommendations, taskHint)
+		return fmt.Sprintf("%d instruction recommendation(s) are ready to review.", activeRecommendations)
 	default:
 		return "No rollout action is waiting right now."
 	}
 }
 
-func buildDashboardOutcomeSummary(successfulRollouts, failedExecutions int, inferredAcceptRate, rollbackRate float64) string {
+func buildDashboardOutcomeSummary(successfulRollouts, failedExecutions int, rollbackRate float64) string {
 	switch {
 	case failedExecutions > 0:
 		return fmt.Sprintf("%d rollout(s) need attention after failing local execution.", failedExecutions)
 	case successfulRollouts == 0:
-		return "No completed rollouts yet. Approve a change to start measuring outcomes."
+		return "No completed rollouts yet. Approve a change to start measuring token trends."
 	case rollbackRate >= 0.25:
-		return "Recent rollouts are being reversed too often. Narrow the next change scope."
-	case inferredAcceptRate >= 0.75:
-		return "Recent changes are largely sticking after rollout."
-	case inferredAcceptRate >= 0.5:
-		return "Recent changes look promising, but more usage is needed to confirm the effect."
+		return "Recent rollouts are being reversed too often. Narrow the next instruction change."
 	default:
-		return "Recent changes are not sticking consistently yet."
+		return "Recent instruction changes are landing. Keep uploading sessions to measure token impact."
 	}
 }

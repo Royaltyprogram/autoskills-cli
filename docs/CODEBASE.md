@@ -21,7 +21,7 @@ It has four runtime surfaces:
 3. `AIops Server`
    - exposes ingestion, review, execution, dashboard, and audit APIs
    - persists state to an on-disk JSON store
-   - tracks rollout state and impact metrics
+   - tracks rollout state and token-based impact metrics
 
 4. `Web Dashboard`
    - presents a user-facing approval and outcome view

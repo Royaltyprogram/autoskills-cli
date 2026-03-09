@@ -53,34 +53,13 @@ type SessionIngestResp struct {
 }
 
 type SessionSummaryItem struct {
-	ID                       string             `json:"id"`
-	ProjectID                string             `json:"project_id"`
-	Tool                     string             `json:"tool"`
-	ProjectHash              string             `json:"project_hash"`
-	LanguageMix              map[string]float64 `json:"language_mix"`
-	TotalPromptsCount        int                `json:"total_prompts_count"`
-	TotalToolCalls           int                `json:"total_tool_calls"`
-	BashCallsCount           int                `json:"bash_calls_count"`
-	ReadOps                  int                `json:"read_ops"`
-	EditOps                  int                `json:"edit_ops"`
-	WriteOps                 int                `json:"write_ops"`
-	MCPUsageCount            int                `json:"mcp_usage_count"`
-	PermissionRejectCount    int                `json:"permission_reject_count"`
-	RetryCount               int                `json:"retry_count"`
-	TokenIn                  int                `json:"token_in"`
-	TokenOut                 int                `json:"token_out"`
-	RawQueries               []string           `json:"raw_queries"`
-	EstimatedCost            float64            `json:"estimated_cost"`
-	TaskType                 string             `json:"task_type"`
-	RepoSizeBucket           string             `json:"repo_size_bucket"`
-	ConfigProfileID          string             `json:"config_profile_id"`
-	TaskTypeDistribution     map[string]float64 `json:"task_type_distribution"`
-	RepoExplorationIntensity float64            `json:"repo_exploration_intensity"`
-	ShellHeavy               bool               `json:"shell_heavy"`
-	WorkloadTags             []string           `json:"workload_tags"`
-	AcceptanceProxy          float64            `json:"acceptance_proxy"`
-	EventSummaries           []string           `json:"event_summaries"`
-	Timestamp                time.Time          `json:"timestamp"`
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	Tool       string    `json:"tool"`
+	TokenIn    int       `json:"token_in"`
+	TokenOut   int       `json:"token_out"`
+	RawQueries []string  `json:"raw_queries"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 type SessionSummaryListResp struct {
@@ -224,22 +203,21 @@ type PendingApplyResp struct {
 }
 
 type ImpactSummaryItem struct {
-	ApplyID             string     `json:"apply_id"`
-	RecommendationID    string     `json:"recommendation_id"`
-	Status              string     `json:"status"`
-	AppliedAt           *time.Time `json:"applied_at"`
-	SessionsBefore      int        `json:"sessions_before"`
-	SessionsAfter       int        `json:"sessions_after"`
-	AvgCostBefore       float64    `json:"avg_cost_before"`
-	AvgCostAfter        float64    `json:"avg_cost_after"`
-	AvgRetryRateBefore  float64    `json:"avg_retry_rate_before"`
-	AvgRetryRateAfter   float64    `json:"avg_retry_rate_after"`
-	AvgRejectRateBefore float64    `json:"avg_reject_rate_before"`
-	AvgRejectRateAfter  float64    `json:"avg_reject_rate_after"`
-	CostDelta           float64    `json:"cost_delta"`
-	RetryDelta          float64    `json:"retry_delta"`
-	RejectDelta         float64    `json:"reject_delta"`
-	Interpretation      string     `json:"interpretation"`
+	ApplyID                   string     `json:"apply_id"`
+	RecommendationID          string     `json:"recommendation_id"`
+	Status                    string     `json:"status"`
+	AppliedAt                 *time.Time `json:"applied_at"`
+	SessionsBefore            int        `json:"sessions_before"`
+	SessionsAfter             int        `json:"sessions_after"`
+	QueriesBefore             int        `json:"queries_before"`
+	QueriesAfter              int        `json:"queries_after"`
+	AvgTokensPerQueryBefore   float64    `json:"avg_tokens_per_query_before"`
+	AvgTokensPerQueryAfter    float64    `json:"avg_tokens_per_query_after"`
+	AvgTokensPerSessionBefore float64    `json:"avg_tokens_per_session_before"`
+	AvgTokensPerSessionAfter  float64    `json:"avg_tokens_per_session_after"`
+	TokensPerQueryDelta       float64    `json:"tokens_per_query_delta"`
+	TokensPerSessionDelta     float64    `json:"tokens_per_session_delta"`
+	Interpretation            string     `json:"interpretation"`
 }
 
 type ImpactSummaryResp struct {
@@ -259,34 +237,25 @@ type AuditListResp struct {
 	Items []AuditEventResp `json:"items"`
 }
 
-type TaskBreakdown struct {
-	TaskType string `json:"task_type"`
-	Sessions int    `json:"sessions"`
-}
-
 type DashboardOverviewResp struct {
-	OrgID                   string          `json:"org_id"`
-	TotalDevices            int             `json:"total_devices"`
-	TotalProjects           int             `json:"total_projects"`
-	TotalSessions           int             `json:"total_sessions"`
-	ActiveRecommendations   int             `json:"active_recommendations"`
-	PendingReviewCount      int             `json:"pending_review_count"`
-	ApprovedQueueCount      int             `json:"approved_queue_count"`
-	SuccessfulRolloutCount  int             `json:"successful_rollout_count"`
-	FailedExecutionCount    int             `json:"failed_execution_count"`
-	TotalEstimatedCost      float64         `json:"total_estimated_cost"`
-	AvgTokensPerQuery       float64         `json:"avg_tokens_per_query"`
-	AvgToolCallsPerQuery    float64         `json:"avg_tool_calls_per_query"`
-	PermissionRejectRate    float64         `json:"permission_reject_rate"`
-	RetryRate               float64         `json:"retry_rate"`
-	RecommendationApplyRate float64         `json:"recommendation_apply_rate"`
-	InferredAcceptRate      float64         `json:"inferred_accept_rate"`
-	RollbackRate            float64         `json:"rollback_rate"`
-	PrimaryTaskType         string          `json:"primary_task_type"`
-	ActionSummary           string          `json:"action_summary"`
-	OutcomeSummary          string          `json:"outcome_summary"`
-	ResearchProvider        string          `json:"research_provider"`
-	ResearchMode            string          `json:"research_mode"`
-	TopTaskTypes            []TaskBreakdown `json:"top_task_types"`
-	LastIngestedAt          *time.Time      `json:"last_ingested_at"`
+	OrgID                   string     `json:"org_id"`
+	TotalDevices            int        `json:"total_devices"`
+	TotalProjects           int        `json:"total_projects"`
+	TotalSessions           int        `json:"total_sessions"`
+	ActiveRecommendations   int        `json:"active_recommendations"`
+	PendingReviewCount      int        `json:"pending_review_count"`
+	ApprovedQueueCount      int        `json:"approved_queue_count"`
+	SuccessfulRolloutCount  int        `json:"successful_rollout_count"`
+	FailedExecutionCount    int        `json:"failed_execution_count"`
+	TotalTokens             int        `json:"total_tokens"`
+	AvgTokensPerQuery       float64    `json:"avg_tokens_per_query"`
+	AvgTokensPerSession     float64    `json:"avg_tokens_per_session"`
+	AvgQueriesPerSession    float64    `json:"avg_queries_per_session"`
+	RecommendationApplyRate float64    `json:"recommendation_apply_rate"`
+	RollbackRate            float64    `json:"rollback_rate"`
+	ActionSummary           string     `json:"action_summary"`
+	OutcomeSummary          string     `json:"outcome_summary"`
+	ResearchProvider        string     `json:"research_provider"`
+	ResearchMode            string     `json:"research_mode"`
+	LastIngestedAt          *time.Time `json:"last_ingested_at"`
 }

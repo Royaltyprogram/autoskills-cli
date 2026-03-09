@@ -579,9 +579,9 @@
         <div class="summary-caption">Approved plans that the CLI can apply on its next sync.</div>
       </article>
       <article class="summary-card">
-        <div class="summary-label">Rollouts That Stuck</div>
-        <div class="summary-value" id="inferredAcceptRate">0%</div>
-        <div class="summary-caption">A simple read on whether recent changes are still helping after rollout.</div>
+        <div class="summary-label">Avg Tokens / Query</div>
+        <div class="summary-value" id="avgTokensPerQuery">0</div>
+        <div class="summary-caption">A compact read on how much prompt effort each captured query currently costs.</div>
       </article>
     </section>
 
@@ -878,10 +878,10 @@
     }
 
     function impactTone(item) {
-      if (Number(item.retry_delta) < -0.01 || Number(item.reject_delta) < -0.01 || Number(item.cost_delta) < -0.05) {
+      if (Number(item.tokens_per_query_delta) < -50 || Number(item.tokens_per_session_delta) < -150) {
         return "good";
       }
-      if (Number(item.retry_delta) > 0.01 || Number(item.reject_delta) > 0.01 || Number(item.cost_delta) > 0.05) {
+      if (Number(item.tokens_per_query_delta) > 50 || Number(item.tokens_per_session_delta) > 150) {
         return "warn";
       }
       return "sky";
@@ -943,14 +943,13 @@
       $("totalProjects").textContent = formatCount(overview.total_projects);
       $("pendingReviewCount").textContent = formatCount(overview.pending_review_count);
       $("approvedQueueCount").textContent = formatCount(overview.approved_queue_count);
-      $("inferredAcceptRate").textContent = formatPercent(overview.inferred_accept_rate);
-      const primaryTask = overview.primary_task_type ? titleize(overview.primary_task_type) : "Mixed";
+      $("avgTokensPerQuery").textContent = formatCount(Math.round(Number(overview.avg_tokens_per_query || 0)));
       const successfulRollouts = formatCount(overview.successful_rollout_count);
       const failedExecutions = formatCount(overview.failed_execution_count);
-      $("totalProjects").nextElementSibling.textContent = `Most recent work leans toward ${primaryTask}.`;
+      $("totalProjects").nextElementSibling.textContent = `${formatCount(overview.total_sessions)} session signal(s) have been uploaded so far.`;
       $("approvedQueueCount").nextElementSibling.textContent = `${successfulRollouts} rollout(s) have completed successfully so far.`;
-      $("inferredAcceptRate").nextElementSibling.textContent = failedExecutions === "0"
-        ? `${successfulRollouts} rollout(s) are still holding after recent use.`
+      $("avgTokensPerQuery").nextElementSibling.textContent = failedExecutions === "0"
+        ? `${formatCount(Math.round(Number(overview.avg_queries_per_session || 0)))} captured quer${Math.round(Number(overview.avg_queries_per_session || 0)) === 1 ? "y" : "ies"} per session on average.`
         : `${failedExecutions} rollout(s) still need follow-up after local execution.`;
       $("overviewNarrative").textContent = workloadNarrative(overview);
     }
@@ -1051,15 +1050,15 @@
       if (Number(item.sessions_after) > 0) {
         lines.push(`${formatCount(item.sessions_after)} follow-up session${Number(item.sessions_after) === 1 ? "" : "s"} have been observed since rollout.`);
       }
-      if (Number(item.retry_delta) < -0.01 && Number(item.reject_delta) < -0.01) {
-        lines.push("Follow-up work moved with fewer interruptions and fewer approval slowdowns.");
-      } else if (Number(item.retry_delta) > 0.01 || Number(item.reject_delta) > 0.01) {
-        lines.push("Follow-up work has run into more interruptions than before.");
+      if (Number(item.tokens_per_query_delta) < -50) {
+        lines.push("Captured queries are taking meaningfully fewer tokens than before.");
+      } else if (Number(item.tokens_per_query_delta) > 50) {
+        lines.push("Captured queries are taking more tokens than before.");
       }
-      if (Number(item.cost_delta) < -0.05) {
-        lines.push("The workspace is reaching outcomes with less agent effort than before.");
-      } else if (Number(item.cost_delta) > 0.05) {
-        lines.push("The workspace is taking more agent effort than before.");
+      if (Number(item.tokens_per_session_delta) < -150) {
+        lines.push("Per-session token usage is trending down after the rollout.");
+      } else if (Number(item.tokens_per_session_delta) > 150) {
+        lines.push("Per-session token usage is trending up after the rollout.");
       }
       if (lines.length === 0) {
         lines.push("More post-change usage will make this read clearer.");

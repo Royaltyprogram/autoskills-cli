@@ -136,7 +136,8 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	overviewAfterApply := getAPIJSON[response.DashboardOverviewResp](s.T(), s, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{orgID},
 	})
-	require.Empty(s.T(), overviewAfterApply.PrimaryTaskType)
+	require.Greater(s.T(), overviewAfterApply.AvgTokensPerQuery, 0.0)
+	require.Greater(s.T(), overviewAfterApply.TotalTokens, 0)
 	require.Equal(s.T(), 1, overviewAfterApply.SuccessfulRolloutCount)
 	require.Equal(s.T(), 0, overviewAfterApply.FailedExecutionCount)
 	require.NotEmpty(s.T(), overviewAfterApply.ActionSummary)
@@ -162,7 +163,8 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	overviewAfterRollback := getAPIJSON[response.DashboardOverviewResp](s.T(), s, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{orgID},
 	})
-	require.Empty(s.T(), overviewAfterRollback.PrimaryTaskType)
+	require.Greater(s.T(), overviewAfterRollback.AvgQueriesPerSession, 0.0)
+	require.Greater(s.T(), overviewAfterRollback.TotalTokens, 0)
 	require.Equal(s.T(), 0, overviewAfterRollback.SuccessfulRolloutCount)
 	require.Equal(s.T(), 0, overviewAfterRollback.FailedExecutionCount)
 	require.NotEmpty(s.T(), overviewAfterRollback.ActionSummary)

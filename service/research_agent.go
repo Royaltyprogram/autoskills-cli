@@ -247,16 +247,3 @@ func joinHumanList(items []string) string {
 		return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
 	}
 }
-
-func latestConfigSnapshot(items []*ConfigSnapshot) *ConfigSnapshot {
-	if len(items) == 0 {
-		return nil
-	}
-	latest := items[0]
-	for _, item := range items[1:] {
-		if item.CapturedAt.After(latest.CapturedAt) {
-			latest = item
-		}
-	}
-	return latest
-}

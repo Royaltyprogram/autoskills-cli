@@ -18,7 +18,7 @@ The product shape is:
 - `Web Dashboard`
   - shows a user-facing summary of recommendations and workspace health
   - approves or rejects change plans
-  - inspects rollout queue and measured impact without exposing raw low-level internals
+  - inspects rollout queue and token-based before/after impact without exposing raw low-level internals
 
 Detailed codebase documentation:
 

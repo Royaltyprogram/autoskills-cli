@@ -195,7 +195,8 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-1"})
 	require.NoError(t, err)
-	require.Empty(t, overview.PrimaryTaskType)
+	require.Greater(t, overview.AvgTokensPerQuery, 0.0)
+	require.Greater(t, overview.TotalTokens, 0)
 	require.Equal(t, 2, overview.SuccessfulRolloutCount)
 	require.NotEmpty(t, overview.ActionSummary)
 	require.NotEmpty(t, overview.OutcomeSummary)
@@ -393,7 +394,8 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 
 	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-exec"})
 	require.NoError(t, err)
-	require.Empty(t, overview.PrimaryTaskType)
+	require.Greater(t, overview.AvgQueriesPerSession, 0.0)
+	require.Greater(t, overview.TotalTokens, 0)
 	require.Equal(t, 0, overview.SuccessfulRolloutCount)
 	require.Equal(t, 0, overview.FailedExecutionCount)
 	require.NotEmpty(t, overview.ActionSummary)

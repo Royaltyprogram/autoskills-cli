@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/liushuangls/go-server-template/configs"
-	"github.com/liushuangls/go-server-template/dto/response"
 )
 
 type AnalyticsStore struct {
@@ -98,34 +96,13 @@ type ConfigSnapshot struct {
 }
 
 type SessionSummary struct {
-	ID                       string
-	ProjectID                string
-	Tool                     string
-	ProjectHash              string
-	LanguageMix              map[string]float64
-	TotalPromptsCount        int
-	TotalToolCalls           int
-	BashCallsCount           int
-	ReadOps                  int
-	EditOps                  int
-	WriteOps                 int
-	MCPUsageCount            int
-	PermissionRejectCount    int
-	RetryCount               int
-	TokenIn                  int
-	TokenOut                 int
-	RawQueries               []string
-	EstimatedCost            float64
-	TaskType                 string
-	RepoSizeBucket           string
-	ConfigProfileID          string
-	TaskTypeDistribution     map[string]float64
-	RepoExplorationIntensity float64
-	ShellHeavy               bool
-	WorkloadTags             []string
-	AcceptanceProxy          float64
-	EventSummaries           []string
-	Timestamp                time.Time
+	ID         string
+	ProjectID  string
+	Tool       string
+	TokenIn    int
+	TokenOut   int
+	RawQueries []string
+	Timestamp  time.Time
 }
 
 type Recommendation struct {
@@ -369,21 +346,4 @@ func cloneChangePlanSteps(input []ChangePlanStep) []ChangePlanStep {
 		})
 	}
 	return out
-}
-
-func sortedTaskBreakdown(counts map[string]int) []response.TaskBreakdown {
-	items := make([]response.TaskBreakdown, 0, len(counts))
-	for task, count := range counts {
-		items = append(items, response.TaskBreakdown{TaskType: task, Sessions: count})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Sessions == items[j].Sessions {
-			return items[i].TaskType < items[j].TaskType
-		}
-		return items[i].Sessions > items[j].Sessions
-	})
-	if len(items) > 3 {
-		items = items[:3]
-	}
-	return items
 }

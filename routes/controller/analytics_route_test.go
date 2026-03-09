@@ -183,7 +183,8 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	overviewResp := getJSON[response.DashboardOverviewResp](t, echo, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{"org-route"},
 	})
-	require.Empty(t, overviewResp.PrimaryTaskType)
+	require.Greater(t, overviewResp.AvgTokensPerQuery, 0.0)
+	require.Greater(t, overviewResp.TotalTokens, 0)
 	require.NotEmpty(t, overviewResp.ActionSummary)
 	require.NotEmpty(t, overviewResp.OutcomeSummary)
 

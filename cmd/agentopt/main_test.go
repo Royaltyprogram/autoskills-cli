@@ -120,10 +120,6 @@ func TestRunSessionUploadsTokenUsageAndRawQueries(t *testing.T) {
 	require.Equal(t, 1440, uploaded.TokenIn)
 	require.Equal(t, 320, uploaded.TokenOut)
 	require.Len(t, uploaded.RawQueries, 2)
-	require.Zero(t, uploaded.TotalToolCalls)
-	require.Zero(t, uploaded.BashCallsCount)
-	require.Zero(t, uploaded.PermissionRejectCount)
-	require.Empty(t, uploaded.TaskType)
 	require.False(t, uploaded.Timestamp.IsZero())
 }
 
