@@ -185,6 +185,10 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 		"org_id": []string{"org-route"},
 	})
 	require.Greater(t, overviewResp.AvgTokensPerQuery, 0.0)
+	require.Greater(t, overviewResp.AvgInputTokensPerQuery, 0.0)
+	require.Greater(t, overviewResp.AvgOutputTokensPerQuery, 0.0)
+	require.Greater(t, overviewResp.TotalInputTokens, 0)
+	require.Greater(t, overviewResp.TotalOutputTokens, 0)
 	require.Greater(t, overviewResp.TotalTokens, 0)
 	require.NotEmpty(t, overviewResp.ActionSummary)
 	require.NotEmpty(t, overviewResp.OutcomeSummary)
@@ -274,6 +278,45 @@ func TestAnalyticsRouteLoginAndCLITokenFlow(t *testing.T) {
 	rec := httptest.NewRecorder()
 	echo.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestAnalyticsRouteDoesNotExposeLegacyAliasEndpoints(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.APIToken = "route-token"
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	})
+	route.RegisterRoute(echo.Group(""))
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/api/v1/devices/register"},
+		{method: http.MethodPost, path: "/api/v1/projects/connect"},
+		{method: http.MethodGet, path: "/api/v1/execution-queue"},
+		{method: http.MethodPost, path: "/api/v1/executions/result"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req = req.WithContext(context.Background())
+		req.Header.Set("X-AgentOpt-Token", conf.App.APIToken)
+		rec := httptest.NewRecorder()
+		echo.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusNotFound, rec.Code, "%s %s should be removed", tc.method, tc.path)
+	}
 }
 
 func postJSON[T any](t *testing.T, handler http.Handler, token, method, path string, payload any, cookies ...*http.Cookie) T {

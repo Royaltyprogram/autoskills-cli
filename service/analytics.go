@@ -19,6 +19,8 @@ type AnalyticsService struct {
 	researchAgent *CloudResearchAgent
 }
 
+const sharedWorkspaceName = "Shared workspace"
+
 func NewAnalyticsService(opt Options) *AnalyticsService {
 	return &AnalyticsService{
 		Options:       opt,
@@ -311,9 +313,49 @@ func (s *AnalyticsService) authorizeOrg(ctx context.Context, orgID string) error
 
 func (s *AnalyticsService) authorizeProject(ctx context.Context, project *Project) error {
 	if project == nil {
-		return ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+		return ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown workspace"))
 	}
 	return s.authorizeOrg(ctx, project.OrgID)
+}
+
+func (s *AnalyticsService) findWorkspaceForOrgLocked(orgID string) *Project {
+	orgID = strings.TrimSpace(orgID)
+	if orgID == "" {
+		return nil
+	}
+
+	var projects []*Project
+	for _, project := range s.AnalyticsStore.projects {
+		if project != nil && project.OrgID == orgID {
+			projects = append(projects, project)
+		}
+	}
+	workspace := latestProject(projects)
+	if workspace != nil {
+		workspace.Name = sharedWorkspaceName
+	}
+	return workspace
+}
+
+func (s *AnalyticsService) resolveProjectLocked(ctx context.Context, projectID string) (*Project, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID != "" {
+		if project, ok := s.AnalyticsStore.projects[projectID]; ok {
+			return project, nil
+		}
+	}
+
+	identity, ok := AuthIdentityFromContext(ctx)
+	if ok && identity.OrgID != "" {
+		if workspace := s.findWorkspaceForOrgLocked(identity.OrgID); workspace != nil {
+			return workspace, nil
+		}
+	}
+
+	if projectID != "" {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown workspace"))
+	}
+	return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("no connected workspace"))
 }
 
 func (s *AnalyticsService) actorFromContext(ctx context.Context, fallback string) string {
@@ -420,34 +462,30 @@ func (s *AnalyticsService) RegisterProject(ctx context.Context, req *request.Reg
 		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("agent_id does not belong to org_id"))
 	}
 
-	projectID := strings.TrimSpace(req.ProjectID)
-	project := s.AnalyticsStore.projects[projectID]
+	project := s.findWorkspaceForOrgLocked(req.OrgID)
 	if project == nil {
-		project = s.findProjectForConnectLocked(req.OrgID, req.RepoHash, req.RepoPath)
-		if project != nil {
-			projectID = project.ID
-		}
-	}
-	if project == nil {
+		projectID := strings.TrimSpace(req.ProjectID)
 		if projectID == "" {
 			projectID = s.AnalyticsStore.nextID("project")
 		}
 		project = &Project{
 			ID:    projectID,
 			OrgID: req.OrgID,
+			Name:  sharedWorkspaceName,
 		}
 		s.AnalyticsStore.projects[projectID] = project
 	}
 
+	projectID := project.ID
 	project.AgentID = req.AgentID
-	project.Name = req.Name
+	project.Name = sharedWorkspaceName
 	project.RepoHash = req.RepoHash
 	project.RepoPath = req.RepoPath
 	project.LanguageMix = cloneFloatMap(req.LanguageMix)
 	project.DefaultTool = req.DefaultTool
 	project.ConnectedAt = now
 
-	s.appendAuditLocked(req.OrgID, projectID, "project.connected", "project connected to aiops workspace")
+	s.appendAuditLocked(req.OrgID, projectID, "workspace.connected", "shared workspace connected to aiops")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -459,50 +497,18 @@ func (s *AnalyticsService) RegisterProject(ctx context.Context, req *request.Reg
 	}, nil
 }
 
-func (s *AnalyticsService) findProjectForConnectLocked(orgID, repoHash, repoPath string) *Project {
-	repoHash = strings.TrimSpace(repoHash)
-	if repoHash == "" {
-		return nil
-	}
-
-	repoPath = strings.TrimSpace(repoPath)
-	var (
-		pathMatch *Project
-		hashMatch *Project
-	)
-
-	for _, project := range s.AnalyticsStore.projects {
-		if project.OrgID != orgID || strings.TrimSpace(project.RepoHash) != repoHash {
-			continue
-		}
-		if repoPath != "" && strings.TrimSpace(project.RepoPath) == repoPath {
-			if pathMatch == nil || project.ConnectedAt.After(pathMatch.ConnectedAt) || (project.ConnectedAt.Equal(pathMatch.ConnectedAt) && project.ID > pathMatch.ID) {
-				pathMatch = project
-			}
-			continue
-		}
-		if hashMatch == nil || project.ConnectedAt.After(hashMatch.ConnectedAt) || (project.ConnectedAt.Equal(hashMatch.ConnectedAt) && project.ID > hashMatch.ID) {
-			hashMatch = project
-		}
-	}
-
-	if pathMatch != nil {
-		return pathMatch
-	}
-	return hashMatch
-}
-
 func (s *AnalyticsService) UploadConfigSnapshot(ctx context.Context, req *request.ConfigSnapshotReq) (*response.ConfigSnapshotResp, error) {
 	s.AnalyticsStore.mu.Lock()
 	defer s.AnalyticsStore.mu.Unlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	capturedAt := req.CapturedAt.UTC()
 	if capturedAt.IsZero() {
@@ -549,13 +555,14 @@ func (s *AnalyticsService) ListConfigSnapshots(ctx context.Context, req *request
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	items := make([]response.ConfigSnapshotItem, 0, len(s.AnalyticsStore.configSnapshots[req.ProjectID]))
 	for _, snapshot := range s.AnalyticsStore.configSnapshots[req.ProjectID] {
@@ -587,13 +594,14 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 	s.AnalyticsStore.mu.Lock()
 	defer s.AnalyticsStore.mu.Unlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	recordedAt := req.Timestamp.UTC()
 	if recordedAt.IsZero() {
@@ -654,13 +662,14 @@ func (s *AnalyticsService) ListSessionSummaries(ctx context.Context, req *reques
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	limit := req.Limit
 	if limit <= 0 || limit > 20 {
@@ -696,13 +705,14 @@ func (s *AnalyticsService) ListRecommendations(ctx context.Context, req *request
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	ids := s.AnalyticsStore.projectRecommendations[req.ProjectID]
 	items := make([]response.RecommendationResp, 0, len(ids))
@@ -743,6 +753,8 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 
 	var (
 		totalSessions        int
+		totalInputTokens     int
+		totalOutputTokens    int
 		totalTokens          int
 		totalQueries         int
 		totalActiveRecs      int
@@ -758,6 +770,8 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 	for _, projectID := range projectIDs {
 		for _, session := range s.AnalyticsStore.sessionSummaries[projectID] {
 			totalSessions++
+			totalInputTokens += session.TokenIn
+			totalOutputTokens += session.TokenOut
 			totalTokens += session.TokenIn + session.TokenOut
 			totalQueries += queryCountForSession(session)
 			if lastIngestedAt == nil || session.Timestamp.After(*lastIngestedAt) {
@@ -800,26 +814,32 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 	rollbackRate := safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1)))
 
 	return &response.DashboardOverviewResp{
-		OrgID:                   req.OrgID,
-		TotalDevices:            countDevicesByOrg(s.AnalyticsStore.agents, req.OrgID),
-		TotalProjects:           len(projectIDs),
-		TotalSessions:           totalSessions,
-		ActiveRecommendations:   totalActiveRecs,
-		PendingReviewCount:      totalPendingReview,
-		ApprovedQueueCount:      totalApprovedQueue,
-		SuccessfulRolloutCount:  totalSuccessfulApply,
-		FailedExecutionCount:    totalFailedApply,
-		TotalTokens:             totalTokens,
-		AvgTokensPerQuery:       safeDiv(float64(totalTokens), float64(totalQueries)),
-		AvgTokensPerSession:     safeDiv(float64(totalTokens), float64(maxInt(totalSessions, 1))),
-		AvgQueriesPerSession:    safeDiv(float64(totalQueries), float64(maxInt(totalSessions, 1))),
-		RecommendationApplyRate: safeDiv(float64(totalSuccessfulApply), float64(maxInt(totalActiveRecs+totalSuccessfulApply, 1))),
-		RollbackRate:            rollbackRate,
-		ActionSummary:           buildDashboardActionSummary(totalPendingReview, totalApprovedQueue, totalActiveRecs),
-		OutcomeSummary:          buildDashboardOutcomeSummary(totalSuccessfulApply, totalFailedApply, rollbackRate),
-		ResearchProvider:        s.researchAgent.Provider,
-		ResearchMode:            s.researchAgent.Mode,
-		LastIngestedAt:          lastIngestedAt,
+		OrgID:                     req.OrgID,
+		TotalDevices:              countDevicesByOrg(s.AnalyticsStore.agents, req.OrgID),
+		TotalProjects:             len(projectIDs),
+		TotalSessions:             totalSessions,
+		ActiveRecommendations:     totalActiveRecs,
+		PendingReviewCount:        totalPendingReview,
+		ApprovedQueueCount:        totalApprovedQueue,
+		SuccessfulRolloutCount:    totalSuccessfulApply,
+		FailedExecutionCount:      totalFailedApply,
+		TotalInputTokens:          totalInputTokens,
+		TotalOutputTokens:         totalOutputTokens,
+		TotalTokens:               totalTokens,
+		AvgInputTokensPerQuery:    safeDiv(float64(totalInputTokens), float64(totalQueries)),
+		AvgOutputTokensPerQuery:   safeDiv(float64(totalOutputTokens), float64(totalQueries)),
+		AvgTokensPerQuery:         safeDiv(float64(totalTokens), float64(totalQueries)),
+		AvgInputTokensPerSession:  safeDiv(float64(totalInputTokens), float64(maxInt(totalSessions, 1))),
+		AvgOutputTokensPerSession: safeDiv(float64(totalOutputTokens), float64(maxInt(totalSessions, 1))),
+		AvgTokensPerSession:       safeDiv(float64(totalTokens), float64(maxInt(totalSessions, 1))),
+		AvgQueriesPerSession:      safeDiv(float64(totalQueries), float64(maxInt(totalSessions, 1))),
+		RecommendationApplyRate:   safeDiv(float64(totalSuccessfulApply), float64(maxInt(totalActiveRecs+totalSuccessfulApply, 1))),
+		RollbackRate:              rollbackRate,
+		ActionSummary:             buildDashboardActionSummary(totalPendingReview, totalApprovedQueue, totalActiveRecs),
+		OutcomeSummary:            buildDashboardOutcomeSummary(totalSuccessfulApply, totalFailedApply, rollbackRate),
+		ResearchProvider:          s.researchAgent.Provider,
+		ResearchMode:              s.researchAgent.Mode,
+		LastIngestedAt:            lastIngestedAt,
 	}, nil
 }
 
@@ -835,19 +855,16 @@ func (s *AnalyticsService) ListProjects(ctx context.Context, req *request.Projec
 	}
 
 	items := make([]response.ProjectResp, 0)
-	for _, project := range s.AnalyticsStore.projects {
-		if project.OrgID != req.OrgID {
-			continue
-		}
+	if workspace := s.findWorkspaceForOrgLocked(req.OrgID); workspace != nil {
 		items = append(items, response.ProjectResp{
-			ID:             project.ID,
-			Name:           project.Name,
-			RepoHash:       project.RepoHash,
-			RepoPath:       project.RepoPath,
-			DefaultTool:    project.DefaultTool,
-			LastProfileID:  project.LastProfileID,
-			LastIngestedAt: project.LastIngestedAt,
-			LanguageMix:    cloneFloatMap(project.LanguageMix),
+			ID:             workspace.ID,
+			Name:           workspace.Name,
+			RepoHash:       workspace.RepoHash,
+			RepoPath:       workspace.RepoPath,
+			DefaultTool:    workspace.DefaultTool,
+			LastProfileID:  workspace.LastProfileID,
+			LastIngestedAt: workspace.LastIngestedAt,
+			LanguageMix:    cloneFloatMap(workspace.LanguageMix),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -868,9 +885,9 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 	if !ok {
 		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown recommendation_id"))
 	}
-	project, ok := s.AnalyticsStore.projects[rec.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, rec.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
@@ -943,13 +960,14 @@ func (s *AnalyticsService) ListChangePlans(ctx context.Context, req *request.Cha
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 	req.UserID = s.actorFromContext(ctx, req.UserID)
 
 	items := make([]response.ApplyHistoryItem, 0)
@@ -983,9 +1001,9 @@ func (s *AnalyticsService) ReviewChangePlan(ctx context.Context, req *request.Re
 	if !ok {
 		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown apply_id"))
 	}
-	project, ok := s.AnalyticsStore.projects[op.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, op.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
@@ -1039,13 +1057,14 @@ func (s *AnalyticsService) ApplyHistory(ctx context.Context, req *request.ApplyH
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	items := make([]response.ApplyHistoryItem, 0)
 	for _, op := range s.AnalyticsStore.applyOperations {
@@ -1068,13 +1087,14 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 	req.UserID = s.actorFromContext(ctx, req.UserID)
 
 	items := make([]response.PendingApplyItem, 0)
@@ -1120,13 +1140,14 @@ func (s *AnalyticsService) ImpactSummary(ctx context.Context, req *request.Impac
 	s.AnalyticsStore.mu.RLock()
 	defer s.AnalyticsStore.mu.RUnlock()
 
-	project, ok := s.AnalyticsStore.projects[req.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
 	}
+	req.ProjectID = project.ID
 
 	items := make([]response.ImpactSummaryItem, 0)
 	sessions := s.AnalyticsStore.sessionSummaries[req.ProjectID]
@@ -1140,21 +1161,33 @@ func (s *AnalyticsService) ImpactSummary(ctx context.Context, req *request.Impac
 		afterStats := summarizeSessions(after)
 
 		items = append(items, response.ImpactSummaryItem{
-			ApplyID:                   op.ID,
-			RecommendationID:          op.RecommendationID,
-			Status:                    op.Status,
-			AppliedAt:                 op.AppliedAt,
-			SessionsBefore:            len(before),
-			SessionsAfter:             len(after),
-			QueriesBefore:             beforeStats.QueryCount,
-			QueriesAfter:              afterStats.QueryCount,
-			AvgTokensPerQueryBefore:   beforeStats.AvgTokensPerQuery,
-			AvgTokensPerQueryAfter:    afterStats.AvgTokensPerQuery,
-			AvgTokensPerSessionBefore: beforeStats.AvgTokensPerSession,
-			AvgTokensPerSessionAfter:  afterStats.AvgTokensPerSession,
-			TokensPerQueryDelta:       round(afterStats.AvgTokensPerQuery - beforeStats.AvgTokensPerQuery),
-			TokensPerSessionDelta:     round(afterStats.AvgTokensPerSession - beforeStats.AvgTokensPerSession),
-			Interpretation:            interpretImpact(beforeStats, afterStats, len(after)),
+			ApplyID:                         op.ID,
+			RecommendationID:                op.RecommendationID,
+			Status:                          op.Status,
+			AppliedAt:                       op.AppliedAt,
+			SessionsBefore:                  len(before),
+			SessionsAfter:                   len(after),
+			QueriesBefore:                   beforeStats.QueryCount,
+			QueriesAfter:                    afterStats.QueryCount,
+			AvgInputTokensPerQueryBefore:    beforeStats.AvgInputTokensPerQuery,
+			AvgInputTokensPerQueryAfter:     afterStats.AvgInputTokensPerQuery,
+			AvgOutputTokensPerQueryBefore:   beforeStats.AvgOutputTokensPerQuery,
+			AvgOutputTokensPerQueryAfter:    afterStats.AvgOutputTokensPerQuery,
+			AvgTokensPerQueryBefore:         beforeStats.AvgTokensPerQuery,
+			AvgTokensPerQueryAfter:          afterStats.AvgTokensPerQuery,
+			AvgInputTokensPerSessionBefore:  beforeStats.AvgInputTokensPerSession,
+			AvgInputTokensPerSessionAfter:   afterStats.AvgInputTokensPerSession,
+			AvgOutputTokensPerSessionBefore: beforeStats.AvgOutputTokensPerSession,
+			AvgOutputTokensPerSessionAfter:  afterStats.AvgOutputTokensPerSession,
+			AvgTokensPerSessionBefore:       beforeStats.AvgTokensPerSession,
+			AvgTokensPerSessionAfter:        afterStats.AvgTokensPerSession,
+			InputTokensPerQueryDelta:        round(afterStats.AvgInputTokensPerQuery - beforeStats.AvgInputTokensPerQuery),
+			OutputTokensPerQueryDelta:       round(afterStats.AvgOutputTokensPerQuery - beforeStats.AvgOutputTokensPerQuery),
+			TokensPerQueryDelta:             round(afterStats.AvgTokensPerQuery - beforeStats.AvgTokensPerQuery),
+			InputTokensPerSessionDelta:      round(afterStats.AvgInputTokensPerSession - beforeStats.AvgInputTokensPerSession),
+			OutputTokensPerSessionDelta:     round(afterStats.AvgOutputTokensPerSession - beforeStats.AvgOutputTokensPerSession),
+			TokensPerSessionDelta:           round(afterStats.AvgTokensPerSession - beforeStats.AvgTokensPerSession),
+			Interpretation:                  interpretImpact(beforeStats, afterStats, len(after)),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1217,9 +1250,9 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	if !ok {
 		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown apply_id"))
 	}
-	project, ok := s.AnalyticsStore.projects[op.ProjectID]
-	if !ok {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	project, err := s.resolveProjectLocked(ctx, op.ProjectID)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
 		return nil, err
@@ -1572,9 +1605,13 @@ func splitSessionsByApplyTime(sessions []*SessionSummary, appliedAt time.Time) (
 }
 
 type sessionSummaryStats struct {
-	QueryCount          int
-	AvgTokensPerQuery   float64
-	AvgTokensPerSession float64
+	QueryCount                int
+	AvgInputTokensPerQuery    float64
+	AvgOutputTokensPerQuery   float64
+	AvgTokensPerQuery         float64
+	AvgInputTokensPerSession  float64
+	AvgOutputTokensPerSession float64
+	AvgTokensPerSession       float64
 }
 
 func summarizeSessions(sessions []*SessionSummary) sessionSummaryStats {
@@ -1582,17 +1619,25 @@ func summarizeSessions(sessions []*SessionSummary) sessionSummaryStats {
 		return sessionSummaryStats{}
 	}
 
+	totalInputTokens := 0
+	totalOutputTokens := 0
 	totalTokens := 0
 	totalQueries := 0
 	for _, session := range sessions {
+		totalInputTokens += session.TokenIn
+		totalOutputTokens += session.TokenOut
 		totalTokens += session.TokenIn + session.TokenOut
 		totalQueries += queryCountForSession(session)
 	}
 
 	return sessionSummaryStats{
-		QueryCount:          totalQueries,
-		AvgTokensPerQuery:   safeDiv(float64(totalTokens), float64(maxInt(totalQueries, 1))),
-		AvgTokensPerSession: safeDiv(float64(totalTokens), float64(len(sessions))),
+		QueryCount:                totalQueries,
+		AvgInputTokensPerQuery:    safeDiv(float64(totalInputTokens), float64(maxInt(totalQueries, 1))),
+		AvgOutputTokensPerQuery:   safeDiv(float64(totalOutputTokens), float64(maxInt(totalQueries, 1))),
+		AvgTokensPerQuery:         safeDiv(float64(totalTokens), float64(maxInt(totalQueries, 1))),
+		AvgInputTokensPerSession:  safeDiv(float64(totalInputTokens), float64(len(sessions))),
+		AvgOutputTokensPerSession: safeDiv(float64(totalOutputTokens), float64(len(sessions))),
+		AvgTokensPerSession:       safeDiv(float64(totalTokens), float64(len(sessions))),
 	}
 }
 
@@ -1605,6 +1650,14 @@ func interpretImpact(before, after sessionSummaryStats, afterCount int) string {
 	}
 
 	switch {
+	case after.AvgInputTokensPerQuery < before.AvgInputTokensPerQuery:
+		return "Prompt-side token usage per query is trending down after the rollout."
+	case after.AvgInputTokensPerQuery > before.AvgInputTokensPerQuery:
+		return "Prompt-side token usage per query is trending up after the rollout."
+	case after.AvgOutputTokensPerQuery < before.AvgOutputTokensPerQuery:
+		return "Response-side token usage per query is trending down after the rollout."
+	case after.AvgOutputTokensPerQuery > before.AvgOutputTokensPerQuery:
+		return "Response-side token usage per query is trending up after the rollout."
 	case after.AvgTokensPerQuery < before.AvgTokensPerQuery:
 		return "Follow-up sessions are reaching answers with fewer tokens per query."
 	case after.AvgTokensPerQuery > before.AvgTokensPerQuery:

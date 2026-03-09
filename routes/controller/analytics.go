@@ -30,9 +30,7 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.POST("/auth/cli-tokens/revoke", r.revokeCLIToken)
 	api.POST("/auth/cli/login", r.authenticateCLI)
 	api.POST("/agents/register", r.registerAgent)
-	api.POST("/devices/register", r.registerAgent)
 	api.POST("/projects/register", r.registerProject)
-	api.POST("/projects/connect", r.registerProject)
 	api.POST("/config-snapshots", r.uploadConfigSnapshot)
 	api.GET("/config-snapshots", r.listConfigSnapshots)
 	api.POST("/session-summaries", r.uploadSessionSummary)
@@ -45,10 +43,8 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.GET("/change-plans", r.listChangePlans)
 	api.POST("/change-plans/review", r.reviewChangePlan)
 	api.GET("/applies/pending", r.pendingApplies)
-	api.GET("/execution-queue", r.pendingApplies)
 	api.GET("/applies", r.applyHistory)
 	api.POST("/applies/result", r.reportApplyResult)
-	api.POST("/executions/result", r.reportApplyResult)
 	api.GET("/dashboard/overview", r.dashboardOverview)
 }
 

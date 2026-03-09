@@ -53,7 +53,7 @@ type RegisterProjectReq struct {
 }
 
 type ConfigSnapshotReq struct {
-	ProjectID           string         `json:"project_id" validate:"required"`
+	ProjectID           string         `json:"project_id"`
 	Tool                string         `json:"tool" validate:"required"`
 	ProfileID           string         `json:"profile_id"`
 	Settings            map[string]any `json:"settings"`
@@ -66,11 +66,11 @@ type ConfigSnapshotReq struct {
 }
 
 type ConfigSnapshotListReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 }
 
 type SessionSummaryReq struct {
-	ProjectID  string    `json:"project_id" validate:"required"`
+	ProjectID  string    `json:"project_id"`
 	SessionID  string    `json:"session_id"`
 	Tool       string    `json:"tool" validate:"required"`
 	TokenIn    int       `json:"token_in"`
@@ -80,12 +80,12 @@ type SessionSummaryReq struct {
 }
 
 type SessionSummaryListReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 	Limit     int    `query:"limit"`
 }
 
 type RecommendationListReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 }
 
 type DashboardOverviewReq struct {
@@ -97,22 +97,22 @@ type ProjectListReq struct {
 }
 
 type ApplyHistoryReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 }
 
 type PendingApplyReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 	UserID    string `query:"user_id"`
 }
 
 type ChangePlanListReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 	Status    string `query:"status"`
 	UserID    string `query:"user_id"`
 }
 
 type ImpactSummaryReq struct {
-	ProjectID string `query:"project_id" validate:"required"`
+	ProjectID string `query:"project_id"`
 }
 
 type AuditListReq struct {
