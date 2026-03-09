@@ -27,6 +27,7 @@ Detailed codebase documentation:
 ## What changed
 
 - Recommendation requests now create `change plans` in `awaiting_review`
+- Low-risk single-file config merges can be `auto-approved` by the policy engine
 - Only approved plans appear in the local execution queue
 - The dashboard exposes a `review queue` and `approved execution queue`
 - Config snapshots and session summaries now carry richer config metrics and derived features

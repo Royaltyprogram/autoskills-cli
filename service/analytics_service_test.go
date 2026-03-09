@@ -111,6 +111,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, planOld.PatchPreview, len(recommendations.Items[0].ChangePlan))
+	require.Equal(t, "requires_review", planOld.PolicyMode)
 	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
 		ApplyID:    planOld.ApplyID,
 		Decision:   "approve",
@@ -218,4 +219,88 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, audits.Items)
 	require.Equal(t, "session.ingested", audits.Items[0].Type)
+}
+
+func TestCreateApplyPlanAutoApprovesLowRiskConfigMerge(t *testing.T) {
+	ctx := context.Background()
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+
+	store, err := NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	svc := NewAnalyticsService(Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+
+	agentResp, err := svc.RegisterAgent(ctx, &request.RegisterAgentReq{
+		OrgID:      "org-auto",
+		UserID:     "user-auto",
+		DeviceName: "macbook",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.RegisterProject(ctx, &request.RegisterProjectReq{
+		OrgID:       "org-auto",
+		AgentID:     agentResp.AgentID,
+		ProjectID:   "project-auto",
+		Name:        "auto",
+		RepoHash:    "auto-hash",
+		DefaultTool: "codex",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID:                "project-auto",
+		SessionID:                "session-auto",
+		Tool:                     "codex",
+		ProjectHash:              "auto-hash",
+		LanguageMix:              map[string]float64{"go": 1},
+		TotalPromptsCount:        8,
+		TotalToolCalls:           10,
+		BashCallsCount:           3,
+		ReadOps:                  2,
+		EditOps:                  5,
+		WriteOps:                 1,
+		MCPUsageCount:            0,
+		PermissionRejectCount:    1,
+		RetryCount:               0,
+		TokenIn:                  300,
+		TokenOut:                 120,
+		EstimatedCost:            0.2,
+		TaskType:                 "docs",
+		RepoSizeBucket:           "small",
+		ConfigProfileID:          "baseline",
+		RepoExplorationIntensity: 0.1,
+		ShellHeavy:               true,
+		AcceptanceProxy:          0.9,
+		Timestamp:                time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-auto"})
+	require.NoError(t, err)
+	require.NotEmpty(t, recommendations.Items)
+
+	var autoRecID string
+	for _, rec := range recommendations.Items {
+		if rec.Kind == "safe-executor-profile" {
+			autoRecID = rec.ID
+			break
+		}
+	}
+	require.NotEmpty(t, autoRecID)
+
+	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
+		RecommendationID: autoRecID,
+		RequestedBy:      "user-auto",
+		Scope:            "user",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "auto_approved", plan.PolicyMode)
+	require.Equal(t, "approved_for_local_apply", plan.Status)
+	require.Equal(t, "approved", plan.ApprovalStatus)
+	require.Equal(t, "auto_approved", plan.Decision)
+	require.Equal(t, "policy-engine", plan.ReviewedBy)
 }

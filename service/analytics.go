@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -537,6 +538,7 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 
 	now := time.Now().UTC()
 	patchPreview := buildPatchPreview(rec)
+	policyMode, policyReason := evaluateChangePlanPolicy(rec, scope, patchPreview)
 	op := &ApplyOperation{
 		ID:               s.AnalyticsStore.nextID("apply"),
 		RecommendationID: req.RecommendationID,
@@ -544,13 +546,29 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 		RequestedBy:      req.RequestedBy,
 		Scope:            scope,
 		Status:           "awaiting_review",
+		PolicyMode:       policyMode,
+		PolicyReason:     policyReason,
 		ApprovalStatus:   "awaiting_review",
 		Decision:         "pending",
 		PatchPreview:     patchPreview,
 		RequestedAt:      now,
 	}
+	if policyMode == "auto_approved" {
+		op.Status = "approved_for_local_apply"
+		op.ApprovalStatus = "approved"
+		op.Decision = "auto_approved"
+		op.ReviewedBy = "policy-engine"
+		op.ReviewNote = policyReason
+		op.ReviewedAt = &now
+	}
 	s.AnalyticsStore.applyOperations[op.ID] = op
-	s.appendAuditLocked(s.AnalyticsStore.projects[rec.ProjectID].OrgID, rec.ProjectID, "change_plan.requested", "change plan created and waiting for review")
+	auditType := "change_plan.requested"
+	auditMessage := "change plan created and waiting for review"
+	if policyMode == "auto_approved" {
+		auditType = "change_plan.auto_approved"
+		auditMessage = "change plan auto-approved by policy engine"
+	}
+	s.appendAuditLocked(s.AnalyticsStore.projects[rec.ProjectID].OrgID, rec.ProjectID, auditType, auditMessage)
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -559,8 +577,13 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 		ApplyID:        op.ID,
 		Recommendation: toRecommendationResp(rec),
 		Status:         op.Status,
+		PolicyMode:     op.PolicyMode,
+		PolicyReason:   op.PolicyReason,
 		ApprovalStatus: op.ApprovalStatus,
 		Decision:       op.Decision,
+		ReviewedBy:     op.ReviewedBy,
+		ReviewNote:     op.ReviewNote,
+		ReviewedAt:     op.ReviewedAt,
 		PatchPreview:   toPatchPreviewResp(patchPreview),
 		RequestedAt:    now,
 	}, nil
@@ -640,6 +663,8 @@ func (s *AnalyticsService) ReviewChangePlan(ctx context.Context, req *request.Re
 	return &response.ChangePlanReviewResp{
 		ApplyID:        op.ID,
 		Status:         op.Status,
+		PolicyMode:     op.PolicyMode,
+		PolicyReason:   op.PolicyReason,
 		ApprovalStatus: op.ApprovalStatus,
 		Decision:       op.Decision,
 		ReviewedBy:     op.ReviewedBy,
@@ -705,6 +730,8 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 			ApplyID:          op.ID,
 			RecommendationID: op.RecommendationID,
 			Status:           op.Status,
+			PolicyMode:       op.PolicyMode,
+			PolicyReason:     op.PolicyReason,
 			ApprovalStatus:   op.ApprovalStatus,
 			Scope:            op.Scope,
 			RequestedBy:      op.RequestedBy,
@@ -937,6 +964,40 @@ func buildPatchPreview(rec *Recommendation) []PatchPreview {
 	return out
 }
 
+func evaluateChangePlanPolicy(rec *Recommendation, scope string, preview []PatchPreview) (string, string) {
+	if strings.ToLower(scope) != "user" {
+		return "requires_review", "non-user scope rollout requires explicit approval"
+	}
+	if !isLowRiskRecommendation(rec.Risk) {
+		return "requires_review", "recommendation risk is not low"
+	}
+	if len(preview) != 1 {
+		return "requires_review", "multi-step plans require human review"
+	}
+	step := preview[0]
+	if step.Operation != "merge_patch" {
+		return "requires_review", "non-merge patch operations require human review"
+	}
+	if !isPolicyAutoApproveTarget(step.FilePath) {
+		return "requires_review", "target file is outside the auto-approve policy scope"
+	}
+	return "auto_approved", "low-risk single-file config merge qualifies for automatic approval"
+}
+
+func isLowRiskRecommendation(risk string) bool {
+	risk = strings.ToLower(strings.TrimSpace(risk))
+	return strings.HasPrefix(risk, "low") && !strings.Contains(risk, "medium")
+}
+
+func isPolicyAutoApproveTarget(target string) bool {
+	switch filepath.Clean(target) {
+	case filepath.Clean(".codex/config.json"), filepath.Clean(".claude/settings.local.json"):
+		return true
+	default:
+		return false
+	}
+}
+
 func dominantTask(counts map[string]int) string {
 	bestTask := "observe"
 	bestCount := -1
@@ -1017,6 +1078,8 @@ func toApplyHistoryItem(op *ApplyOperation) response.ApplyHistoryItem {
 		ApplyID:          op.ID,
 		RecommendationID: op.RecommendationID,
 		Status:           op.Status,
+		PolicyMode:       op.PolicyMode,
+		PolicyReason:     op.PolicyReason,
 		ApprovalStatus:   op.ApprovalStatus,
 		Decision:         op.Decision,
 		Scope:            op.Scope,

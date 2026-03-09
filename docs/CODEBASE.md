@@ -120,6 +120,7 @@ The CLI acts as `collector + sync client + execution agent + rollback helper`.
    - lists research-agent output
 5. `apply`
    - creates a change plan in `awaiting_review`
+   - low-risk single-file config merges may be auto-approved by policy
 6. `review`
    - approves or rejects the plan
 7. `sync`

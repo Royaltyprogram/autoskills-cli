@@ -436,6 +436,7 @@
           <div class="meta">Apply ID: <code>${item.apply_id}</code></div>
           <div class="meta">Recommendation: <code>${item.recommendation_id}</code></div>
           <div class="meta">Decision: ${item.decision || "pending"} | Reviewer: ${item.reviewed_by || "n/a"}</div>
+          <div class="meta">Policy: ${item.policy_mode || "n/a"} | ${item.policy_reason || "n/a"}</div>
           <div class="meta">File: ${item.applied_file || "preview only"} | Requested: ${item.requested_at}</div>
         </div>
       `).join("");
@@ -453,6 +454,7 @@
             <span class="pill">${item.status}</span>
           </div>
           <div class="meta">Requested by: ${item.requested_by}</div>
+          <div class="meta">Policy: ${item.policy_mode || "n/a"} | ${item.policy_reason || "n/a"}</div>
           <div class="meta">Preview: ${(item.patch_preview || []).map((preview) => `${preview.operation} ${preview.file_path}`).join(" | ")}</div>
           <div class="meta" style="margin-top: 10px;">
             <button type="button" onclick="reviewPlan('${item.apply_id}', 'approve')">Approve</button>
@@ -474,6 +476,7 @@
             <span class="pill">${item.approval_status || item.scope}</span>
           </div>
           <div class="meta">Requested by: ${item.requested_by}</div>
+          <div class="meta">Policy: ${item.policy_mode || "n/a"} | ${item.policy_reason || "n/a"}</div>
           <div class="meta">Status: ${item.status} | Requested: ${item.requested_at}</div>
           <div class="meta">Recommendation: <code>${item.recommendation_id}</code></div>
         </div>
@@ -562,7 +565,10 @@
         if (env.code !== 0) {
           throw new Error(env.msg || "apply request failed");
         }
-        setStatus(`Change plan requested: ${env.data.apply_id}. Review and approve it before agentopt sync executes anything.`);
+        const suffix = env.data.policy_mode === "auto_approved"
+          ? "Policy engine auto-approved it. agentopt sync can execute it immediately."
+          : "Review and approve it before agentopt sync executes anything.";
+        setStatus(`Change plan requested: ${env.data.apply_id}. ${suffix}`);
         await load();
       } catch (err) {
         setStatus(err.message || "Failed to request apply.", true);

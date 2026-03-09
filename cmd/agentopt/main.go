@@ -708,8 +708,10 @@ func runApply(args []string) error {
 		return nil
 	}
 
-	if _, err := reviewChangePlan(client, plan.ApplyID, "approve", st.UserID, "approved by local cli"); err != nil {
-		return err
+	if plan.PolicyMode != "auto_approved" && plan.ApprovalStatus != "approved" {
+		if _, err := reviewChangePlan(client, plan.ApplyID, "approve", st.UserID, "approved by local cli"); err != nil {
+			return err
+		}
 	}
 
 	localResult, err := executeLocalApply(st, plan.ApplyID, plan.PatchPreview, *targetConfig)

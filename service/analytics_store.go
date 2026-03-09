@@ -174,6 +174,8 @@ type ApplyOperation struct {
 	RequestedBy      string
 	Scope            string
 	Status           string
+	PolicyMode       string
+	PolicyReason     string
 	ApprovalStatus   string
 	Decision         string
 	ReviewedBy       string

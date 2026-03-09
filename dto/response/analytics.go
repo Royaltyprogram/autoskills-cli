@@ -149,6 +149,8 @@ type ApplyPlanResp struct {
 	ApplyID        string             `json:"apply_id"`
 	Recommendation RecommendationResp `json:"recommendation"`
 	Status         string             `json:"status"`
+	PolicyMode     string             `json:"policy_mode"`
+	PolicyReason   string             `json:"policy_reason"`
 	ApprovalStatus string             `json:"approval_status"`
 	Decision       string             `json:"decision"`
 	ReviewedBy     string             `json:"reviewed_by"`
@@ -168,6 +170,8 @@ type ApplyResultResp struct {
 type ChangePlanReviewResp struct {
 	ApplyID        string     `json:"apply_id"`
 	Status         string     `json:"status"`
+	PolicyMode     string     `json:"policy_mode"`
+	PolicyReason   string     `json:"policy_reason"`
 	ApprovalStatus string     `json:"approval_status"`
 	Decision       string     `json:"decision"`
 	ReviewedBy     string     `json:"reviewed_by"`
@@ -179,6 +183,8 @@ type ApplyHistoryItem struct {
 	ApplyID          string             `json:"apply_id"`
 	RecommendationID string             `json:"recommendation_id"`
 	Status           string             `json:"status"`
+	PolicyMode       string             `json:"policy_mode"`
+	PolicyReason     string             `json:"policy_reason"`
 	ApprovalStatus   string             `json:"approval_status"`
 	Decision         string             `json:"decision"`
 	Scope            string             `json:"scope"`
@@ -203,6 +209,8 @@ type PendingApplyItem struct {
 	ApplyID          string             `json:"apply_id"`
 	RecommendationID string             `json:"recommendation_id"`
 	Status           string             `json:"status"`
+	PolicyMode       string             `json:"policy_mode"`
+	PolicyReason     string             `json:"policy_reason"`
 	ApprovalStatus   string             `json:"approval_status"`
 	Scope            string             `json:"scope"`
 	RequestedBy      string             `json:"requested_by"`
