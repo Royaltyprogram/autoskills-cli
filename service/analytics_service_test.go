@@ -55,27 +55,17 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	now := time.Now().UTC()
 	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
-		ProjectID:             "project-z",
-		SessionID:             "session-before",
-		Tool:                  "codex",
-		ProjectHash:           "zeta-hash",
-		LanguageMix:           map[string]float64{"go": 1},
-		TotalPromptsCount:     10,
-		TotalToolCalls:        20,
-		BashCallsCount:        5,
-		ReadOps:               15,
-		EditOps:               5,
-		WriteOps:              2,
-		MCPUsageCount:         1,
-		PermissionRejectCount: 4,
-		RetryCount:            3,
-		TokenIn:               1000,
-		TokenOut:              400,
-		EstimatedCost:         1.2,
-		TaskType:              "bugfix",
-		RepoSizeBucket:        "large",
-		ConfigProfileID:       "baseline",
-		Timestamp:             now.Add(-2 * time.Hour),
+		ProjectID: "project-z",
+		SessionID: "session-before",
+		Tool:      "codex",
+		TokenIn:   1000,
+		TokenOut:  400,
+		RawQueries: []string{
+			"Inspect the route handler and summarize the current control flow.",
+			"Find the smallest patch that fixes the failing analytics request path.",
+			"List the exact tests to run after the patch.",
+		},
+		Timestamp: now.Add(-2 * time.Hour),
 	})
 	require.NoError(t, err)
 
@@ -96,13 +86,11 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-z"})
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(recommendations.Items), 1)
-	for i := 1; i < len(recommendations.Items); i++ {
-		require.GreaterOrEqual(t, recommendations.Items[i-1].Score, recommendations.Items[i].Score)
-	}
-	require.GreaterOrEqual(t, len(recommendations.Items[0].ChangePlan), 2)
+	require.Len(t, recommendations.Items, 1)
+	require.Equal(t, "instruction-custom-rules", recommendations.Items[0].Kind)
+	require.Len(t, recommendations.Items[0].ChangePlan, 1)
 	require.Equal(t, "AGENTS.md", recommendations.Items[0].ChangePlan[0].TargetFile)
-	require.Equal(t, ".codex/config.json", recommendations.Items[0].ChangePlan[1].TargetFile)
+	require.Contains(t, recommendations.Items[0].ChangePlan[0].ContentPreview, "AgentOpt Personal Instruction Pack")
 
 	planOld, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
 		RecommendationID: recommendations.Items[0].ID,
@@ -168,27 +156,16 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	store.mu.Unlock()
 
 	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
-		ProjectID:             "project-z",
-		SessionID:             "session-after",
-		Tool:                  "codex",
-		ProjectHash:           "zeta-hash",
-		LanguageMix:           map[string]float64{"go": 1},
-		TotalPromptsCount:     12,
-		TotalToolCalls:        18,
-		BashCallsCount:        4,
-		ReadOps:               12,
-		EditOps:               8,
-		WriteOps:              3,
-		MCPUsageCount:         1,
-		PermissionRejectCount: 1,
-		RetryCount:            1,
-		TokenIn:               800,
-		TokenOut:              300,
-		EstimatedCost:         0.7,
-		TaskType:              "bugfix",
-		RepoSizeBucket:        "large",
-		ConfigProfileID:       "repo-qna",
-		Timestamp:             now.Add(-5 * time.Minute),
+		ProjectID: "project-z",
+		SessionID: "session-after",
+		Tool:      "codex",
+		TokenIn:   800,
+		TokenOut:  300,
+		RawQueries: []string{
+			"Compare the analytics and health controllers before changing the shared response contract.",
+			"Keep the patch minimal and list targeted verification steps.",
+		},
+		Timestamp: now.Add(-5 * time.Minute),
 	})
 	require.NoError(t, err)
 
@@ -208,6 +185,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sessions.Items, 1)
 	require.Equal(t, "session-after", sessions.Items[0].ID)
+	require.NotEmpty(t, sessions.Items[0].RawQueries)
 
 	impact, err := svc.ImpactSummary(ctx, &request.ImpactSummaryReq{ProjectID: "project-z"})
 	require.NoError(t, err)
@@ -217,7 +195,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-1"})
 	require.NoError(t, err)
-	require.Equal(t, "bugfix", overview.PrimaryTaskType)
+	require.Empty(t, overview.PrimaryTaskType)
 	require.Equal(t, 2, overview.SuccessfulRolloutCount)
 	require.NotEmpty(t, overview.ActionSummary)
 	require.NotEmpty(t, overview.OutcomeSummary)
@@ -228,7 +206,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	require.Equal(t, "session.ingested", audits.Items[0].Type)
 }
 
-func TestCreateApplyPlanAutoApprovesLowRiskConfigMerge(t *testing.T) {
+func TestCreateApplyPlanRequiresReviewForInstructionAppend(t *testing.T) {
 	ctx := context.Background()
 	conf := &configs.Config{}
 	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
@@ -259,57 +237,35 @@ func TestCreateApplyPlanAutoApprovesLowRiskConfigMerge(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
-		ProjectID:                "project-auto",
-		SessionID:                "session-auto",
-		Tool:                     "codex",
-		ProjectHash:              "auto-hash",
-		LanguageMix:              map[string]float64{"go": 1},
-		TotalPromptsCount:        8,
-		TotalToolCalls:           10,
-		BashCallsCount:           3,
-		ReadOps:                  2,
-		EditOps:                  5,
-		WriteOps:                 1,
-		MCPUsageCount:            0,
-		PermissionRejectCount:    1,
-		RetryCount:               0,
-		TokenIn:                  300,
-		TokenOut:                 120,
-		EstimatedCost:            0.2,
-		TaskType:                 "docs",
-		RepoSizeBucket:           "small",
-		ConfigProfileID:          "baseline",
-		RepoExplorationIntensity: 0.1,
-		ShellHeavy:               true,
-		AcceptanceProxy:          0.9,
-		Timestamp:                time.Now().UTC(),
+		ProjectID: "project-auto",
+		SessionID: "session-auto",
+		Tool:      "codex",
+		TokenIn:   300,
+		TokenOut:  120,
+		RawQueries: []string{
+			"Inspect the docs command and summarize the current behavior before editing.",
+			"Suggest the smallest documentation patch and the exact checks to run.",
+		},
+		Timestamp: time.Now().UTC(),
 	})
 	require.NoError(t, err)
 
 	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-auto"})
 	require.NoError(t, err)
-	require.NotEmpty(t, recommendations.Items)
-
-	var autoRecID string
-	for _, rec := range recommendations.Items {
-		if rec.Kind == "safe-executor-profile" {
-			autoRecID = rec.ID
-			break
-		}
-	}
-	require.NotEmpty(t, autoRecID)
+	require.Len(t, recommendations.Items, 1)
+	require.Equal(t, "instruction-custom-rules", recommendations.Items[0].Kind)
 
 	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: autoRecID,
+		RecommendationID: recommendations.Items[0].ID,
 		RequestedBy:      "user-auto",
 		Scope:            "user",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "auto_approved", plan.PolicyMode)
-	require.Equal(t, "approved_for_local_apply", plan.Status)
-	require.Equal(t, "approved", plan.ApprovalStatus)
-	require.Equal(t, "auto_approved", plan.Decision)
-	require.Equal(t, "policy-engine", plan.ReviewedBy)
+	require.Equal(t, "requires_review", plan.PolicyMode)
+	require.Equal(t, "awaiting_review", plan.Status)
+	require.Equal(t, "awaiting_review", plan.ApprovalStatus)
+	require.Equal(t, "pending", plan.Decision)
+	require.Empty(t, plan.ReviewedBy)
 }
 
 func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
@@ -344,29 +300,17 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 
 	now := time.Now().UTC()
 	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
-		ProjectID:                "project-exec",
-		SessionID:                "session-before-exec",
-		Tool:                     "codex",
-		ProjectHash:              "exec-hash",
-		LanguageMix:              map[string]float64{"go": 1},
-		TotalPromptsCount:        12,
-		TotalToolCalls:           24,
-		BashCallsCount:           6,
-		ReadOps:                  12,
-		EditOps:                  4,
-		WriteOps:                 2,
-		MCPUsageCount:            1,
-		PermissionRejectCount:    2,
-		RetryCount:               1,
-		TokenIn:                  800,
-		TokenOut:                 220,
-		EstimatedCost:            0.5,
-		TaskType:                 "bugfix",
-		RepoSizeBucket:           "large",
-		ConfigProfileID:          "baseline",
-		RepoExplorationIntensity: 0.8,
-		AcceptanceProxy:          0.45,
-		Timestamp:                now.Add(-2 * time.Hour),
+		ProjectID: "project-exec",
+		SessionID: "session-before-exec",
+		Tool:      "codex",
+		TokenIn:   800,
+		TokenOut:  220,
+		RawQueries: []string{
+			"Inspect the failing execution flow and summarize the current behavior.",
+			"State the likely root cause before proposing a patch.",
+			"List the exact verification steps after the edit.",
+		},
+		Timestamp: now.Add(-2 * time.Hour),
 	})
 	require.NoError(t, err)
 
@@ -390,12 +334,11 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	applyResult, err := svc.ReportApplyResult(ctx, &request.ApplyResultReq{
-		ApplyID:         plan.ApplyID,
-		Success:         true,
-		Note:            "applied by lifecycle test",
-		AppliedFile:     "AGENTS.md, .codex/config.json",
-		AppliedSettings: map[string]any{"instructions_pack": "repo-research"},
-		AppliedText:     "AgentOpt Research Pack",
+		ApplyID:     plan.ApplyID,
+		Success:     true,
+		Note:        "applied by lifecycle test",
+		AppliedFile: "AGENTS.md",
+		AppliedText: "AgentOpt Personal Instruction Pack",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "applied", applyResult.Status)
@@ -409,32 +352,19 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, history.Items, 1)
 	require.Equal(t, "applied", history.Items[0].Status)
-	require.Equal(t, "AGENTS.md, .codex/config.json", history.Items[0].AppliedFile)
+	require.Equal(t, "AGENTS.md", history.Items[0].AppliedFile)
 
 	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
-		ProjectID:                "project-exec",
-		SessionID:                "session-after-exec",
-		Tool:                     "codex",
-		ProjectHash:              "exec-hash",
-		LanguageMix:              map[string]float64{"go": 1},
-		TotalPromptsCount:        10,
-		TotalToolCalls:           18,
-		BashCallsCount:           4,
-		ReadOps:                  9,
-		EditOps:                  6,
-		WriteOps:                 3,
-		MCPUsageCount:            1,
-		PermissionRejectCount:    1,
-		RetryCount:               0,
-		TokenIn:                  600,
-		TokenOut:                 180,
-		EstimatedCost:            0.3,
-		TaskType:                 "bugfix",
-		RepoSizeBucket:           "large",
-		ConfigProfileID:          "repo-research",
-		RepoExplorationIntensity: 0.5,
-		AcceptanceProxy:          0.9,
-		Timestamp:                now.Add(2 * time.Hour),
+		ProjectID: "project-exec",
+		SessionID: "session-after-exec",
+		Tool:      "codex",
+		TokenIn:   600,
+		TokenOut:  180,
+		RawQueries: []string{
+			"Keep the patch minimal and compare the shared contract before editing.",
+			"Run the targeted verification steps after the change.",
+		},
+		Timestamp: now.Add(2 * time.Hour),
 	})
 	require.NoError(t, err)
 
@@ -448,7 +378,7 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 		ApplyID:     plan.ApplyID,
 		Success:     true,
 		Note:        "rolled back by lifecycle test",
-		AppliedFile: "AGENTS.md, .codex/config.json",
+		AppliedFile: "AGENTS.md",
 		RolledBack:  true,
 	})
 	require.NoError(t, err)
@@ -463,7 +393,7 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 
 	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-exec"})
 	require.NoError(t, err)
-	require.Equal(t, "bugfix", overview.PrimaryTaskType)
+	require.Empty(t, overview.PrimaryTaskType)
 	require.Equal(t, 0, overview.SuccessfulRolloutCount)
 	require.Equal(t, 0, overview.FailedExecutionCount)
 	require.NotEmpty(t, overview.ActionSummary)

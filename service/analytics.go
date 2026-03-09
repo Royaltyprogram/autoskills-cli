@@ -430,7 +430,9 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 			totalRejects += session.PermissionRejectCount
 			totalRetries += session.RetryCount
 			totalAcceptProxy += session.AcceptanceProxy
-			taskCounts[session.TaskType]++
+			if taskType := strings.TrimSpace(session.TaskType); taskType != "" {
+				taskCounts[taskType]++
+			}
 			if lastIngestedAt == nil || session.Timestamp.After(*lastIngestedAt) {
 				ts := session.Timestamp
 				lastIngestedAt = &ts
@@ -1202,6 +1204,9 @@ func summarizeSessions(sessions []*SessionSummary) (float64, float64, float64) {
 func interpretImpact(beforeCost, afterCost, beforeRetry, afterRetry, beforeReject, afterReject float64, afterCount int) string {
 	if afterCount == 0 {
 		return "Waiting for post-apply sessions."
+	}
+	if beforeCost == 0 && afterCost == 0 && beforeRetry == 0 && afterRetry == 0 && beforeReject == 0 && afterReject == 0 {
+		return "The MVP is collecting follow-up usage, but impact deltas still need richer operational metrics."
 	}
 
 	improvements := 0

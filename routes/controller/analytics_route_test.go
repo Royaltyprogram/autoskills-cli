@@ -72,25 +72,15 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.Equal(t, "baseline", snapshotResp.ProfileID)
 
 	ingestResp := postJSON[response.SessionIngestResp](t, echo, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
-		ProjectID:             projectResp.ProjectID,
-		Tool:                  "codex",
-		TaskType:              "bugfix",
-		ProjectHash:           "route-project-hash",
-		LanguageMix:           map[string]float64{"go": 1},
-		TotalPromptsCount:     12,
-		TotalToolCalls:        24,
-		BashCallsCount:        6,
-		ReadOps:               10,
-		EditOps:               8,
-		WriteOps:              2,
-		MCPUsageCount:         1,
-		PermissionRejectCount: 2,
-		RetryCount:            1,
-		TokenIn:               1000,
-		TokenOut:              200,
-		EstimatedCost:         0.4,
-		RepoSizeBucket:        "large",
-		ConfigProfileID:       "baseline",
+		ProjectID: projectResp.ProjectID,
+		Tool:      "codex",
+		TokenIn:   1000,
+		TokenOut:  200,
+		RawQueries: []string{
+			"Inspect the route handler and summarize the current control flow.",
+			"Find the smallest patch that fixes the analytics route regression.",
+			"List the exact tests to run after the patch.",
+		},
 	})
 	require.NotEmpty(t, ingestResp.LatestRecommendationIDs)
 
@@ -131,12 +121,11 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.Equal(t, applyResp.ApplyID, pendingResp.Items[0].ApplyID)
 
 	applyResult := postJSON[response.ApplyResultResp](t, echo, http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
-		ApplyID:         applyResp.ApplyID,
-		Success:         true,
-		Note:            "applied by route test",
-		AppliedFile:     "AGENTS.md, .codex/config.json",
-		AppliedSettings: map[string]any{"instructions_pack": "repo-research"},
-		AppliedText:     "AgentOpt Research Pack",
+		ApplyID:     applyResp.ApplyID,
+		Success:     true,
+		Note:        "applied by route test",
+		AppliedFile: "AGENTS.md",
+		AppliedText: "AgentOpt Personal Instruction Pack",
 	})
 	require.Equal(t, "applied", applyResult.Status)
 	require.False(t, applyResult.RolledBack)
@@ -152,31 +141,18 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	})
 	require.NotEmpty(t, applyHistory.Items)
 	require.Equal(t, "applied", applyHistory.Items[0].Status)
-	require.Equal(t, "AGENTS.md, .codex/config.json", applyHistory.Items[0].AppliedFile)
+	require.Equal(t, "AGENTS.md", applyHistory.Items[0].AppliedFile)
 
 	postApplySession := postJSON[response.SessionIngestResp](t, echo, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
-		ProjectID:                projectResp.ProjectID,
-		Tool:                     "codex",
-		TaskType:                 "bugfix",
-		ProjectHash:              "route-project-hash",
-		LanguageMix:              map[string]float64{"go": 1},
-		TotalPromptsCount:        8,
-		TotalToolCalls:           16,
-		BashCallsCount:           3,
-		ReadOps:                  9,
-		EditOps:                  6,
-		WriteOps:                 2,
-		MCPUsageCount:            1,
-		PermissionRejectCount:    1,
-		RetryCount:               0,
-		TokenIn:                  700,
-		TokenOut:                 180,
-		EstimatedCost:            0.25,
-		RepoSizeBucket:           "large",
-		ConfigProfileID:          "repo-research",
-		RepoExplorationIntensity: 0.4,
-		AcceptanceProxy:          0.9,
-		Timestamp:                time.Now().UTC().Add(2 * time.Hour),
+		ProjectID: projectResp.ProjectID,
+		Tool:      "codex",
+		TokenIn:   700,
+		TokenOut:  180,
+		RawQueries: []string{
+			"Compare the analytics and health controllers before editing the shared response contract.",
+			"Keep the patch minimal and list the targeted verification steps.",
+		},
+		Timestamp: time.Now().UTC().Add(2 * time.Hour),
 	})
 	require.NotEmpty(t, postApplySession.SessionID)
 
@@ -191,7 +167,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 		ApplyID:     applyResp.ApplyID,
 		Success:     true,
 		Note:        "rolled back by route test",
-		AppliedFile: "AGENTS.md, .codex/config.json",
+		AppliedFile: "AGENTS.md",
 		RolledBack:  true,
 	})
 	require.Equal(t, "rollback_confirmed", rollbackResp.Status)
@@ -207,7 +183,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	overviewResp := getJSON[response.DashboardOverviewResp](t, echo, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{"org-route"},
 	})
-	require.Equal(t, "bugfix", overviewResp.PrimaryTaskType)
+	require.Empty(t, overviewResp.PrimaryTaskType)
 	require.NotEmpty(t, overviewResp.ActionSummary)
 	require.NotEmpty(t, overviewResp.OutcomeSummary)
 

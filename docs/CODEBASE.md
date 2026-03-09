@@ -15,8 +15,8 @@ It has four runtime surfaces:
 2. `Cloud Research Agent`
    - lives in the server process for now
    - analyzes token usage, raw query history, and config snapshots
-   - emits ranked recommendations with structured change plans
-   - is currently an `OpenAI placeholder`, not a live API integration
+   - emits ranked instruction recommendations with structured change plans
+   - is currently a local personal-usage MVP, not a live API integration
 
 3. `AIops Server`
    - exposes ingestion, review, execution, dashboard, and audit APIs
@@ -101,7 +101,7 @@ The CLI acts as `collector + sync client + execution agent + rollback helper`.
 - [analytics_store.go](/Users/doyechan/Desktop/codes/aiops/service/analytics_store.go)
 - [research_agent.go](/Users/doyechan/Desktop/codes/aiops/service/research_agent.go)
 
-`AnalyticsService` owns the main product flow. `CloudResearchAgent` is a placeholder OpenAI-facing layer that currently runs deterministic rules.
+`AnalyticsService` owns the main product flow. `CloudResearchAgent` is a local MVP analyzer that currently derives instruction recommendations from uploaded usage history.
 
 ### DTOs
 
@@ -150,6 +150,6 @@ Persisted entities:
 
 - API auth is still a shared token
 - raw query history is uploaded for recommendation analysis, but no raw code is collected
-- the OpenAI API integration is intentionally left as a placeholder in this branch
+- live web search and external research integration are intentionally deferred in this branch
 - the local CLI executor only applies allowlisted config files such as `AGENTS.md`, `.mcp.json`, `.codex/config.json`, and `.claude/settings.local.json`
 - approved change plans may contain multiple local patch steps, and rollback restores them in reverse order

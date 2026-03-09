@@ -51,29 +51,17 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	require.Equal(s.T(), "baseline", snapshotResp.ProfileID)
 
 	sessionResp := postAPIJSON[response.SessionIngestResp](s.T(), s, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
-		ProjectID:                projectResp.ProjectID,
-		SessionID:                "session-before-" + suffix,
-		Tool:                     "codex",
-		TaskType:                 "bugfix",
-		ProjectHash:              projectHash,
-		LanguageMix:              map[string]float64{"go": 1},
-		TotalPromptsCount:        12,
-		TotalToolCalls:           24,
-		BashCallsCount:           6,
-		ReadOps:                  12,
-		EditOps:                  4,
-		WriteOps:                 2,
-		MCPUsageCount:            1,
-		PermissionRejectCount:    2,
-		RetryCount:               1,
-		TokenIn:                  1000,
-		TokenOut:                 240,
-		EstimatedCost:            0.5,
-		RepoSizeBucket:           "large",
-		ConfigProfileID:          "baseline",
-		RepoExplorationIntensity: 0.8,
-		AcceptanceProxy:          0.45,
-		Timestamp:                now.Add(-2 * time.Hour),
+		ProjectID: projectResp.ProjectID,
+		SessionID: "session-before-" + suffix,
+		Tool:      "codex",
+		TokenIn:   1000,
+		TokenOut:  240,
+		RawQueries: []string{
+			"Inspect the route handler and summarize the current control flow.",
+			"Find the smallest patch that fixes the failing analytics path.",
+			"List the exact tests to run after the patch.",
+		},
+		Timestamp: now.Add(-2 * time.Hour),
 	})
 	require.NotEmpty(s.T(), sessionResp.LatestRecommendationIDs)
 
@@ -104,12 +92,11 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	require.Equal(s.T(), applyResp.ApplyID, pendingResp.Items[0].ApplyID)
 
 	applyResult := postAPIJSON[response.ApplyResultResp](s.T(), s, http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
-		ApplyID:         applyResp.ApplyID,
-		Success:         true,
-		Note:            "applied by e2e",
-		AppliedFile:     "AGENTS.md, .codex/config.json",
-		AppliedSettings: map[string]any{"instructions_pack": "repo-research"},
-		AppliedText:     "AgentOpt Research Pack",
+		ApplyID:     applyResp.ApplyID,
+		Success:     true,
+		Note:        "applied by e2e",
+		AppliedFile: "AGENTS.md",
+		AppliedText: "AgentOpt Personal Instruction Pack",
 	})
 	require.Equal(s.T(), "applied", applyResult.Status)
 	require.False(s.T(), applyResult.RolledBack)
@@ -127,29 +114,16 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	require.Equal(s.T(), "applied", historyAfterApply.Items[0].Status)
 
 	postAPIJSON[response.SessionIngestResp](s.T(), s, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
-		ProjectID:                projectResp.ProjectID,
-		SessionID:                "session-after-" + suffix,
-		Tool:                     "codex",
-		TaskType:                 "bugfix",
-		ProjectHash:              projectHash,
-		LanguageMix:              map[string]float64{"go": 1},
-		TotalPromptsCount:        8,
-		TotalToolCalls:           18,
-		BashCallsCount:           3,
-		ReadOps:                  9,
-		EditOps:                  6,
-		WriteOps:                 2,
-		MCPUsageCount:            1,
-		PermissionRejectCount:    1,
-		RetryCount:               0,
-		TokenIn:                  700,
-		TokenOut:                 180,
-		EstimatedCost:            0.25,
-		RepoSizeBucket:           "large",
-		ConfigProfileID:          "repo-research",
-		RepoExplorationIntensity: 0.4,
-		AcceptanceProxy:          0.9,
-		Timestamp:                now.Add(2 * time.Hour),
+		ProjectID: projectResp.ProjectID,
+		SessionID: "session-after-" + suffix,
+		Tool:      "codex",
+		TokenIn:   700,
+		TokenOut:  180,
+		RawQueries: []string{
+			"Compare the analytics and health controllers before editing the shared response contract.",
+			"Keep the patch minimal and list the targeted verification steps.",
+		},
+		Timestamp: now.Add(2 * time.Hour),
 	})
 
 	impactResp := getAPIJSON[response.ImpactSummaryResp](s.T(), s, "/api/v1/impact", url.Values{
@@ -162,7 +136,7 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	overviewAfterApply := getAPIJSON[response.DashboardOverviewResp](s.T(), s, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{orgID},
 	})
-	require.Equal(s.T(), "bugfix", overviewAfterApply.PrimaryTaskType)
+	require.Empty(s.T(), overviewAfterApply.PrimaryTaskType)
 	require.Equal(s.T(), 1, overviewAfterApply.SuccessfulRolloutCount)
 	require.Equal(s.T(), 0, overviewAfterApply.FailedExecutionCount)
 	require.NotEmpty(s.T(), overviewAfterApply.ActionSummary)
@@ -172,7 +146,7 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 		ApplyID:     applyResp.ApplyID,
 		Success:     true,
 		Note:        "rolled back by e2e",
-		AppliedFile: "AGENTS.md, .codex/config.json",
+		AppliedFile: "AGENTS.md",
 		RolledBack:  true,
 	})
 	require.Equal(s.T(), "rollback_confirmed", rollbackResp.Status)
@@ -188,7 +162,7 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	overviewAfterRollback := getAPIJSON[response.DashboardOverviewResp](s.T(), s, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{orgID},
 	})
-	require.Equal(s.T(), "bugfix", overviewAfterRollback.PrimaryTaskType)
+	require.Empty(s.T(), overviewAfterRollback.PrimaryTaskType)
 	require.Equal(s.T(), 0, overviewAfterRollback.SuccessfulRolloutCount)
 	require.Equal(s.T(), 0, overviewAfterRollback.FailedExecutionCount)
 	require.NotEmpty(s.T(), overviewAfterRollback.ActionSummary)

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/liushuangls/go-server-template/configs"
@@ -28,211 +29,223 @@ type researchRecommendation struct {
 	Settings        map[string]any
 }
 
+type instructionPattern struct {
+	Key         string
+	Label       string
+	Terms       []string
+	Instruction string
+}
+
+type matchedInstructionPattern struct {
+	Pattern instructionPattern
+	Count   int
+}
+
+var personalInstructionPatterns = []instructionPattern{
+	{
+		Key:         "repo_discovery",
+		Label:       "repo discovery",
+		Terms:       []string{"find", "inspect", "explore", "locate", "repo", "which file", "control flow", "summarize the current"},
+		Instruction: "Before editing, identify the exact files involved and summarize the current control flow.",
+	},
+	{
+		Key:         "root_cause",
+		Label:       "root-cause analysis",
+		Terms:       []string{"why", "root cause", "cause", "bug", "error", "failing", "regression"},
+		Instruction: "State the likely root cause in one sentence before proposing a patch.",
+	},
+	{
+		Key:         "minimal_patch",
+		Label:       "minimal patching",
+		Terms:       []string{"minimal", "smallest", "small", "least", "patch", "fix only", "without changing"},
+		Instruction: "Prefer the smallest viable patch and call out any behavior that stays intentionally unchanged.",
+	},
+	{
+		Key:         "verification",
+		Label:       "targeted verification",
+		Terms:       []string{"test", "verify", "verification", "regression", "repro", "run", "check"},
+		Instruction: "List the exact verification steps or targeted tests immediately after each substantial edit.",
+	},
+	{
+		Key:         "contract_review",
+		Label:       "contract comparison",
+		Terms:       []string{"compare", "same", "contract", "response", "shared", "similar"},
+		Instruction: "Compare neighboring implementations before changing a shared API, route, or response contract.",
+	},
+}
+
 func NewCloudResearchAgentPlaceholder(conf *configs.Config) *CloudResearchAgent {
 	_ = conf
 	return &CloudResearchAgent{
-		Provider: "openai",
-		Model:    "placeholder-research-agent",
-		Mode:     "rule-based-placeholder",
+		Provider: "local",
+		Model:    "personal-usage-mvp",
+		Mode:     "instruction-only",
 	}
 }
 
 func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*SessionSummary, snapshots []*ConfigSnapshot) []researchRecommendation {
-	if len(sessions) == 0 {
-		return []researchRecommendation{{
-			Kind:            "measurement-baseline",
-			Title:           "Keep collecting baseline metrics",
-			Summary:         "The cloud research agent needs more session evidence before proposing a stronger rollout.",
-			Reason:          "There is not enough longitudinal data yet.",
-			Explanation:     "The placeholder OpenAI orchestrator is configured, but recommendation generation is still driven by local heuristics until more metrics arrive.",
-			ExpectedBenefit: "Higher confidence for the next recommendation cycle.",
-			Risk:            "Low. This only preserves measurement and does not alter active coding behavior.",
-			ExpectedImpact:  "Improved recommendation quality after more sessions.",
-			Score:           0.42,
-			Evidence:        []string{"no session summaries uploaded"},
-			Steps: []ChangePlanStep{{
-				Type:            "json_merge",
-				Action:          "merge_patch",
-				TargetFile:      targetFileHint(project.DefaultTool),
-				Summary:         "Keep measurement-only mode enabled.",
-				SettingsUpdates: map[string]any{"recommendation_mode": "observe", "metrics_sampling": "session-summary-only"},
-			}},
-			Settings: map[string]any{"recommendation_mode": "observe", "metrics_sampling": "session-summary-only"},
-		}}
+	_ = snapshots
+
+	rawQueries := collectRawQueries(sessions)
+	if len(rawQueries) == 0 {
+		return nil
 	}
 
-	latestTool := project.DefaultTool
-	if latestTool == "" {
-		latestTool = sessions[len(sessions)-1].Tool
-	}
-	latestSnapshot := latestConfigSnapshot(snapshots)
-
-	var (
-		prompts          int
-		toolCalls        int
-		bashCalls        int
-		readOps          int
-		editOps          int
-		retries          int
-		rejects          int
-		mcpUsage         int
-		totalExploration float64
-		totalAcceptProxy float64
-		shellHeavyHits   int
-		taskCounts       = map[string]int{}
-	)
-
+	totalTokens := 0
 	for _, session := range sessions {
-		prompts += maxInt(session.TotalPromptsCount, 1)
-		toolCalls += session.TotalToolCalls
-		bashCalls += session.BashCallsCount
-		readOps += session.ReadOps
-		editOps += session.EditOps
-		retries += session.RetryCount
-		rejects += session.PermissionRejectCount
-		mcpUsage += session.MCPUsageCount
-		totalExploration += session.RepoExplorationIntensity
-		totalAcceptProxy += session.AcceptanceProxy
-		if session.ShellHeavy {
-			shellHeavyHits++
+		totalTokens += session.TokenIn + session.TokenOut
+	}
+	avgTokensPerQuery := safeDiv(float64(totalTokens), float64(maxInt(len(rawQueries), 1)))
+	matches := topInstructionPatterns(matchInstructionPatterns(rawQueries), 3)
+	contentPreview := buildInstructionContent(matches, avgTokensPerQuery)
+
+	evidence := []string{
+		fmt.Sprintf("sessions=%d", len(sessions)),
+		fmt.Sprintf("raw_query_count=%d", len(rawQueries)),
+		fmt.Sprintf("avg_tokens_per_query=%.0f", avgTokensPerQuery),
+		"priority_order=instructions>hooks>mcp>skills",
+		"mvp_scope=instruction_only",
+	}
+	for _, match := range matches {
+		evidence = append(evidence, fmt.Sprintf("pattern_%s=%d", match.Pattern.Key, match.Count))
+	}
+
+	return []researchRecommendation{{
+		Kind:            "instruction-custom-rules",
+		Title:           instructionRecommendationTitle(project),
+		Summary:         "Recent raw queries repeat the same setup asks, so the MVP agent recommends adding a reusable instruction block.",
+		Reason:          buildInstructionReason(matches, avgTokensPerQuery),
+		Explanation:     "This MVP only looks at uploaded token usage and raw query history. Web search and non-instruction recommendation types are intentionally deferred.",
+		ExpectedBenefit: "Reduce repeated prompt boilerplate and make the first useful answer more consistent.",
+		Risk:            "Low. The plan is a reviewable append to AGENTS.md.",
+		ExpectedImpact:  "Lower setup churn and fewer repeated discovery prompts in later sessions.",
+		Score:           instructionRecommendationScore(matches, avgTokensPerQuery),
+		Evidence:        evidence,
+		Steps: []ChangePlanStep{{
+			Type:           "text_append",
+			Action:         "append_block",
+			TargetFile:     "AGENTS.md",
+			Summary:        "Append a custom instruction block distilled from recent raw query patterns.",
+			ContentPreview: contentPreview,
+		}},
+	}}
+}
+
+func instructionRecommendationTitle(project *Project) string {
+	if project != nil && strings.TrimSpace(project.Name) != "" {
+		return "Add a shared instruction block for " + project.Name
+	}
+	return "Add a shared instruction block"
+}
+
+func collectRawQueries(sessions []*SessionSummary) []string {
+	out := make([]string, 0)
+	for _, session := range sessions {
+		for _, query := range session.RawQueries {
+			query = strings.TrimSpace(query)
+			if query == "" {
+				continue
+			}
+			out = append(out, query)
 		}
-		taskCounts[strings.ToLower(session.TaskType)]++
 	}
+	return out
+}
 
-	dominantTask := dominantTask(taskCounts)
-	readShare := safeDiv(float64(readOps), float64(maxInt(readOps+editOps, 1)))
-	bashShare := safeDiv(float64(bashCalls), float64(maxInt(toolCalls, 1)))
-	rejectRate := safeDiv(float64(rejects), float64(maxInt(toolCalls, 1)))
-	retryRate := safeDiv(float64(retries), float64(maxInt(prompts, 1)))
-	avgExploration := safeDiv(totalExploration, float64(len(sessions)))
-	avgAcceptance := safeDiv(totalAcceptProxy, float64(len(sessions)))
-	enabledMCPs := 0
-	if latestSnapshot != nil {
-		enabledMCPs = latestSnapshot.EnabledMCPCount
-	}
-
-	evidenceBase := []string{
-		fmt.Sprintf("dominant_task=%s", dominantTask),
-		fmt.Sprintf("read_share=%.2f", readShare),
-		fmt.Sprintf("bash_share=%.2f", bashShare),
-		fmt.Sprintf("retry_rate=%.2f", retryRate),
-		fmt.Sprintf("reject_rate=%.2f", rejectRate),
-		fmt.Sprintf("repo_exploration=%.2f", avgExploration),
-		fmt.Sprintf("acceptance_proxy=%.2f", avgAcceptance),
-	}
-
-	recs := make([]researchRecommendation, 0, 4)
-	if avgExploration >= 0.55 || readShare >= 0.58 || dominantTask == "repo-qna" {
-		recs = append(recs, researchRecommendation{
-			Kind:            "instruction-pack",
-			Title:           "Roll out a repo research instruction pack",
-			Summary:         "Repo exploration is high enough that the cloud agent recommends a shared instruction layer for investigation-heavy sessions.",
-			Reason:          "The project behaves like a research-oriented workspace with repeated repository navigation.",
-			Explanation:     "The placeholder OpenAI research agent classified this project as repo-Q&A heavy. The production version will use OpenAI for explanation synthesis, but the current build keeps a deterministic rule path.",
-			ExpectedBenefit: "Reduce search churn and improve context assembly speed for large codebases.",
-			Risk:            "Low to medium. Instruction packs can bias future prompts, so approval should confirm the content matches team policy.",
-			ExpectedImpact:  "Higher repo navigation efficiency and lower token waste.",
-			Score:           0.9,
-			Evidence:        append(cloneStringSlice(evidenceBase), "recommendation=repo_research_pack"),
-			Steps: []ChangePlanStep{
-				{
-					Type:           "text_append",
-					Action:         "append_block",
-					TargetFile:     "AGENTS.md",
-					Summary:        "Append a repo research instruction pack for investigation-heavy work.",
-					ContentPreview: "\n## AgentOpt Research Pack\n- Prefer repo structure discovery before deep edits.\n- Summarize impacted files before patching.\n- Verify hooks, MCPs, and approval scope before execution.\n",
-				},
-				{
-					Type:            "json_merge",
-					Action:          "merge_patch",
-					TargetFile:      targetFileHint(latestTool),
-					Summary:         "Enable repo research defaults in the active AI coding tool config.",
-					SettingsUpdates: map[string]any{"instructions_pack": "repo-research", "retrieval_mode": "hierarchical", "context_window_hint": "large-repo"},
-				},
-			},
-			Settings: map[string]any{"instructions_pack": "repo-research", "retrieval_mode": "hierarchical"},
+func matchInstructionPatterns(queries []string) []matchedInstructionPattern {
+	out := make([]matchedInstructionPattern, 0, len(personalInstructionPatterns))
+	for _, pattern := range personalInstructionPatterns {
+		count := 0
+		for _, query := range queries {
+			if queryMatchesPattern(query, pattern.Terms) {
+				count++
+			}
+		}
+		if count == 0 {
+			continue
+		}
+		out = append(out, matchedInstructionPattern{
+			Pattern: pattern,
+			Count:   count,
 		})
 	}
+	return out
+}
 
-	if dominantTask == "bugfix" || dominantTask == "test" || retryRate >= 0.12 {
-		recs = append(recs, researchRecommendation{
-			Kind:            "verification-hook",
-			Title:           "Add a local verification hook",
-			Summary:         "Bugfix and retry-heavy workflows should validate edits immediately after patch application.",
-			Reason:          "The session mix suggests a test-heavy flow where quick verification prevents repeated retries.",
-			Explanation:     "The future OpenAI-backed agent will generate tool-specific hook suggestions. The placeholder currently emits a safe, structured merge plan only.",
-			ExpectedBenefit: "Improve inferred accept rate by catching regressions before the user leaves the session.",
-			Risk:            "Medium. Hooks may slow local execution if they are too broad, so the scope stays narrow and reviewable.",
-			ExpectedImpact:  "Fewer retries and better post-apply retention.",
-			Score:           0.84,
-			Evidence:        append(cloneStringSlice(evidenceBase), "recommendation=verification_hook"),
-			Steps: []ChangePlanStep{
-				{
-					Type:            "json_merge",
-					Action:          "merge_patch",
-					TargetFile:      targetFileHint(latestTool),
-					Summary:         "Enable a lightweight post-edit verification hook.",
-					SettingsUpdates: map[string]any{"post_edit_hook": "placeholder: run local verification", "hook_timeout_sec": 90},
-				},
-				{
-					Type:           "text_append",
-					Action:         "append_block",
-					TargetFile:     "AGENTS.md",
-					Summary:        "Add a verification note so collaborators understand the rollout intent.",
-					ContentPreview: "\n## AgentOpt Verification Note\n- Run the configured verification hook after substantial edits.\n",
-				},
-			},
-			Settings: map[string]any{"post_edit_hook": "placeholder: run local verification", "hook_timeout_sec": 90},
-		})
+func queryMatchesPattern(query string, terms []string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	for _, term := range terms {
+		if strings.Contains(query, term) {
+			return true
+		}
 	}
+	return false
+}
 
-	if enabledMCPs >= 3 && mcpUsage <= maxInt(len(sessions), 1) {
-		recs = append(recs, researchRecommendation{
-			Kind:            "mcp-prune",
-			Title:           "Prune low-value MCP integrations",
-			Summary:         "Configured MCP breadth is high relative to observed usage, so the cloud agent recommends trimming low-signal integrations.",
-			Reason:          "Multiple MCP servers are enabled but session evidence does not show meaningful usage.",
-			Explanation:     "The OpenAI integration is still a placeholder, so the server cannot name a specific MCP yet. It can still flag over-provisioning and send a safe review item.",
-			ExpectedBenefit: "Reduce config complexity and permission noise.",
-			Risk:            "Medium. A rarely used MCP can still be important, so this plan only proposes a reviewable disable placeholder.",
-			ExpectedImpact:  "Lower permission churn and less config entropy.",
-			Score:           0.76,
-			Evidence:        append(cloneStringSlice(evidenceBase), fmt.Sprintf("enabled_mcp_count=%d", enabledMCPs)),
-			Steps: []ChangePlanStep{{
-				Type:            "json_merge",
-				Action:          "merge_patch",
-				TargetFile:      ".mcp.json",
-				Summary:         "Mark a low-signal MCP integration for disable review.",
-				SettingsUpdates: map[string]any{"agentopt_review": map[string]any{"candidate_action": "disable_low_signal_mcp", "source": "placeholder-openai-analysis"}},
-			}},
-			Settings: map[string]any{"agentopt_review": map[string]any{"candidate_action": "disable_low_signal_mcp", "source": "placeholder-openai-analysis"}},
-		})
+func topInstructionPatterns(items []matchedInstructionPattern, limit int) []matchedInstructionPattern {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count == items[j].Count {
+			return items[i].Pattern.Label < items[j].Pattern.Label
+		}
+		return items[i].Count > items[j].Count
+	})
+	if limit > 0 && len(items) > limit {
+		return append([]matchedInstructionPattern(nil), items[:limit]...)
 	}
+	return append([]matchedInstructionPattern(nil), items...)
+}
 
-	if len(recs) == 0 || (rejectRate >= 0.05 || bashShare >= 0.2 || shellHeavyHits > 0) {
-		recs = append(recs, researchRecommendation{
-			Kind:            "safe-executor-profile",
-			Title:           "Enable a safer local executor profile",
-			Summary:         "Shell-heavy usage and permission rejections indicate the local execution agent needs a tighter policy baseline.",
-			Reason:          "The current runtime leans on shell activity and encounters approval friction.",
-			Explanation:     "This recommendation keeps execution local and deterministic. The future OpenAI layer will only author the plan, not execute arbitrary commands.",
-			ExpectedBenefit: "Lower rejection rate and clearer local guardrails.",
-			Risk:            "Low. The plan only adjusts policy hints and approval scope metadata.",
-			ExpectedImpact:  "Reduced permission churn and safer rollout defaults.",
-			Score:           0.71,
-			Evidence:        append(cloneStringSlice(evidenceBase), "recommendation=safe_executor_profile"),
-			Steps: []ChangePlanStep{{
-				Type:            "json_merge",
-				Action:          "merge_patch",
-				TargetFile:      targetFileHint(latestTool),
-				Summary:         "Set safe executor defaults for the local CLI agent.",
-				SettingsUpdates: map[string]any{"shell_profile": "safe", "approval_scope": "review-required", "local_guard": "strict"},
-			}},
-			Settings: map[string]any{"shell_profile": "safe", "approval_scope": "review-required", "local_guard": "strict"},
-		})
+func buildInstructionContent(matches []matchedInstructionPattern, avgTokensPerQuery float64) string {
+	lines := []string{
+		"",
+		"## AgentOpt Personal Instruction Pack",
+		"- Before editing, restate the goal, affected files, and the success check you will use.",
 	}
+	for _, match := range matches {
+		lines = append(lines, "- "+match.Pattern.Instruction)
+	}
+	if avgTokensPerQuery >= 2500 {
+		lines = append(lines, "- Keep the first response compact and avoid reopening files without new evidence.")
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
 
-	return recs
+func buildInstructionReason(matches []matchedInstructionPattern, avgTokensPerQuery float64) string {
+	if len(matches) == 0 {
+		if avgTokensPerQuery >= 2500 {
+			return "Recent sessions spend enough tokens on prompt setup that a shared instruction block should tighten the first pass."
+		}
+		return "Recent raw queries show enough repeated setup work to justify a reusable instruction block."
+	}
+	labels := make([]string, 0, len(matches))
+	for _, match := range matches {
+		labels = append(labels, match.Pattern.Label)
+	}
+	return "Recent raw queries repeatedly ask for " + joinHumanList(labels) + "."
+}
+
+func instructionRecommendationScore(matches []matchedInstructionPattern, avgTokensPerQuery float64) float64 {
+	score := 0.64 + 0.07*float64(len(matches))
+	if avgTokensPerQuery >= 2500 {
+		score += 0.07
+	}
+	if score > 0.93 {
+		score = 0.93
+	}
+	return round(score)
+}
+
+func joinHumanList(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
+	}
 }
 
 func latestConfigSnapshot(items []*ConfigSnapshot) *ConfigSnapshot {

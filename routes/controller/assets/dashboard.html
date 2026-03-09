@@ -812,6 +812,14 @@
       return "AgentOpt is collecting enough setup and session context to produce steadier recommendations.";
     }
 
+    function truncateText(value, maxLength = 96) {
+      const text = String(value || "").trim();
+      if (text.length <= maxLength) {
+        return text;
+      }
+      return `${text.slice(0, maxLength - 1)}...`;
+    }
+
     function stepSummary(step) {
       if (step && step.summary) {
         return String(step.summary);
@@ -890,10 +898,12 @@
     }
 
     function sessionTone(item) {
-      if (Number(item.permission_reject_count) > 0 || Number(item.retry_count) > 1) {
+      const queries = toArray(item.raw_queries).length;
+      const tokens = Number(item.token_in || 0) + Number(item.token_out || 0);
+      if (queries >= 3 && tokens >= 6000) {
         return "warn";
       }
-      if (Number(item.retry_count) === 0 && Number(item.permission_reject_count) === 0) {
+      if (queries > 0) {
         return "good";
       }
       return "sky";
@@ -902,12 +912,12 @@
     function sessionLabel(item) {
       const tone = sessionTone(item);
       if (tone === "good") {
-        return "Smooth";
+        return "Captured";
       }
       if (tone === "warn") {
-        return "Some friction";
+        return "Heavy prompt setup";
       }
-      return "In progress";
+      return "Small sample";
     }
 
     function historyNarrative(item) {
@@ -1134,18 +1144,20 @@
     }
 
     function sessionSummaryLines(item) {
+      const queries = toArray(item.raw_queries);
+      const totalTokens = Number(item.token_in || 0) + Number(item.token_out || 0);
       const lines = [];
-      lines.push(`${titleize(item.task_type || "mixed")} work session.`);
-      lines.push(item.shell_heavy ? "Work relied heavily on shell commands." : "Work stayed mostly inside the editor and tools.");
-      if (Number(item.permission_reject_count) > 0) {
-        lines.push("Approvals slowed the session at least once.");
-      } else {
-        lines.push("Approval friction stayed low.");
+      lines.push(`${formatCount(queries.length)} raw quer${queries.length === 1 ? "y" : "ies"} captured from the CLI.`);
+      if (totalTokens > 0) {
+        lines.push(`${formatCount(totalTokens)} total tokens were uploaded for this session.`);
       }
-      if (Number(item.retry_count) > 0) {
-        lines.push(Number(item.retry_count) === 1 ? "The agent needed one retry to finish the work." : "The agent needed several retries to finish the work.");
+      if (queries[0]) {
+        lines.push(`Sample prompt: ${truncateText(queries[0])}`);
+      }
+      if (queries.length >= 2) {
+        lines.push("Repeated phrasing here can be turned into a shared instruction block.");
       } else {
-        lines.push("Progress looked stable without retries.");
+        lines.push("More raw queries will make the next instruction suggestion more specific.");
       }
       return lines;
     }
@@ -1163,7 +1175,7 @@
         <div class="item">
           <div class="item-top">
             <div class="item-title">
-              ${escapeHTML(titleize(item.task_type || "Recent work"))}
+              ${escapeHTML(toArray(item.raw_queries).length > 0 ? "Prompt pattern" : "Recent work")}
               <small>Recorded ${escapeHTML(formatDateTime(item.timestamp))}</small>
             </div>
             ${pill(sessionLabel(item), sessionTone(item))}

@@ -11,8 +11,8 @@ The product shape is:
   - applies local changes safely and can roll them back
 - `Cloud Research Agent`
   - analyzes token usage, raw query history, and config snapshots
-  - generates ranked recommendations and structured change plans
-  - is wired as an `OpenAI placeholder` in this development build
+  - generates ranked instruction recommendations and structured change plans
+  - stays local and uses only uploaded personal usage data in this MVP
 - `AIops Server`
   - stores metrics, recommendations, change plans, execution history, impact, and audit logs
 - `Web Dashboard`
@@ -68,12 +68,13 @@ That path is useful for development because it creates, approves, and applies th
 
 Then open `http://127.0.0.1:8082/dashboard`, enter `agentopt-dev-token`, `demo-org`, and the target `project_id`.
 
-## OpenAI placeholder
+## Research Agent MVP
 
-The cloud research agent is intentionally implemented as a placeholder:
+The cloud research agent is intentionally narrow in this MVP:
 
-- provider metadata is surfaced as `openai`
-- no live OpenAI API call is made yet
-- recommendation generation remains deterministic and metrics-driven until the API integration is enabled
+- provider metadata is surfaced as `local`
+- no live OpenAI API call or web search is made yet
+- recommendation generation only looks at uploaded token usage and raw query history
+- recommendation output is limited to instruction/custom-rule suggestions for now
 - the local executor now enforces a strict file allowlist before any approved plan is applied
 - the local executor can now apply and roll back multi-step plans across allowlisted files
