@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -122,6 +123,11 @@ type codexResponseItemPayload struct {
 	Content []codexResponseContent `json:"content"`
 }
 
+type sessionBatchIngestResp struct {
+	Uploaded int                          `json:"uploaded"`
+	Items    []response.SessionIngestResp `json:"items"`
+}
+
 type apiClient struct {
 	baseURL string
 	token   string
@@ -191,7 +197,7 @@ func printUsage() {
   login             register a CLI agent and persist local state
   connect           connect a project to the current org/agent
   snapshot          upload a config snapshot from a JSON file
-  session           upload a session summary from a JSON file or local Codex session files
+  session           upload one or more session summaries from a JSON file or local Codex session files
   snapshots         list config snapshots for the current project
   sessions          list recent session summaries for the current project
   recommendations   list active recommendations for the current project
@@ -373,8 +379,15 @@ func runSession(args []string) error {
 	filePath := fs.String("file", "", "session summary JSON or Codex session JSONL path")
 	tool := fs.String("tool", "codex", "tool name")
 	codexHome := fs.String("codex-home", "", "override Codex home used for automatic session collection")
+	recent := fs.Int("recent", 1, "number of recent local Codex session JSONL files to upload when --file is omitted")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *recent < 1 {
+		return errors.New("--recent must be at least 1")
+	}
+	if strings.TrimSpace(*filePath) != "" && *recent != 1 {
+		return errors.New("--recent can only be used when --file is omitted")
 	}
 
 	st, err := loadProjectState()
@@ -382,24 +395,36 @@ func runSession(args []string) error {
 		return err
 	}
 
-	req, err := loadSessionSummaryInput(*filePath, *tool, *codexHome)
+	reqs, err := loadSessionSummaryInputs(*filePath, *tool, *codexHome, *recent)
 	if err != nil {
 		return err
 	}
-	req.ProjectID = st.ProjectID
-	if req.Tool == "" {
-		req.Tool = *tool
-	}
-	if req.Timestamp.IsZero() {
-		req.Timestamp = time.Now().UTC()
+	client := newAPIClient(st.ServerURL, st.APIToken)
+
+	items := make([]response.SessionIngestResp, 0, len(reqs))
+	for _, req := range reqs {
+		req.ProjectID = st.ProjectID
+		if req.Tool == "" {
+			req.Tool = *tool
+		}
+		if req.Timestamp.IsZero() {
+			req.Timestamp = time.Now().UTC()
+		}
+
+		var resp response.SessionIngestResp
+		if err := client.doJSON(http.MethodPost, "/api/v1/session-summaries", req, &resp); err != nil {
+			return err
+		}
+		items = append(items, resp)
 	}
 
-	client := newAPIClient(st.ServerURL, st.APIToken)
-	var resp response.SessionIngestResp
-	if err := client.doJSON(http.MethodPost, "/api/v1/session-summaries", req, &resp); err != nil {
-		return err
+	if len(items) == 1 {
+		return prettyPrint(items[0])
 	}
-	return prettyPrint(resp)
+	return prettyPrint(sessionBatchIngestResp{
+		Uploaded: len(items),
+		Items:    items,
+	})
 }
 
 func runSnapshots(args []string) error {
@@ -1045,36 +1070,53 @@ func readOptionalJSONMap(path string, out *map[string]any) (bool, error) {
 	return true, json.Unmarshal(data, out)
 }
 
-func loadSessionSummaryInput(path, tool, codexHome string) (request.SessionSummaryReq, error) {
+func loadSessionSummaryInputs(path, tool, codexHome string, recent int) ([]request.SessionSummaryReq, error) {
 	if strings.TrimSpace(path) != "" {
 		if strings.EqualFold(filepath.Ext(path), ".jsonl") {
-			return collectCodexSessionSummary(path, tool)
+			req, err := collectCodexSessionSummary(path, tool)
+			if err != nil {
+				return nil, err
+			}
+			return []request.SessionSummaryReq{req}, nil
 		}
 		var req request.SessionSummaryReq
 		if err := loadJSONFile(path, &req); err != nil {
-			return request.SessionSummaryReq{}, err
+			return nil, err
 		}
-		return req, nil
+		return []request.SessionSummaryReq{req}, nil
 	}
 
-	sessionPath, err := latestCodexSessionFile(codexHome)
+	sessionPaths, err := recentCodexSessionFiles(codexHome, recent)
 	if err != nil {
-		return request.SessionSummaryReq{}, err
+		return nil, err
 	}
-	return collectCodexSessionSummary(sessionPath, tool)
+	reqs := make([]request.SessionSummaryReq, 0, len(sessionPaths))
+	for _, sessionPath := range sessionPaths {
+		req, err := collectCodexSessionSummary(sessionPath, tool)
+		if err != nil {
+			return nil, err
+		}
+		reqs = append(reqs, req)
+	}
+	return reqs, nil
 }
 
-func latestCodexSessionFile(codexHome string) (string, error) {
+func recentCodexSessionFiles(codexHome string, limit int) ([]string, error) {
+	if limit < 1 {
+		return nil, errors.New("recent Codex session limit must be at least 1")
+	}
+
 	root, err := codexHomePath(codexHome)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	sessionsRoot := filepath.Join(root, "sessions")
-	var (
-		latestPath string
-		latestTime time.Time
-	)
+	type sessionFile struct {
+		path    string
+		modTime time.Time
+	}
+	files := make([]sessionFile, 0, limit)
 
 	err = filepath.WalkDir(sessionsRoot, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -1087,22 +1129,35 @@ func latestCodexSessionFile(codexHome string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if latestPath == "" || info.ModTime().After(latestTime) {
-			latestPath = path
-			latestTime = info.ModTime()
-		}
+		files = append(files, sessionFile{path: path, modTime: info.ModTime()})
 		return nil
 	})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", sessionsRoot)
+			return nil, fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", sessionsRoot)
 		}
-		return "", err
+		return nil, err
 	}
-	if latestPath == "" {
-		return "", fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", sessionsRoot)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", sessionsRoot)
 	}
-	return latestPath, nil
+
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].modTime.Equal(files[j].modTime) {
+			return files[i].path < files[j].path
+		}
+		return files[i].modTime.Before(files[j].modTime)
+	})
+
+	if len(files) > limit {
+		files = files[len(files)-limit:]
+	}
+
+	paths := make([]string, 0, len(files))
+	for _, item := range files {
+		paths = append(paths, item.path)
+	}
+	return paths, nil
 }
 
 func codexHomePath(override string) (string, error) {

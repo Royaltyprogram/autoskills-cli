@@ -117,6 +117,7 @@ The CLI acts as `collector + sync client + execution agent + rollback helper`.
 3. `snapshot` / `session`
    - uploads config snapshots plus token usage and raw query history
    - `session` can auto-collect the latest local Codex session JSONL under `~/.codex/sessions`
+   - `session --recent N` uploads the most recent `N` local Codex sessions in chronological order
 4. `recommendations`
    - lists research-agent output
 5. `apply`

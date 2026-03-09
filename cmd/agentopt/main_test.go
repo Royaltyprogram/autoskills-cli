@@ -189,6 +189,84 @@ func TestRunSessionCollectsLatestCodexSessionFromLocalFiles(t *testing.T) {
 	require.Equal(t, newTime, uploaded.Timestamp)
 }
 
+func TestRunSessionUploadsRecentLocalCodexSessions(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTOPT_HOME", root)
+
+	codexHome := filepath.Join(root, ".codex")
+	sessionOld := filepath.Join(codexHome, "sessions", "2026", "03", "07", "old.jsonl")
+	sessionMid := filepath.Join(codexHome, "sessions", "2026", "03", "08", "mid.jsonl")
+	sessionNew := filepath.Join(codexHome, "sessions", "2026", "03", "09", "new.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sessionOld), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(sessionMid), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(sessionNew), 0o755))
+
+	require.NoError(t, os.WriteFile(sessionOld, []byte(strings.Join([]string{
+		`{"timestamp":"2026-03-07T09:00:00Z","type":"session_meta","payload":{"id":"codex-session-old","timestamp":"2026-03-07T09:00:00Z"}}`,
+		`{"timestamp":"2026-03-07T09:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"obsolete prompt"}}`,
+		`{"timestamp":"2026-03-07T09:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}}}`,
+	}, "\n")+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(sessionMid, []byte(strings.Join([]string{
+		`{"timestamp":"2026-03-08T09:00:00Z","type":"session_meta","payload":{"id":"codex-session-mid","timestamp":"2026-03-08T09:00:00Z"}}`,
+		`{"timestamp":"2026-03-08T09:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"Inspect the analytics route before editing."}}`,
+		`{"timestamp":"2026-03-08T09:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":800,"output_tokens":160,"total_tokens":960}}}}`,
+	}, "\n")+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(sessionNew, []byte(strings.Join([]string{
+		`{"timestamp":"2026-03-09T09:00:00Z","type":"session_meta","payload":{"id":"codex-session-new","timestamp":"2026-03-09T09:00:00Z"}}`,
+		`{"timestamp":"2026-03-09T09:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"List the exact tests to run after the patch."}}`,
+		`{"timestamp":"2026-03-09T09:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1200,"output_tokens":240,"total_tokens":1440}}}}`,
+	}, "\n")+"\n"), 0o644))
+
+	oldTime := time.Date(2026, 3, 7, 9, 0, 2, 0, time.UTC)
+	midTime := time.Date(2026, 3, 8, 9, 0, 2, 0, time.UTC)
+	newTime := time.Date(2026, 3, 9, 9, 0, 2, 0, time.UTC)
+	require.NoError(t, os.Chtimes(sessionOld, oldTime, oldTime))
+	require.NoError(t, os.Chtimes(sessionMid, midTime, midTime))
+	require.NoError(t, os.Chtimes(sessionNew, newTime, newTime))
+
+	uploaded := make([]request.SessionSummaryReq, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/api/v1/session-summaries", r.URL.Path)
+
+		var req request.SessionSummaryReq
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		uploaded = append(uploaded, req)
+
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(envelope{
+			Code: 0,
+			Data: mustJSONRawMessage(t, response.SessionIngestResp{
+				SessionID:           req.SessionID,
+				ProjectID:           req.ProjectID,
+				RecommendationCount: len(uploaded),
+			}),
+		}))
+	}))
+	defer server.Close()
+
+	require.NoError(t, saveState(state{
+		ServerURL: server.URL,
+		APIToken:  "token-session",
+		OrgID:     "org-1",
+		UserID:    "user-1",
+		ProjectID: "project-1",
+	}))
+
+	err := runSession([]string{"--tool", "codex", "--codex-home", codexHome, "--recent", "2"})
+	require.NoError(t, err)
+
+	require.Len(t, uploaded, 2)
+	require.Equal(t, "codex-session-mid", uploaded[0].SessionID)
+	require.Equal(t, "codex-session-new", uploaded[1].SessionID)
+	require.Equal(t, "project-1", uploaded[0].ProjectID)
+	require.Equal(t, "project-1", uploaded[1].ProjectID)
+	require.Equal(t, []string{"Inspect the analytics route before editing."}, uploaded[0].RawQueries)
+	require.Equal(t, []string{"List the exact tests to run after the patch."}, uploaded[1].RawQueries)
+	require.Equal(t, 800, uploaded[0].TokenIn)
+	require.Equal(t, 1200, uploaded[1].TokenIn)
+}
+
 func TestExecuteLocalApplyCreatesBackupAndWritesConfig(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENTOPT_HOME", root)

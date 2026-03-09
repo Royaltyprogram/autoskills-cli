@@ -32,6 +32,7 @@ Detailed codebase documentation:
 - The dashboard now favors a user-facing approval surface instead of a developer-style operations console
 - Session summaries now focus on token usage and raw query history for MVP research analysis
 - `agentopt session` auto-collects the latest local Codex session from `~/.codex/sessions` when `--file` is omitted
+- `agentopt session --recent N` uploads the most recent `N` local Codex sessions in chronological order
 - Local apply supports both `JSON merge patches` and safe `text append` patches such as `AGENTS.md`
 
 ## Quickstart
@@ -48,6 +49,7 @@ go run ./cmd/agentopt login --server http://127.0.0.1:8082 --token agentopt-dev-
 go run ./cmd/agentopt connect --project demo-repo --repo-path .
 go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
 go run ./cmd/agentopt session
+go run ./cmd/agentopt session --recent 5
 go run ./cmd/agentopt recommendations
 go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID>
 go run ./cmd/agentopt preflight --apply-id <CHANGE_PLAN_ID>
