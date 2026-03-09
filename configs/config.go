@@ -69,6 +69,8 @@ type BootstrapUser struct {
 
 type HTTP struct {
 	AllowedOrigins     []string `koanf:"AllowedOrigins"`
+	AllowedCIDRs       []string `koanf:"AllowedCIDRs"`
+	TrustedProxyCIDRs  []string `koanf:"TrustedProxyCIDRs"`
 	RateLimitPerMinute int      `koanf:"RateLimitPerMinute"`
 	LogToStdout        bool     `koanf:"LogToStdout"`
 }
@@ -185,6 +187,12 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if value, ok := lookupEnv("HTTP_ALLOWED_ORIGINS"); ok {
 		cfg.HTTP.AllowedOrigins = splitCSV(value)
+	}
+	if value, ok := lookupEnv("HTTP_ALLOWED_CIDRS"); ok {
+		cfg.HTTP.AllowedCIDRs = splitCSV(value)
+	}
+	if value, ok := lookupEnv("HTTP_TRUSTED_PROXY_CIDRS"); ok {
+		cfg.HTTP.TrustedProxyCIDRs = splitCSV(value)
 	}
 	if value, ok := lookupEnv("HTTP_RATE_LIMIT_PER_MINUTE"); ok {
 		parsed, err := strconv.Atoi(value)

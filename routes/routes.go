@@ -25,6 +25,9 @@ func NewEcho(conf *configs.Config, logger *slog.Logger, store *service.Analytics
 
 	e.Logger = logger
 	e.HTTPErrorHandler = common.EchoErrorHandler
+	if err := configureIPExtractor(e, conf); err != nil {
+		return nil, err
+	}
 
 	cb, err := common.NewCustomBinder()
 	if err != nil {
@@ -35,6 +38,13 @@ func NewEcho(conf *configs.Config, logger *slog.Logger, store *service.Analytics
 	middlewareChain := []echo.MiddlewareFunc{
 		echoMiddleware.Recover(),
 		echoMiddleware.RequestLogger(),
+	}
+	ipAllowlist, err := newIPAllowlistMiddleware(conf.HTTP.AllowedCIDRs)
+	if err != nil {
+		return nil, err
+	}
+	if ipAllowlist != nil {
+		middlewareChain = append(middlewareChain, ipAllowlist)
 	}
 	if len(conf.HTTP.AllowedOrigins) > 0 {
 		middlewareChain = append(middlewareChain, echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{

@@ -123,3 +123,95 @@ func TestNewEchoRateLimitsAPIWhenConfigured(t *testing.T) {
 	echo.ServeHTTP(secondRec, second)
 	require.Equal(t, http.StatusTooManyRequests, secondRec.Code)
 }
+
+func TestNewEchoRejectsRequestsOutsideAllowedCIDRs(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.HTTP.AllowedCIDRs = []string{"10.0.0.0/8"}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := NewEcho(conf, slog.Default(), store)
+	require.NoError(t, err)
+
+	healthSvc := service.NewHealthService(service.Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+	engine := NewHttpEngine(Options{
+		Router: echo,
+		Conf:   conf,
+		Health: controller.NewHealthRoute(controller.Options{HealthService: healthSvc}),
+	})
+	engine.RegisterRoute()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestNewEchoAllowsRequestsWithinAllowedCIDRs(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.HTTP.AllowedCIDRs = []string{"127.0.0.1/32"}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := NewEcho(conf, slog.Default(), store)
+	require.NoError(t, err)
+
+	healthSvc := service.NewHealthService(service.Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+	engine := NewHttpEngine(Options{
+		Router: echo,
+		Conf:   conf,
+		Health: controller.NewHealthRoute(controller.Options{HealthService: healthSvc}),
+	})
+	engine.RegisterRoute()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestNewEchoUsesTrustedProxyCIDRsForAllowlist(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.HTTP.AllowedCIDRs = []string{"203.0.113.0/24"}
+	conf.HTTP.TrustedProxyCIDRs = []string{"127.0.0.1/32"}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := NewEcho(conf, slog.Default(), store)
+	require.NoError(t, err)
+
+	healthSvc := service.NewHealthService(service.Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+	engine := NewHttpEngine(Options{
+		Router: echo,
+		Conf:   conf,
+		Health: controller.NewHealthRoute(controller.Options{HealthService: healthSvc}),
+	})
+	engine.RegisterRoute()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	rec := httptest.NewRecorder()
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}

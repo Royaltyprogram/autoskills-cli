@@ -174,6 +174,16 @@ docker run --rm -p 8082:8082 \
 
 The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta` and then boots the local server to execute `scripts/closed_beta_smoke.sh` with the local demo account.
 
+For a stricter closed beta rollout, you can also restrict network access in-app:
+
+```bash
+HTTP_ALLOWED_CIDRS='203.0.113.10/32,198.51.100.0/24' \
+HTTP_TRUSTED_PROXY_CIDRS='10.0.0.0/8' \
+go run .
+```
+
+If `HTTP_TRUSTED_PROXY_CIDRS` is empty, AgentOpt only trusts the direct socket remote address and ignores forwarded IP headers.
+
 ## Research Agent MVP
 
 The cloud research agent is intentionally narrow in this MVP:
