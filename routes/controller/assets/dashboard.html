@@ -228,6 +228,11 @@
           <input id="projectId" placeholder="project_id or leave blank">
           <button id="loadBtn" type="button">Load</button>
         </div>
+        <div class="controls-row">
+          <input id="requestedBy" placeholder="requested_by / user_id">
+          <input id="applyScope" placeholder="scope: user or project" value="user">
+          <div></div>
+        </div>
         <div class="status" id="status">Enter your API token and organization, then load metrics.</div>
       </div>
     </section>
@@ -261,8 +266,8 @@
     </section>
     <section class="section" style="margin-top: 16px;">
       <article class="panel">
-        <h2>Projects</h2>
-        <div class="list" id="projectList"></div>
+        <h2>Pending Apply Queue</h2>
+        <div class="list" id="pendingApplyList"></div>
       </article>
       <article class="panel">
         <h2>Apply History</h2>
@@ -270,7 +275,11 @@
       </article>
     </section>
     <section class="section" style="margin-top: 16px;">
-      <article class="panel" style="grid-column: 1 / -1;">
+      <article class="panel">
+        <h2>Projects</h2>
+        <div class="list" id="projectList"></div>
+      </article>
+      <article class="panel">
         <h2>Recommendation Impact</h2>
         <div class="list" id="impactList"></div>
       </article>
@@ -413,6 +422,24 @@
       `).join("");
     }
 
+    function renderPendingApplies(items) {
+      if (!items.length) {
+        $("pendingApplyList").innerHTML = `<div class="item"><strong>No pending apply jobs.</strong><div class="meta">Request an apply from the dashboard or CLI.</div></div>`;
+        return;
+      }
+      $("pendingApplyList").innerHTML = items.map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${item.apply_id}</strong>
+            <span class="pill">${item.scope}</span>
+          </div>
+          <div class="meta">Requested by: ${item.requested_by}</div>
+          <div class="meta">Status: ${item.status} | Requested: ${item.requested_at}</div>
+          <div class="meta">Recommendation: <code>${item.recommendation_id}</code></div>
+        </div>
+      `).join("");
+    }
+
     function renderImpact(items) {
       if (!items.length) {
         $("impactList").innerHTML = `<div class="item"><strong>No impact data yet.</strong><div class="meta">Apply a recommendation and collect post-apply sessions.</div></div>`;
@@ -458,7 +485,8 @@
     async function requestApply(recommendationId) {
       const token = $("apiToken").value.trim();
       const projectId = $("projectId").value.trim();
-      const requestedBy = prompt("Requested by (user id)", "dashboard-user");
+      const requestedBy = $("requestedBy").value.trim();
+      const scope = ($("applyScope").value.trim() || "user").toLowerCase();
       if (!token || !projectId || !requestedBy) {
         setStatus("API token, project id, and requested_by are required.", true);
         return;
@@ -474,7 +502,7 @@
           body: JSON.stringify({
             recommendation_id: recommendationId,
             requested_by: requestedBy,
-            scope: "user"
+            scope
           })
         });
         const env = await resp.json();
@@ -524,14 +552,20 @@
         }
 
         let recommendations = [];
+        let pendingApplies = [];
         let applyHistory = [];
         let impacts = [];
         let audits = [];
         let snapshots = [];
         let sessions = [];
         if (projectId) {
-          const [recResp, applyResp, impactResp, auditResp, snapshotResp, sessionResp] = await Promise.all([
+          const requestedBy = $("requestedBy").value.trim();
+          const pendingPath = requestedBy
+            ? `/api/v1/applies/pending?project_id=${encodeURIComponent(projectId)}&user_id=${encodeURIComponent(requestedBy)}`
+            : `/api/v1/applies/pending?project_id=${encodeURIComponent(projectId)}`;
+          const [recResp, pendingResp, applyResp, impactResp, auditResp, snapshotResp, sessionResp] = await Promise.all([
             fetch(`/api/v1/recommendations?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
+            fetch(pendingPath, { headers: authHeaders() }),
             fetch(`/api/v1/applies?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
             fetch(`/api/v1/impact?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
             fetch(`/api/v1/audits?org_id=${encodeURIComponent(orgId)}&project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
@@ -539,6 +573,7 @@
             fetch(`/api/v1/session-summaries?project_id=${encodeURIComponent(projectId)}&limit=5`, { headers: authHeaders() })
           ]);
           const recEnv = await recResp.json();
+          const pendingEnv = await pendingResp.json();
           const applyEnv = await applyResp.json();
           const impactEnv = await impactResp.json();
           const auditEnv = await auditResp.json();
@@ -549,6 +584,9 @@
           }
           if (applyEnv.code !== 0) {
             throw new Error(applyEnv.msg || "apply history request failed");
+          }
+          if (pendingEnv.code !== 0) {
+            throw new Error(pendingEnv.msg || "pending applies request failed");
           }
           if (impactEnv.code !== 0) {
             throw new Error(impactEnv.msg || "impact request failed");
@@ -563,6 +601,7 @@
             throw new Error(sessionEnv.msg || "session request failed");
           }
           recommendations = recEnv.data.items || [];
+          pendingApplies = pendingEnv.data.items || [];
           applyHistory = applyEnv.data.items || [];
           impacts = impactEnv.data.items || [];
           audits = auditEnv.data.items || [];
@@ -586,6 +625,7 @@
         renderRecommendations(recommendations);
         renderConfigSnapshots(snapshots);
         renderSessionSummaries(sessions);
+        renderPendingApplies(pendingApplies);
         renderApplyHistory(applyHistory);
         renderImpact(impacts);
         renderAudits(audits);
@@ -596,6 +636,10 @@
     }
 
     $("apiToken").value = localStorage.getItem("agentopt_api_token") || "";
+    $("requestedBy").value = localStorage.getItem("agentopt_requested_by") || "";
+    $("applyScope").value = localStorage.getItem("agentopt_apply_scope") || "user";
+    $("requestedBy").addEventListener("change", () => localStorage.setItem("agentopt_requested_by", $("requestedBy").value.trim()));
+    $("applyScope").addEventListener("change", () => localStorage.setItem("agentopt_apply_scope", $("applyScope").value.trim()));
     $("loadBtn").addEventListener("click", load);
   </script>
 </body>

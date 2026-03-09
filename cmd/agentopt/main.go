@@ -92,6 +92,8 @@ func run(args []string) error {
 		return runProjects(args[1:])
 	case "history":
 		return runHistory(args[1:])
+	case "pending":
+		return runPending(args[1:])
 	case "impact":
 		return runImpact(args[1:])
 	case "audit":
@@ -122,6 +124,7 @@ func printUsage() {
   status            print org overview and project recommendations
   projects          list projects under the current org
   history           list apply history for the current project
+  pending           list pending apply jobs visible to the current user/project
   impact            list recommendation impact summaries for the current project
   audit             list recent audit events for the current org or project
   sync              pull pending apply jobs and execute them locally
@@ -469,6 +472,26 @@ func runHistory(args []string) error {
 	return prettyPrint(resp)
 }
 
+func runPending(args []string) error {
+	fs := flag.NewFlagSet("pending", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, err := loadProjectState()
+	if err != nil {
+		return err
+	}
+	client := newAPIClient(st.ServerURL, st.APIToken)
+
+	var resp response.PendingApplyResp
+	path := fmt.Sprintf("/api/v1/applies/pending?project_id=%s&user_id=%s", url.QueryEscape(st.ProjectID), url.QueryEscape(st.UserID))
+	if err := client.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return err
+	}
+	return prettyPrint(resp)
+}
+
 func runImpact(args []string) error {
 	fs := flag.NewFlagSet("impact", flag.ContinueOnError)
 	projectID := fs.String("project-id", "", "project id override")
@@ -563,7 +586,7 @@ func runSync(args []string) error {
 }
 
 func runSyncOnce(st state, client *apiClient, targetConfig string) error {
-	path := fmt.Sprintf("/api/v1/applies/pending?project_id=%s&requested_by=%s", url.QueryEscape(st.ProjectID), url.QueryEscape(st.UserID))
+	path := fmt.Sprintf("/api/v1/applies/pending?project_id=%s&user_id=%s", url.QueryEscape(st.ProjectID), url.QueryEscape(st.UserID))
 	var pending response.PendingApplyResp
 	if err := client.doJSON(http.MethodGet, path, nil, &pending); err != nil {
 		return err

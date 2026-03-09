@@ -117,10 +117,22 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-z", RequestedBy: "user-1"})
+	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-z", UserID: "user-1"})
 	require.NoError(t, err)
 	require.Len(t, pending.Items, 2)
 	require.Equal(t, planNew.ApplyID, pending.Items[0].ApplyID)
+
+	projectScopedPlan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
+		RecommendationID: recommendations.Items[0].ID,
+		RequestedBy:      "another-user",
+		Scope:            "project",
+	})
+	require.NoError(t, err)
+
+	projectVisible, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-z", UserID: "user-1"})
+	require.NoError(t, err)
+	require.Len(t, projectVisible.Items, 3)
+	require.Equal(t, projectScopedPlan.ApplyID, projectVisible.Items[0].ApplyID)
 
 	oldAppliedAt := now.Add(-30 * time.Minute)
 	newAppliedAt := now.Add(-10 * time.Minute)
@@ -159,9 +171,10 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	history, err := svc.ApplyHistory(ctx, &request.ApplyHistoryReq{ProjectID: "project-z"})
 	require.NoError(t, err)
-	require.Len(t, history.Items, 2)
-	require.Equal(t, planNew.ApplyID, history.Items[0].ApplyID)
-	require.Equal(t, planOld.ApplyID, history.Items[1].ApplyID)
+	require.Len(t, history.Items, 3)
+	require.Equal(t, projectScopedPlan.ApplyID, history.Items[0].ApplyID)
+	require.Equal(t, planNew.ApplyID, history.Items[1].ApplyID)
+	require.Equal(t, planOld.ApplyID, history.Items[2].ApplyID)
 
 	snapshots, err := svc.ListConfigSnapshots(ctx, &request.ConfigSnapshotListReq{ProjectID: "project-z"})
 	require.NoError(t, err)

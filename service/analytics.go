@@ -563,8 +563,16 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 		if op.ProjectID != req.ProjectID || op.Status != "pending_local_apply" {
 			continue
 		}
-		if req.RequestedBy != "" && op.RequestedBy != req.RequestedBy {
-			continue
+		switch op.Scope {
+		case "project", "team", "org":
+		case "user", "":
+			if req.UserID == "" || op.RequestedBy != req.UserID {
+				continue
+			}
+		default:
+			if req.UserID == "" || op.RequestedBy != req.UserID {
+				continue
+			}
 		}
 		items = append(items, response.PendingApplyItem{
 			ApplyID:          op.ID,

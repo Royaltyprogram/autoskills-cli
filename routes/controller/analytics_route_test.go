@@ -116,8 +116,8 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.Equal(t, "pending_local_apply", applyResp.Status)
 
 	pendingResp := getJSON[response.PendingApplyResp](t, echo, "/api/v1/applies/pending", url.Values{
-		"project_id":   []string{projectResp.ProjectID},
-		"requested_by": []string{"user-route"},
+		"project_id": []string{projectResp.ProjectID},
+		"user_id":    []string{"user-route"},
 	})
 	require.Len(t, pendingResp.Items, 1)
 	require.Equal(t, applyResp.ApplyID, pendingResp.Items[0].ApplyID)
