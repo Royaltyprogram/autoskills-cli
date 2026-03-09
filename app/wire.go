@@ -6,6 +6,7 @@ import (
 	"github.com/liushuangls/go-server-template/configs"
 	"github.com/liushuangls/go-server-template/crontab"
 	"github.com/liushuangls/go-server-template/routes"
+	"github.com/liushuangls/go-server-template/service"
 )
 
 var ProviderSet = wire.NewSet(
@@ -15,7 +16,8 @@ var ProviderSet = wire.NewSet(
 )
 
 type Options struct {
-	Config *configs.Config
-	Http   *routes.HttpEngine
-	Cron   *crontab.Client
+	Config         *configs.Config
+	Http           *routes.HttpEngine
+	Cron           *crontab.Client
+	AnalyticsStore *service.AnalyticsStore
 }

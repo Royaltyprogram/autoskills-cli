@@ -260,6 +260,11 @@ func (s *AnalyticsStore) Close() error {
 	return s.db.Close()
 }
 
+func (s *AnalyticsStore) OnServerClose(ctx context.Context) error {
+	_ = ctx
+	return s.Close()
+}
+
 func (s *AnalyticsStore) ExportStateJSON() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -721,11 +726,27 @@ func openAnalyticsStoreDB(conf *configs.Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyDBPoolConfig(db, conf)
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return db, nil
+}
+
+func applyDBPoolConfig(db *sql.DB, conf *configs.Config) {
+	if db == nil || conf == nil {
+		return
+	}
+	if conf.DB.MaxIdle > 0 {
+		db.SetMaxIdleConns(conf.DB.MaxIdle)
+	}
+	if conf.DB.MaxActive > 0 {
+		db.SetMaxOpenConns(conf.DB.MaxActive)
+	}
+	if conf.DB.MaxLifetime > 0 {
+		db.SetConnMaxLifetime(time.Duration(conf.DB.MaxLifetime) * time.Second)
+	}
 }
 
 func defaultAnalyticsStoreDSN(storePath string) string {
