@@ -215,6 +215,13 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	require.Equal(t, planNew.ApplyID, impact.Items[0].ApplyID)
 	require.Greater(t, impact.Items[0].SessionsAfter, 0)
 
+	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-1"})
+	require.NoError(t, err)
+	require.Equal(t, "bugfix", overview.PrimaryTaskType)
+	require.Equal(t, 2, overview.SuccessfulRolloutCount)
+	require.NotEmpty(t, overview.ActionSummary)
+	require.NotEmpty(t, overview.OutcomeSummary)
+
 	audits, err := svc.AuditList(ctx, &request.AuditListReq{OrgID: "org-1", ProjectID: "project-z"})
 	require.NoError(t, err)
 	require.NotEmpty(t, audits.Items)
@@ -453,4 +460,12 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.Len(t, historyAfterRollback.Items, 1)
 	require.Equal(t, "rollback_confirmed", historyAfterRollback.Items[0].Status)
 	require.True(t, historyAfterRollback.Items[0].RolledBack)
+
+	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-exec"})
+	require.NoError(t, err)
+	require.Equal(t, "bugfix", overview.PrimaryTaskType)
+	require.Equal(t, 0, overview.SuccessfulRolloutCount)
+	require.Equal(t, 0, overview.FailedExecutionCount)
+	require.NotEmpty(t, overview.ActionSummary)
+	require.NotEmpty(t, overview.OutcomeSummary)
 }

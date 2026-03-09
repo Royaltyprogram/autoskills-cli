@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"sort"
@@ -408,6 +409,7 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		totalActiveRecs      int
 		totalApplyOps        int
 		totalSuccessfulApply int
+		totalFailedApply     int
 		totalRollbacks       int
 		totalPendingReview   int
 		totalApprovedQueue   int
@@ -450,6 +452,9 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		if op.Status == "applied" {
 			totalSuccessfulApply++
 		}
+		if op.Status == "failed" {
+			totalFailedApply++
+		}
 		if op.Status == "awaiting_review" {
 			totalPendingReview++
 		}
@@ -461,6 +466,14 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		}
 	}
 
+	topTaskTypes := sortedTaskBreakdown(taskCounts)
+	primaryTaskType := ""
+	if len(topTaskTypes) > 0 {
+		primaryTaskType = topTaskTypes[0].TaskType
+	}
+	inferredAcceptRate := safeDiv(totalAcceptProxy, float64(maxInt(totalSessions, 1)))
+	rollbackRate := safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1)))
+
 	return &response.DashboardOverviewResp{
 		OrgID:                   req.OrgID,
 		TotalDevices:            countDevicesByOrg(s.AnalyticsStore.agents, req.OrgID),
@@ -469,17 +482,22 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		ActiveRecommendations:   totalActiveRecs,
 		PendingReviewCount:      totalPendingReview,
 		ApprovedQueueCount:      totalApprovedQueue,
+		SuccessfulRolloutCount:  totalSuccessfulApply,
+		FailedExecutionCount:    totalFailedApply,
 		TotalEstimatedCost:      round(totalCost),
 		AvgTokensPerQuery:       safeDiv(float64(totalTokens), float64(totalQueries)),
 		AvgToolCallsPerQuery:    safeDiv(float64(totalToolCalls), float64(totalQueries)),
 		PermissionRejectRate:    safeDiv(float64(totalRejects), float64(maxInt(totalToolCalls, 1))),
 		RetryRate:               safeDiv(float64(totalRetries), float64(maxInt(totalQueries, 1))),
 		RecommendationApplyRate: safeDiv(float64(totalSuccessfulApply), float64(maxInt(totalActiveRecs+totalSuccessfulApply, 1))),
-		InferredAcceptRate:      safeDiv(totalAcceptProxy, float64(maxInt(totalSessions, 1))),
-		RollbackRate:            safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1))),
+		InferredAcceptRate:      inferredAcceptRate,
+		RollbackRate:            rollbackRate,
+		PrimaryTaskType:         primaryTaskType,
+		ActionSummary:           buildDashboardActionSummary(primaryTaskType, totalPendingReview, totalApprovedQueue, totalActiveRecs),
+		OutcomeSummary:          buildDashboardOutcomeSummary(totalSuccessfulApply, totalFailedApply, inferredAcceptRate, rollbackRate),
 		ResearchProvider:        s.researchAgent.Provider,
 		ResearchMode:            s.researchAgent.Mode,
-		TopTaskTypes:            sortedTaskBreakdown(taskCounts),
+		TopTaskTypes:            topTaskTypes,
 		LastIngestedAt:          lastIngestedAt,
 	}, nil
 }
@@ -1194,5 +1212,41 @@ func interpretImpact(beforeCost, afterCost, beforeRetry, afterRetry, beforeRejec
 		return "Weak signal so far; collect more sessions."
 	default:
 		return "No improvement detected yet."
+	}
+}
+
+func buildDashboardActionSummary(primaryTaskType string, pendingReview, approvedQueue, activeRecommendations int) string {
+	taskHint := ""
+	if primaryTaskType != "" {
+		taskHint = " for " + strings.ReplaceAll(primaryTaskType, "-", " ") + " work"
+	}
+	switch {
+	case pendingReview > 0 && approvedQueue > 0:
+		return fmt.Sprintf("%d plan(s) need approval and %d more are ready for the next local sync.", pendingReview, approvedQueue)
+	case pendingReview > 0:
+		return fmt.Sprintf("%d plan(s) are waiting for approval.", pendingReview)
+	case approvedQueue > 0:
+		return fmt.Sprintf("%d approved plan(s) are ready for the next local sync.", approvedQueue)
+	case activeRecommendations > 0:
+		return fmt.Sprintf("%d recommendation(s) are ready to review%s.", activeRecommendations, taskHint)
+	default:
+		return "No rollout action is waiting right now."
+	}
+}
+
+func buildDashboardOutcomeSummary(successfulRollouts, failedExecutions int, inferredAcceptRate, rollbackRate float64) string {
+	switch {
+	case failedExecutions > 0:
+		return fmt.Sprintf("%d rollout(s) need attention after failing local execution.", failedExecutions)
+	case successfulRollouts == 0:
+		return "No completed rollouts yet. Approve a change to start measuring outcomes."
+	case rollbackRate >= 0.25:
+		return "Recent rollouts are being reversed too often. Narrow the next change scope."
+	case inferredAcceptRate >= 0.75:
+		return "Recent changes are largely sticking after rollout."
+	case inferredAcceptRate >= 0.5:
+		return "Recent changes look promising, but more usage is needed to confirm the effect."
+	default:
+		return "Recent changes are not sticking consistently yet."
 	}
 }

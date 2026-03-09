@@ -204,6 +204,13 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.Equal(t, "rollback_confirmed", applyHistoryAfterRollback.Items[0].Status)
 	require.True(t, applyHistoryAfterRollback.Items[0].RolledBack)
 
+	overviewResp := getJSON[response.DashboardOverviewResp](t, echo, "/api/v1/dashboard/overview", url.Values{
+		"org_id": []string{"org-route"},
+	})
+	require.Equal(t, "bugfix", overviewResp.PrimaryTaskType)
+	require.NotEmpty(t, overviewResp.ActionSummary)
+	require.NotEmpty(t, overviewResp.OutcomeSummary)
+
 	auditResp := getJSON[response.AuditListResp](t, echo, "/api/v1/audits", url.Values{
 		"org_id": []string{"org-route"},
 	})

@@ -803,12 +803,13 @@
     }
 
     function workloadNarrative(overview) {
-      const top = toArray(overview.top_task_types)[0];
-      if (!top) {
-        return "AgentOpt is collecting enough setup and session context to produce steadier recommendations.";
+      const action = String(overview.action_summary || "").trim();
+      const outcome = String(overview.outcome_summary || "").trim();
+      const combined = `${action} ${outcome}`.trim();
+      if (combined) {
+        return combined;
       }
-      const task = titleize(top.task_type || "mixed");
-      return `${formatCount(top.sessions)} recent sessions leaned toward ${task} work. Changes kept in place are currently estimated at ${formatPercent(overview.inferred_accept_rate)}.`;
+      return "AgentOpt is collecting enough setup and session context to produce steadier recommendations.";
     }
 
     function stepSummary(step) {
@@ -871,6 +872,12 @@
       $("pendingReviewCount").textContent = formatCount(overview.pending_review_count);
       $("approvedQueueCount").textContent = formatCount(overview.approved_queue_count);
       $("inferredAcceptRate").textContent = formatPercent(overview.inferred_accept_rate);
+      const primaryTask = overview.primary_task_type ? titleize(overview.primary_task_type) : "Mixed";
+      const successfulRollouts = formatCount(overview.successful_rollout_count);
+      const failedExecutions = formatCount(overview.failed_execution_count);
+      $("totalProjects").nextElementSibling.textContent = `Most recent work leans toward ${primaryTask}.`;
+      $("approvedQueueCount").nextElementSibling.textContent = `${successfulRollouts} rollout(s) have completed successfully so far.`;
+      $("inferredAcceptRate").nextElementSibling.textContent = `Successful rollouts: ${successfulRollouts} | Failed executions: ${failedExecutions}`;
       $("overviewNarrative").textContent = workloadNarrative(overview);
     }
 

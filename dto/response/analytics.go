@@ -271,6 +271,8 @@ type DashboardOverviewResp struct {
 	ActiveRecommendations   int             `json:"active_recommendations"`
 	PendingReviewCount      int             `json:"pending_review_count"`
 	ApprovedQueueCount      int             `json:"approved_queue_count"`
+	SuccessfulRolloutCount  int             `json:"successful_rollout_count"`
+	FailedExecutionCount    int             `json:"failed_execution_count"`
 	TotalEstimatedCost      float64         `json:"total_estimated_cost"`
 	AvgTokensPerQuery       float64         `json:"avg_tokens_per_query"`
 	AvgToolCallsPerQuery    float64         `json:"avg_tool_calls_per_query"`
@@ -279,6 +281,9 @@ type DashboardOverviewResp struct {
 	RecommendationApplyRate float64         `json:"recommendation_apply_rate"`
 	InferredAcceptRate      float64         `json:"inferred_accept_rate"`
 	RollbackRate            float64         `json:"rollback_rate"`
+	PrimaryTaskType         string          `json:"primary_task_type"`
+	ActionSummary           string          `json:"action_summary"`
+	OutcomeSummary          string          `json:"outcome_summary"`
 	ResearchProvider        string          `json:"research_provider"`
 	ResearchMode            string          `json:"research_mode"`
 	TopTaskTypes            []TaskBreakdown `json:"top_task_types"`
