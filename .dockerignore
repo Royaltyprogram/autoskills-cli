@@ -1,0 +1,16 @@
+.git
+.github
+.agentopt-dev
+.idea
+log
+output
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/ent
+resources/bin
+node_modules
+tools/codex-runner/node_modules
+myenv
+*.test
+*.out

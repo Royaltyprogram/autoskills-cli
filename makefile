@@ -20,6 +20,11 @@ mock-e2e:
 closed-beta-smoke:
 	./scripts/closed_beta_smoke.sh
 
+ci-beta:
+	go test ./...
+	$(MAKE) build
+	$(MAKE) beta-cli-bundle
+
 beta-cli-bundle:
 	./scripts/build_beta_bundle.sh
 

@@ -121,6 +121,12 @@ export BETA_SMOKE_PASSWORD=replace-me
 make closed-beta-smoke
 ```
 
+For repeatable closed beta verification in CI:
+
+```bash
+make ci-beta
+```
+
 To build the CLI artifact you hand to beta users:
 
 ```bash
@@ -162,6 +168,8 @@ docker run --rm -p 8082:8082 \
   -e AUTH_BOOTSTRAP_USERS_JSON='[...]' \
   agentopt-beta
 ```
+
+The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta` and then boots the local server to execute `scripts/closed_beta_smoke.sh` with the local demo account.
 
 ## Research Agent MVP
 
