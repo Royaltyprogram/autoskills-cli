@@ -110,6 +110,13 @@ go run ./cmd/agentopt impact
 
 `sync`와 `apply --yes`는 내부적으로 `tools/codex-runner/run.mjs`를 호출해서 승인된 파일만 수정한다.
 
+`Codex` reasoning effort를 낮추고 싶으면 아래처럼 넘길 수 있다.
+
+```bash
+go run ./cmd/agentopt sync --codex-reasoning-effort low
+AGENTOPT_CODEX_REASONING_EFFORT=low go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID> --yes
+```
+
 ## 7. 적용 후 세션 다시 업로드
 
 영향도(`impact`)가 비어 있거나 `Waiting for post-apply sessions.`로 나오면 적용 후 세션을 한 번 더 올린다.

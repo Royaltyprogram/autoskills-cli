@@ -82,6 +82,13 @@ If `sync` or `apply --yes` fails before the plan starts, check the local runner 
 make check-codex-runner
 ```
 
+If you want to force a lower Codex reasoning effort for local apply, pass it through the CLI or env:
+
+```bash
+go run ./cmd/agentopt sync --codex-reasoning-effort low
+AGENTOPT_CODEX_REASONING_EFFORT=low go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID> --yes
+```
+
 To rerun the mock dashboard approve -> local agent sync -> rollback flow without touching your real workspace:
 
 ```bash
