@@ -646,30 +646,48 @@ func runSyncOnce(st state, client *apiClient, targetConfig string) error {
 	}
 
 	results := make([]response.ApplyResultResp, 0, len(pending.Items))
+	failedApplyIDs := make([]string, 0)
 	for _, item := range pending.Items {
 		localResult, err := executeLocalApply(st, item.ApplyID, item.PatchPreview, targetConfig)
 		if err != nil {
-			return err
+			result, reportErr := reportApplyResult(client, request.ApplyResultReq{
+				ApplyID: item.ApplyID,
+				Success: false,
+				Note:    fmt.Sprintf("local apply failed during sync: %v", err),
+			})
+			if reportErr != nil {
+				return fmt.Errorf("apply %s failed locally: %v; failed to report result: %w", item.ApplyID, err, reportErr)
+			}
+			results = append(results, result)
+			failedApplyIDs = append(failedApplyIDs, item.ApplyID)
+			continue
 		}
 
-		var result response.ApplyResultResp
-		if err := client.doJSON(http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
+		result, err := reportApplyResult(client, request.ApplyResultReq{
 			ApplyID:         item.ApplyID,
 			Success:         true,
 			Note:            "applied by agentopt sync",
 			AppliedFile:     localResult.FilePath,
 			AppliedSettings: localResult.AppliedSettings,
 			AppliedText:     localResult.AppliedText,
-		}, &result); err != nil {
+		})
+		if err != nil {
 			return err
 		}
 		results = append(results, result)
 	}
 
-	return prettyPrint(map[string]any{
+	if err := prettyPrint(map[string]any{
 		"pending_count": len(pending.Items),
+		"failed_count":  len(failedApplyIDs),
 		"results":       results,
-	})
+	}); err != nil {
+		return err
+	}
+	if len(failedApplyIDs) > 0 {
+		return fmt.Errorf("sync completed with failed applies: %s", strings.Join(failedApplyIDs, ", "))
+	}
+	return nil
 }
 
 func runApply(args []string) error {
@@ -716,18 +734,25 @@ func runApply(args []string) error {
 
 	localResult, err := executeLocalApply(st, plan.ApplyID, plan.PatchPreview, *targetConfig)
 	if err != nil {
+		if _, reportErr := reportApplyResult(client, request.ApplyResultReq{
+			ApplyID: plan.ApplyID,
+			Success: false,
+			Note:    fmt.Sprintf("local apply failed: %v", err),
+		}); reportErr != nil {
+			return fmt.Errorf("local apply failed: %v; failed to report result: %w", err, reportErr)
+		}
 		return err
 	}
 
-	var result response.ApplyResultResp
-	if err := client.doJSON(http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
+	result, err := reportApplyResult(client, request.ApplyResultReq{
 		ApplyID:         plan.ApplyID,
 		Success:         true,
 		Note:            *note,
 		AppliedFile:     localResult.FilePath,
 		AppliedSettings: localResult.AppliedSettings,
 		AppliedText:     localResult.AppliedText,
-	}, &result); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 	return prettyPrint(result)
@@ -867,6 +892,12 @@ func newAPIClient(baseURL, token string) *apiClient {
 			Timeout: 15 * time.Second,
 		},
 	}
+}
+
+func reportApplyResult(client *apiClient, req request.ApplyResultReq) (response.ApplyResultResp, error) {
+	var resp response.ApplyResultResp
+	err := client.doJSON(http.MethodPost, "/api/v1/applies/result", req, &resp)
+	return resp, err
 }
 
 func (c *apiClient) doJSON(method, path string, body any, out any) error {
