@@ -26,6 +26,9 @@ const (
 	defaultDemoUserName = "Demo Operator"
 	defaultDemoEmail    = "demo@example.com"
 	defaultDemoPassword = "demo1234"
+
+	userSourceDemo      = "demo"
+	userSourceBootstrap = "bootstrap"
 )
 
 type AccessToken struct {
@@ -108,6 +111,7 @@ func (s *AnalyticsStore) ensureDemoUserLocked(now time.Time) bool {
 			OrgID:        defaultDemoOrgID,
 			Email:        defaultDemoEmail,
 			Name:         defaultDemoUserName,
+			Source:       userSourceDemo,
 			PasswordSalt: salt,
 			PasswordHash: hash,
 			CreatedAt:    now,
@@ -125,6 +129,10 @@ func (s *AnalyticsStore) ensureDemoUserLocked(now time.Time) bool {
 	}
 	if strings.TrimSpace(user.Name) == "" {
 		user.Name = defaultDemoUserName
+		modified = true
+	}
+	if strings.TrimSpace(user.Source) == "" {
+		user.Source = userSourceDemo
 		modified = true
 	}
 	if user.CreatedAt.IsZero() {
@@ -181,6 +189,8 @@ func (s *AnalyticsStore) removeDemoUserLocked() bool {
 
 func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 	modified := false
+	desiredIDs := make(map[string]struct{}, len(s.bootstrapUsers))
+	desiredEmails := make(map[string]struct{}, len(s.bootstrapUsers))
 
 	for _, item := range s.bootstrapUsers {
 		email := normalizeEmail(item.Email)
@@ -205,7 +215,7 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 				Name: orgName,
 			}
 			modified = true
-		} else if strings.TrimSpace(org.Name) == "" {
+		} else if strings.TrimSpace(org.Name) == "" || org.Name != orgName {
 			org.Name = orgName
 			modified = true
 		}
@@ -214,6 +224,8 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 		if userID == "" {
 			userID = bootstrapUserID(email)
 		}
+		desiredIDs[userID] = struct{}{}
+		desiredEmails[email] = struct{}{}
 
 		user := s.users[userID]
 		if user == nil {
@@ -226,6 +238,7 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 				OrgID:        orgID,
 				Email:        email,
 				Name:         firstNonEmpty(strings.TrimSpace(item.Name), userID),
+				Source:       userSourceBootstrap,
 				PasswordSalt: salt,
 				PasswordHash: hash,
 				CreatedAt:    now,
@@ -234,16 +247,28 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 			continue
 		}
 
-		if strings.TrimSpace(user.OrgID) == "" {
+		credentialsChanged := false
+		if strings.TrimSpace(user.OrgID) == "" || user.OrgID != orgID {
+			if user.OrgID != "" && user.OrgID != orgID {
+				credentialsChanged = true
+			}
 			user.OrgID = orgID
 			modified = true
 		}
-		if normalizeEmail(user.Email) == "" {
+		if normalizeEmail(user.Email) == "" || normalizeEmail(user.Email) != email {
+			if normalizeEmail(user.Email) != "" && normalizeEmail(user.Email) != email {
+				credentialsChanged = true
+			}
 			user.Email = email
 			modified = true
 		}
-		if strings.TrimSpace(user.Name) == "" && strings.TrimSpace(item.Name) != "" {
-			user.Name = strings.TrimSpace(item.Name)
+		desiredName := firstNonEmpty(strings.TrimSpace(item.Name), userID)
+		if strings.TrimSpace(user.Name) == "" || user.Name != desiredName {
+			user.Name = desiredName
+			modified = true
+		}
+		if strings.TrimSpace(user.Source) == "" || user.Source != userSourceBootstrap {
+			user.Source = userSourceBootstrap
 			modified = true
 		}
 		if user.CreatedAt.IsZero() {
@@ -254,10 +279,52 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 		if user.PasswordSalt != salt || user.PasswordHash != hash {
 			user.PasswordSalt = salt
 			user.PasswordHash = hash
+			credentialsChanged = true
+			modified = true
+		}
+		if credentialsChanged && s.revokeUserTokensLocked(user.ID, now) {
 			modified = true
 		}
 	}
 
+	if s.reconcileBootstrapUsersLocked(desiredIDs, desiredEmails, now) {
+		modified = true
+	}
+
+	return modified
+}
+
+func (s *AnalyticsStore) reconcileBootstrapUsersLocked(desiredIDs, desiredEmails map[string]struct{}, now time.Time) bool {
+	modified := false
+	for id, user := range s.users {
+		if user == nil || user.Source != userSourceBootstrap {
+			continue
+		}
+		if _, ok := desiredIDs[id]; ok {
+			continue
+		}
+		if _, ok := desiredEmails[normalizeEmail(user.Email)]; ok {
+			continue
+		}
+		if s.revokeUserTokensLocked(id, now) {
+			modified = true
+		}
+		delete(s.users, id)
+		modified = true
+	}
+	return modified
+}
+
+func (s *AnalyticsStore) revokeUserTokensLocked(userID string, now time.Time) bool {
+	modified := false
+	for _, token := range s.accessTokens {
+		if token == nil || token.UserID != userID || token.RevokedAt != nil {
+			continue
+		}
+		revokedAt := now
+		token.RevokedAt = &revokedAt
+		modified = true
+	}
 	return modified
 }
 

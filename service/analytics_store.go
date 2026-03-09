@@ -65,6 +65,7 @@ type User struct {
 	OrgID        string
 	Email        string
 	Name         string
+	Source       string
 	PasswordSalt string
 	PasswordHash string
 	CreatedAt    time.Time
