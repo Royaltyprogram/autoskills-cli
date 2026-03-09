@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -25,16 +26,17 @@ import (
 )
 
 type state struct {
-	ServerURL   string `json:"server_url"`
-	APIToken    string `json:"api_token"`
-	OrgID       string `json:"org_id"`
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	DeviceName  string `json:"device_name"`
-	Hostname    string `json:"hostname"`
-	ProjectID   string `json:"project_id"`
-	ProjectName string `json:"project_name"`
+	ServerURL  string `json:"server_url"`
+	APIToken   string `json:"api_token"`
+	OrgID      string `json:"org_id"`
+	UserID     string `json:"user_id"`
+	AgentID    string `json:"agent_id"`
+	DeviceName string `json:"device_name"`
+	Hostname   string `json:"hostname"`
+	ProjectID  string `json:"project_id"`
 }
+
+const sharedWorkspaceName = "Shared workspace"
 
 type applyBackup struct {
 	ApplyID        string            `json:"apply_id"`
@@ -68,6 +70,40 @@ type localApplyResult struct {
 	AppliedText     string
 }
 
+type codexApplyRequest struct {
+	ApplyID               string           `json:"apply_id"`
+	WorkingDirectory      string           `json:"working_directory"`
+	AdditionalDirectories []string         `json:"additional_directories"`
+	AllowedFiles          []string         `json:"allowed_files"`
+	SandboxMode           string           `json:"sandbox_mode"`
+	ApprovalPolicy        string           `json:"approval_policy"`
+	SkipGitRepoCheck      bool             `json:"skip_git_repo_check"`
+	NetworkAccessEnabled  bool             `json:"network_access_enabled"`
+	Steps                 []codexApplyStep `json:"steps"`
+}
+
+type codexApplyStep struct {
+	TargetFile      string         `json:"target_file"`
+	Operation       string         `json:"operation"`
+	Summary         string         `json:"summary"`
+	SettingsUpdates map[string]any `json:"settings_updates,omitempty"`
+	ContentPreview  string         `json:"content_preview,omitempty"`
+}
+
+type codexApplyResponse struct {
+	ThreadID         string                 `json:"thread_id"`
+	Status           string                 `json:"status"`
+	Summary          string                 `json:"summary"`
+	FinalResponse    string                 `json:"final_response"`
+	ChangedFiles     []string               `json:"changed_files"`
+	ExecutedCommands []codexExecutedCommand `json:"executed_commands"`
+}
+
+type codexExecutedCommand struct {
+	Command string `json:"command"`
+	Status  string `json:"status"`
+}
+
 type preflightResult struct {
 	ApplyID string          `json:"apply_id"`
 	Allowed bool            `json:"allowed"`
@@ -85,44 +121,6 @@ type preflightStep struct {
 	Allowed      bool   `json:"allowed"`
 }
 
-type codexSessionLine struct {
-	Timestamp string          `json:"timestamp"`
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-}
-
-type codexSessionMetaPayload struct {
-	ID        string `json:"id"`
-	Timestamp string `json:"timestamp"`
-}
-
-type codexTokenUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
-}
-
-type codexTokenCountInfo struct {
-	TotalTokenUsage *codexTokenUsage `json:"total_token_usage"`
-}
-
-type codexEventMsgPayload struct {
-	Type    string               `json:"type"`
-	Message string               `json:"message"`
-	Info    *codexTokenCountInfo `json:"info"`
-}
-
-type codexResponseContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type codexResponseItemPayload struct {
-	Type    string                 `json:"type"`
-	Role    string                 `json:"role"`
-	Content []codexResponseContent `json:"content"`
-}
-
 type sessionBatchIngestResp struct {
 	Uploaded int                          `json:"uploaded"`
 	Items    []response.SessionIngestResp `json:"items"`
@@ -132,16 +130,6 @@ type apiClient struct {
 	baseURL string
 	token   string
 	http    *http.Client
-}
-
-type projectListOutput struct {
-	ActiveProjectID string            `json:"active_project_id"`
-	Items           []projectListItem `json:"items"`
-}
-
-type projectListItem struct {
-	response.ProjectResp
-	Active bool `json:"active"`
 }
 
 func main() {
@@ -176,8 +164,6 @@ func run(args []string) error {
 		return runStatus(args[1:])
 	case "projects":
 		return runProjects(args[1:])
-	case "use-project":
-		return runUseProject(args[1:])
 	case "history":
 		return runHistory(args[1:])
 	case "pending":
@@ -207,19 +193,18 @@ func run(args []string) error {
 func printUsage() {
 	fmt.Println(`agentopt commands:
   login             authenticate with an issued CLI token and register this device
-  connect           connect a project to the current org/agent
+  connect           connect a local repo to the shared workspace for the current org
   snapshot          upload a config snapshot from a JSON file
   session           upload one or more session summaries from a JSON file or local Codex session files
-  snapshots         list config snapshots for the current project
-  sessions          list recent session summaries for the current project
-  recommendations   list active recommendations for the current project
-  status            print org overview and project recommendations
-  projects          list projects under the current org
-  use-project       set the active project in local CLI state
-  history           list apply history for the current project
-  pending           list pending apply jobs visible to the current user/project
-  impact            list recommendation impact summaries for the current project
-  audit             list recent audit events for the current org or project
+  snapshots         list config snapshots for the shared workspace
+  sessions          list recent session summaries for the shared workspace
+  recommendations   list active recommendations for the shared workspace
+  status            print org overview and shared workspace recommendations
+  projects          show the shared workspace connected to the current org
+  history           list apply history for the shared workspace
+  pending           list pending apply jobs visible to the current user and shared workspace
+  impact            list recommendation impact summaries for the shared workspace
+  audit             list recent audit events for the current org and shared workspace
   sync              pull approved change plans and execute them locally
   rollback          restore the local config backup for a previous apply
   apply             request a change plan and optionally approve/apply it locally
@@ -298,7 +283,6 @@ func runLogin(args []string) error {
 func runConnect(args []string) error {
 	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
 	projectName := fs.String("project", "", "project name")
-	projectID := fs.String("project-id", "", "project id override")
 	repoHash := fs.String("repo-hash", "", "stable repo hash")
 	repoPath := fs.String("repo-path", ".", "repo path")
 	tool := fs.String("tool", "codex", "default tool")
@@ -329,7 +313,6 @@ func runConnect(args []string) error {
 	req := request.RegisterProjectReq{
 		OrgID:       st.OrgID,
 		AgentID:     st.AgentID,
-		ProjectID:   *projectID,
 		Name:        *projectName,
 		RepoHash:    hash,
 		RepoPath:    repoRoot,
@@ -342,7 +325,6 @@ func runConnect(args []string) error {
 	}
 
 	st.ProjectID = resp.ProjectID
-	st.ProjectName = *projectName
 	if err := saveState(st); err != nil {
 		return err
 	}
@@ -448,12 +430,11 @@ func runSession(args []string) error {
 
 func runSnapshots(args []string) error {
 	fs := flag.NewFlagSet("snapshots", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -469,12 +450,11 @@ func runSnapshots(args []string) error {
 func runSessions(args []string) error {
 	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
 	limit := fs.Int("limit", 5, "max number of recent sessions")
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -490,12 +470,11 @@ func runSessions(args []string) error {
 
 func runRecommendations(args []string) error {
 	fs := flag.NewFlagSet("recommendations", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -510,12 +489,11 @@ func runRecommendations(args []string) error {
 
 func runStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -532,7 +510,7 @@ func runStatus(args []string) error {
 
 	payload := map[string]any{
 		"project_id":      st.ProjectID,
-		"project_name":    st.ProjectName,
+		"project_name":    sharedWorkspaceName,
 		"overview":        overview,
 		"recommendations": recs.Items,
 	}
@@ -555,63 +533,16 @@ func runProjects(args []string) error {
 	if err := client.doJSON(http.MethodGet, "/api/v1/projects?org_id="+url.QueryEscape(st.OrgID), nil, &resp); err != nil {
 		return err
 	}
-	return prettyPrint(projectListOutput{
-		ActiveProjectID: st.ProjectID,
-		Items:           decorateProjects(resp.Items, st.ProjectID),
-	})
-}
-
-func runUseProject(args []string) error {
-	fs := flag.NewFlagSet("use-project", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id to store in local CLI state")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if strings.TrimSpace(*projectID) == "" {
-		return errors.New("use-project requires --project-id")
-	}
-
-	st, err := loadState()
-	if err != nil {
-		return err
-	}
-	client := newAPIClient(st.ServerURL, st.APIToken)
-
-	var resp response.ProjectListResp
-	if err := client.doJSON(http.MethodGet, "/api/v1/projects?org_id="+url.QueryEscape(st.OrgID), nil, &resp); err != nil {
-		return err
-	}
-
-	targetID := strings.TrimSpace(*projectID)
-	for _, item := range resp.Items {
-		if item.ID != targetID {
-			continue
-		}
-
-		st.ProjectID = item.ID
-		st.ProjectName = item.Name
-		if err := saveState(st); err != nil {
-			return err
-		}
-
-		return prettyPrint(map[string]any{
-			"project_id":   item.ID,
-			"project_name": item.Name,
-			"status":       "selected",
-		})
-	}
-
-	return fmt.Errorf("project %q not found under org %q", targetID, st.OrgID)
+	return prettyPrint(resp)
 }
 
 func runHistory(args []string) error {
 	fs := flag.NewFlagSet("history", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -626,12 +557,11 @@ func runHistory(args []string) error {
 
 func runPending(args []string) error {
 	fs := flag.NewFlagSet("pending", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -647,12 +577,11 @@ func runPending(args []string) error {
 
 func runImpact(args []string) error {
 	fs := flag.NewFlagSet("impact", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "project id override")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -667,7 +596,6 @@ func runImpact(args []string) error {
 
 func runAudit(args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
-	projectID := fs.String("project-id", "", "optional project id filter")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -677,9 +605,6 @@ func runAudit(args []string) error {
 		return err
 	}
 	path := "/api/v1/audits?org_id=" + url.QueryEscape(st.OrgID)
-	if strings.TrimSpace(*projectID) != "" {
-		path += "&project_id=" + url.QueryEscape(*projectID)
-	}
 
 	client := newAPIClient(st.ServerURL, st.APIToken)
 	var resp response.AuditListResp
@@ -692,14 +617,13 @@ func runAudit(args []string) error {
 func runSync(args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	targetConfig := fs.String("target-config", "", "override local config path for pending apply jobs")
-	projectID := fs.String("project-id", "", "project id override")
 	watch := fs.Bool("watch", false, "poll for pending apply jobs until interrupted")
 	interval := fs.Duration("interval", 15*time.Second, "poll interval in watch mode")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	st, err := loadProjectStateFor(*projectID)
+	st, err := loadProjectState()
 	if err != nil {
 		return err
 	}
@@ -776,7 +700,7 @@ func runSyncOnce(st state, client *apiClient, targetConfig string) error {
 
 	if err := prettyPrint(map[string]any{
 		"project_id":    st.ProjectID,
-		"project_name":  st.ProjectName,
+		"project_name":  sharedWorkspaceName,
 		"pending_count": len(pending.Items),
 		"failed_count":  len(failedApplyIDs),
 		"results":       results,
@@ -1072,22 +996,7 @@ func loadProjectState() (state, error) {
 		return state{}, err
 	}
 	if st.ProjectID == "" {
-		return state{}, errors.New("project is not connected; run `agentopt connect` first")
-	}
-	return st, nil
-}
-
-func loadProjectStateFor(projectID string) (state, error) {
-	st, err := loadState()
-	if err != nil {
-		return state{}, err
-	}
-	if target := strings.TrimSpace(projectID); target != "" {
-		st.ProjectID = target
-		st.ProjectName = ""
-	}
-	if st.ProjectID == "" {
-		return state{}, errors.New("project is not connected; run `agentopt connect` first")
+		return state{}, errors.New("shared workspace is not connected; run `agentopt connect` first")
 	}
 	return st, nil
 }
@@ -1131,21 +1040,10 @@ func normalizeRepoPath(path string) (string, error) {
 	return absolute, nil
 }
 
-func decorateProjects(items []response.ProjectResp, activeProjectID string) []projectListItem {
-	out := make([]projectListItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, projectListItem{
-			ProjectResp: item,
-			Active:      item.ID == strings.TrimSpace(activeProjectID),
-		})
-	}
-	return out
-}
-
 func projectScopedItems(st state, items any) map[string]any {
 	return map[string]any{
 		"project_id":   st.ProjectID,
-		"project_name": st.ProjectName,
+		"project_name": sharedWorkspaceName,
 		"items":        items,
 	}
 }
@@ -1224,216 +1122,6 @@ func loadSessionSummaryInputs(path, tool, codexHome string, recent int) ([]reque
 	return reqs, nil
 }
 
-func recentCodexSessionFiles(codexHome string, limit int) ([]string, error) {
-	if limit < 1 {
-		return nil, errors.New("recent Codex session limit must be at least 1")
-	}
-
-	root, err := codexHomePath(codexHome)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionsRoot := filepath.Join(root, "sessions")
-	type sessionFile struct {
-		path    string
-		modTime time.Time
-	}
-	files := make([]sessionFile, 0, limit)
-
-	err = filepath.WalkDir(sessionsRoot, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() || !strings.EqualFold(filepath.Ext(path), ".jsonl") {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		files = append(files, sessionFile{path: path, modTime: info.ModTime()})
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", sessionsRoot)
-		}
-		return nil, err
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", sessionsRoot)
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].modTime.Equal(files[j].modTime) {
-			return files[i].path < files[j].path
-		}
-		return files[i].modTime.Before(files[j].modTime)
-	})
-
-	if len(files) > limit {
-		files = files[len(files)-limit:]
-	}
-
-	paths := make([]string, 0, len(files))
-	for _, item := range files {
-		paths = append(paths, item.path)
-	}
-	return paths, nil
-}
-
-func codexHomePath(override string) (string, error) {
-	override = strings.TrimSpace(override)
-	if override != "" {
-		return override, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".codex"), nil
-}
-
-func collectCodexSessionSummary(path, tool string) (request.SessionSummaryReq, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return request.SessionSummaryReq{}, err
-	}
-	defer file.Close()
-
-	req := request.SessionSummaryReq{Tool: tool}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-
-	seenQueries := map[string]struct{}{}
-	var latestTimestamp time.Time
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-
-		var item codexSessionLine
-		if err := json.Unmarshal(line, &item); err != nil {
-			return request.SessionSummaryReq{}, fmt.Errorf("parse Codex session line %d: %w", lineNo, err)
-		}
-		if ts, ok := parseCodexTimestamp(item.Timestamp); ok && ts.After(latestTimestamp) {
-			latestTimestamp = ts
-		}
-
-		switch item.Type {
-		case "session_meta":
-			var payload codexSessionMetaPayload
-			if err := json.Unmarshal(item.Payload, &payload); err != nil {
-				continue
-			}
-			if req.SessionID == "" {
-				req.SessionID = strings.TrimSpace(payload.ID)
-			}
-			if ts, ok := parseCodexTimestamp(payload.Timestamp); ok && ts.After(latestTimestamp) {
-				latestTimestamp = ts
-			}
-		case "event_msg":
-			var payload codexEventMsgPayload
-			if err := json.Unmarshal(item.Payload, &payload); err != nil {
-				continue
-			}
-			switch payload.Type {
-			case "user_message":
-				appendRawQuery(seenQueries, &req.RawQueries, payload.Message)
-			case "token_count":
-				if payload.Info != nil && payload.Info.TotalTokenUsage != nil {
-					req.TokenIn = maxInt(req.TokenIn, payload.Info.TotalTokenUsage.InputTokens)
-					req.TokenOut = maxInt(req.TokenOut, payload.Info.TotalTokenUsage.OutputTokens)
-				}
-			}
-		case "response_item":
-			var payload codexResponseItemPayload
-			if err := json.Unmarshal(item.Payload, &payload); err != nil {
-				continue
-			}
-			if payload.Type != "message" || payload.Role != "user" {
-				continue
-			}
-			for _, content := range payload.Content {
-				if content.Type != "input_text" {
-					continue
-				}
-				appendRawQuery(seenQueries, &req.RawQueries, content.Text)
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return request.SessionSummaryReq{}, err
-	}
-
-	if latestTimestamp.IsZero() {
-		latestTimestamp = time.Now().UTC()
-	}
-	req.Timestamp = latestTimestamp
-	if req.SessionID == "" {
-		req.SessionID = sanitizeID(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
-	}
-
-	if len(req.RawQueries) == 0 {
-		return request.SessionSummaryReq{}, fmt.Errorf("no raw user queries found in Codex session %s", path)
-	}
-	return req, nil
-}
-
-func appendRawQuery(seen map[string]struct{}, dst *[]string, raw string) {
-	query := normalizeCodexUserMessage(raw)
-	if query == "" {
-		return
-	}
-	if _, ok := seen[query]; ok {
-		return
-	}
-	seen[query] = struct{}{}
-	*dst = append(*dst, query)
-}
-
-func normalizeCodexUserMessage(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-
-	if marker := "## My request for Codex:"; strings.Contains(raw, marker) {
-		raw = raw[strings.LastIndex(raw, marker)+len(marker):]
-	} else if marker := "## My request for Codex"; strings.Contains(raw, marker) {
-		raw = raw[strings.LastIndex(raw, marker)+len(marker):]
-	}
-
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if strings.HasPrefix(raw, "<environment_context>") {
-		return ""
-	}
-
-	raw = strings.ReplaceAll(raw, "\r\n", "\n")
-	raw = strings.ReplaceAll(raw, "\n\n", "\n")
-	raw = strings.TrimSpace(raw)
-	return raw
-}
-
-func parseCodexTimestamp(raw string) (time.Time, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return time.Time{}, false
-	}
-	ts, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return ts.UTC(), true
-}
-
 func parseLanguageMix(raw string) map[string]float64 {
 	out := map[string]float64{}
 	for _, item := range splitComma(raw) {
@@ -1496,29 +1184,29 @@ func executeLocalApply(st state, applyID string, previews []response.PatchPrevie
 		return localApplyResult{}, fmt.Errorf("local guard rejected apply %s: %s", applyID, preflight.Reason)
 	}
 
-	backups := make([]applyFileBackup, 0, len(previews))
-	appliedPaths := make([]string, 0, len(previews))
-	aggregatedSettings := map[string]any{}
-	appliedTexts := make([]string, 0, len(previews))
+	backups, err := createApplyBackups(preflight, previews)
+	if err != nil {
+		return localApplyResult{}, err
+	}
 
-	for index, preview := range previews {
-		filePath := preflight.Steps[index].TargetFile
-		backup, stepResult, err := executeApplyStep(filePath, preview)
-		if err != nil {
-			restoreErr := rollbackAppliedSteps(backups)
-			if restoreErr != nil {
-				return localApplyResult{}, fmt.Errorf("apply failed: %v; rollback failed: %w", err, restoreErr)
-			}
-			return localApplyResult{}, err
+	req, err := newCodexApplyRequest(applyID, preflight, previews)
+	if err != nil {
+		return localApplyResult{}, err
+	}
+	codexResp, err := runCodexApply(req)
+	if err != nil {
+		restoreErr := rollbackAppliedSteps(backups)
+		if restoreErr != nil {
+			return localApplyResult{}, fmt.Errorf("apply failed: %v; rollback failed: %w", err, restoreErr)
 		}
-		backups = append(backups, backup)
-		appliedPaths = append(appliedPaths, stepResult.FilePath)
-		if len(stepResult.AppliedSettings) > 0 {
-			mergeMap(aggregatedSettings, stepResult.AppliedSettings)
+		return localApplyResult{}, err
+	}
+	if err := validateCodexApply(req, preflight, previews, codexResp); err != nil {
+		restoreErr := rollbackAppliedSteps(backups)
+		if restoreErr != nil {
+			return localApplyResult{}, fmt.Errorf("apply validation failed: %v; rollback failed: %w", err, restoreErr)
 		}
-		if stepResult.AppliedText != "" {
-			appliedTexts = append(appliedTexts, stepResult.AppliedText)
-		}
+		return localApplyResult{}, err
 	}
 
 	if err := saveApplyBackup(applyBackup{
@@ -1534,10 +1222,10 @@ func executeLocalApply(st state, applyID string, previews []response.PatchPrevie
 	}
 
 	return localApplyResult{
-		FilePath:        appliedFileSummary(appliedPaths),
-		FilePaths:       appliedPaths,
-		AppliedSettings: aggregatedSettings,
-		AppliedText:     strings.Join(appliedTexts, "\n"),
+		FilePath:        appliedFileSummary(req.AllowedFiles),
+		FilePaths:       append([]string(nil), req.AllowedFiles...),
+		AppliedSettings: plannedAppliedSettings(previews),
+		AppliedText:     plannedAppliedText(previews),
 	}, nil
 }
 
@@ -1552,61 +1240,367 @@ func cloneAnyMap(input map[string]any) map[string]any {
 	return out
 }
 
-func executeApplyStep(filePath string, preview response.PatchPreviewItem) (applyFileBackup, localApplyResult, error) {
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-		return applyFileBackup{}, localApplyResult{}, err
+func createApplyBackups(preflight preflightResult, previews []response.PatchPreviewItem) ([]applyFileBackup, error) {
+	backups := make([]applyFileBackup, 0, len(previews))
+	for index, preview := range previews {
+		backup, err := snapshotApplyTarget(preflight.Steps[index].TargetFile, preview)
+		if err != nil {
+			return nil, err
+		}
+		backups = append(backups, backup)
 	}
-	switch preview.Operation {
-	case "append_block", "text_append":
+	return backups, nil
+}
+
+func snapshotApplyTarget(filePath string, preview response.PatchPreviewItem) (applyFileBackup, error) {
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return applyFileBackup{}, err
+	}
+	if isTextApplyOperation(preview.Operation) {
 		originalBytes, err := os.ReadFile(filePath)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return applyFileBackup{}, localApplyResult{}, err
+			return applyFileBackup{}, err
 		}
-		originalExists := err == nil
-		backup := applyFileBackup{
+		return applyFileBackup{
 			FilePath:       filePath,
 			FileKind:       "text_append",
-			OriginalExists: originalExists,
+			OriginalExists: err == nil,
 			OriginalText:   string(originalBytes),
-		}
-		newText := string(originalBytes)
-		if !strings.Contains(newText, preview.ContentPreview) {
-			newText += preview.ContentPreview
-		}
-		if err := os.WriteFile(filePath, []byte(newText), 0o644); err != nil {
-			return applyFileBackup{}, localApplyResult{}, err
-		}
-		return backup, localApplyResult{
-			FilePath:    filePath,
-			FilePaths:   []string{filePath},
-			AppliedText: preview.ContentPreview,
 		}, nil
+	}
+
+	config := map[string]any{}
+	originalExists, err := readOptionalJSONMap(filePath, &config)
+	if err != nil {
+		return applyFileBackup{}, err
+	}
+	return applyFileBackup{
+		FilePath:       filePath,
+		FileKind:       "json_merge",
+		OriginalExists: originalExists,
+		OriginalJSON:   cloneAnyMap(config),
+	}, nil
+}
+
+func newCodexApplyRequest(applyID string, preflight preflightResult, previews []response.PatchPreviewItem) (codexApplyRequest, error) {
+	workingDirectory, additionalDirectories, err := chooseApplyWorkspace(preflight.Steps)
+	if err != nil {
+		return codexApplyRequest{}, err
+	}
+	allowedFiles := make([]string, 0, len(preflight.Steps))
+	steps := make([]codexApplyStep, 0, len(preflight.Steps))
+	for index, step := range preflight.Steps {
+		preview := previews[index]
+		allowedFiles = append(allowedFiles, step.TargetFile)
+		steps = append(steps, codexApplyStep{
+			TargetFile:      step.TargetFile,
+			Operation:       preview.Operation,
+			Summary:         preview.Summary,
+			SettingsUpdates: cloneAnyMap(preview.SettingsUpdates),
+			ContentPreview:  preview.ContentPreview,
+		})
+	}
+	return codexApplyRequest{
+		ApplyID:               applyID,
+		WorkingDirectory:      workingDirectory,
+		AdditionalDirectories: additionalDirectories,
+		AllowedFiles:          allowedFiles,
+		SandboxMode:           "workspace-write",
+		ApprovalPolicy:        "never",
+		SkipGitRepoCheck:      true,
+		NetworkAccessEnabled:  false,
+		Steps:                 steps,
+	}, nil
+}
+
+func chooseApplyWorkspace(steps []preflightStep) (string, []string, error) {
+	if len(steps) == 0 {
+		return "", nil, errors.New("no apply steps available")
+	}
+
+	dirs := make([]string, 0, len(steps))
+	for _, step := range steps {
+		dirs = append(dirs, filepath.Dir(step.TargetFile))
+	}
+
+	if cwd, err := os.Getwd(); err == nil && allWithinRoot(cwd, steps) {
+		return cwd, nil, nil
+	}
+
+	root := dirs[0]
+	for _, dir := range dirs[1:] {
+		root = sharedPathPrefix(root, dir)
+	}
+	if root != "" {
+		for _, dir := range dirs {
+			if filepath.Clean(dir) == filepath.Clean(root) {
+				return root, collectAdditionalDirectories(root, steps), nil
+			}
+		}
+	}
+
+	workingDirectory := dirs[0]
+	return workingDirectory, collectAdditionalDirectories(workingDirectory, steps), nil
+}
+
+func sharedPathPrefix(left, right string) string {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	for !isWithinRoot(left, right) {
+		parent := filepath.Dir(left)
+		if parent == left {
+			return left
+		}
+		left = parent
+	}
+	return left
+}
+
+func collectAdditionalDirectories(workingDirectory string, steps []preflightStep) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, step := range steps {
+		dir := filepath.Dir(step.TargetFile)
+		if isWithinRoot(workingDirectory, dir) {
+			continue
+		}
+		dir = filepath.Clean(dir)
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		out = append(out, dir)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func allWithinRoot(root string, steps []preflightStep) bool {
+	for _, step := range steps {
+		if !isWithinRoot(root, step.TargetFile) {
+			return false
+		}
+	}
+	return true
+}
+
+func runCodexApply(req codexApplyRequest) (codexApplyResponse, error) {
+	requestFile, err := writeCodexApplyRequest(req)
+	if err != nil {
+		return codexApplyResponse{}, err
+	}
+	defer os.Remove(requestFile)
+
+	command, args, err := codexRunnerCommand(requestFile)
+	if err != nil {
+		return codexApplyResponse{}, err
+	}
+
+	timeout, err := codexApplyTimeout()
+	if err != nil {
+		return codexApplyResponse{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, command, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return codexApplyResponse{}, fmt.Errorf("codex runner timed out after %s", timeout)
+		}
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = strings.TrimSpace(string(output))
+		}
+		if detail == "" {
+			detail = err.Error()
+		}
+		return codexApplyResponse{}, fmt.Errorf("codex runner failed: %s", detail)
+	}
+
+	var resp codexApplyResponse
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return codexApplyResponse{}, fmt.Errorf("parse codex runner output: %w", err)
+	}
+	return resp, nil
+}
+
+func codexApplyTimeout() (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv("AGENTOPT_CODEX_TIMEOUT"))
+	if raw == "" {
+		return 10 * time.Minute, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid AGENTOPT_CODEX_TIMEOUT %q: %w", raw, err)
+	}
+	if timeout <= 0 {
+		return 0, errors.New("AGENTOPT_CODEX_TIMEOUT must be greater than zero")
+	}
+	return timeout, nil
+}
+
+func writeCodexApplyRequest(req codexApplyRequest) (string, error) {
+	file, err := os.CreateTemp("", "agentopt-codex-apply-*.json")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(req); err != nil {
+		return "", err
+	}
+	return file.Name(), nil
+}
+
+func codexRunnerCommand(requestFile string) (string, []string, error) {
+	if override := strings.TrimSpace(os.Getenv("AGENTOPT_CODEX_RUNNER")); override != "" {
+		return override, []string{requestFile}, nil
+	}
+
+	script, err := locateCodexRunnerScript()
+	if err != nil {
+		return "", nil, err
+	}
+	return "node", []string{script, requestFile}, nil
+}
+
+func locateCodexRunnerScript() (string, error) {
+	candidates := []string{}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "tools", "codex-runner", "run.mjs"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "tools", "codex-runner", "run.mjs"),
+			filepath.Join(exeDir, "..", "tools", "codex-runner", "run.mjs"),
+		)
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return filepath.Clean(candidate), nil
+		}
+	}
+	return "", errors.New("codex runner not found; install tools/codex-runner dependencies first")
+}
+
+func validateCodexApply(req codexApplyRequest, preflight preflightResult, previews []response.PatchPreviewItem, resp codexApplyResponse) error {
+	status := strings.TrimSpace(resp.Status)
+	switch status {
+	case "", "applied", "completed", "ok":
 	default:
-		config := map[string]any{}
-		originalExists, err := readOptionalJSONMap(filePath, &config)
+		return fmt.Errorf("codex apply returned status %q: %s", status, firstNonEmpty(resp.Summary, resp.FinalResponse))
+	}
+
+	if err := validateChangedFiles(req, resp.ChangedFiles); err != nil {
+		return err
+	}
+	for index, preview := range previews {
+		if err := validateAppliedStep(preflight.Steps[index].TargetFile, preview); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateChangedFiles(req codexApplyRequest, changedFiles []string) error {
+	if len(changedFiles) == 0 {
+		return nil
+	}
+	allowed := map[string]struct{}{}
+	for _, file := range req.AllowedFiles {
+		allowed[filepath.Clean(file)] = struct{}{}
+	}
+	for _, file := range changedFiles {
+		resolved := filepath.Clean(file)
+		if !filepath.IsAbs(resolved) {
+			resolved = filepath.Clean(filepath.Join(req.WorkingDirectory, resolved))
+		}
+		if _, ok := allowed[resolved]; ok {
+			continue
+		}
+		return fmt.Errorf("codex changed unexpected file %s", file)
+	}
+	return nil
+}
+
+func validateAppliedStep(filePath string, preview response.PatchPreviewItem) error {
+	if isTextApplyOperation(preview.Operation) {
+		data, err := os.ReadFile(filePath)
 		if err != nil {
-			return applyFileBackup{}, localApplyResult{}, err
+			return err
 		}
-		backup := applyFileBackup{
-			FilePath:       filePath,
-			FileKind:       "json_merge",
-			OriginalExists: originalExists,
-			OriginalJSON:   cloneAnyMap(config),
+		if !strings.Contains(string(data), preview.ContentPreview) {
+			return fmt.Errorf("applied file %s does not contain approved content", filePath)
 		}
-		mergeMap(config, preview.SettingsUpdates)
-		data, err := json.MarshalIndent(config, "", "  ")
-		if err != nil {
-			return applyFileBackup{}, localApplyResult{}, err
+		return nil
+	}
+
+	current := map[string]any{}
+	if _, err := readOptionalJSONMap(filePath, &current); err != nil {
+		return err
+	}
+	for key, expected := range preview.SettingsUpdates {
+		value, ok := current[key]
+		if !ok {
+			return fmt.Errorf("applied file %s is missing approved key %s", filePath, key)
 		}
-		data = append(data, '\n')
-		if err := os.WriteFile(filePath, data, 0o644); err != nil {
-			return applyFileBackup{}, localApplyResult{}, err
+		if !sameJSONValue(value, expected) {
+			return fmt.Errorf("applied file %s has unexpected value for %s", filePath, key)
 		}
-		return backup, localApplyResult{
-			FilePath:        filePath,
-			FilePaths:       []string{filePath},
-			AppliedSettings: cloneAnyMap(preview.SettingsUpdates),
-		}, nil
+	}
+	return nil
+}
+
+func sameJSONValue(left, right any) bool {
+	leftData, err := json.Marshal(left)
+	if err != nil {
+		return false
+	}
+	rightData, err := json.Marshal(right)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(leftData, rightData)
+}
+
+func plannedAppliedSettings(previews []response.PatchPreviewItem) map[string]any {
+	out := map[string]any{}
+	for _, preview := range previews {
+		if isTextApplyOperation(preview.Operation) {
+			continue
+		}
+		mergeMap(out, preview.SettingsUpdates)
+	}
+	return out
+}
+
+func plannedAppliedText(previews []response.PatchPreviewItem) string {
+	texts := make([]string, 0, len(previews))
+	for _, preview := range previews {
+		if !isTextApplyOperation(preview.Operation) {
+			continue
+		}
+		if strings.TrimSpace(preview.ContentPreview) == "" {
+			continue
+		}
+		texts = append(texts, preview.ContentPreview)
+	}
+	return strings.Join(texts, "\n")
+}
+
+func isTextApplyOperation(operation string) bool {
+	switch operation {
+	case "append_block", "text_append":
+		return true
+	default:
+		return false
 	}
 }
 
