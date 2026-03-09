@@ -5,6 +5,7 @@ import (
 
 	"github.com/liushuangls/go-server-template/dto/request"
 	"github.com/liushuangls/go-server-template/dto/response"
+	"github.com/liushuangls/go-server-template/pkg/buildinfo"
 )
 
 type HealthService struct {
@@ -23,8 +24,12 @@ func (u *HealthService) Health(ctx context.Context, req *request.HealthReq) (*re
 
 func (u *HealthService) Liveness(ctx context.Context) (*response.ProbeResp, error) {
 	_ = ctx
+	meta := buildinfo.Current()
 	return &response.ProbeResp{
-		Status: "ok",
+		Status:    "ok",
+		Version:   meta.Version,
+		Commit:    meta.Commit,
+		BuildDate: meta.BuildDate,
 	}, nil
 }
 
@@ -34,8 +39,12 @@ func (u *HealthService) Readiness(ctx context.Context) (*response.ProbeResp, err
 			return nil, err
 		}
 	}
+	meta := buildinfo.Current()
 	return &response.ProbeResp{
-		Status: "ready",
-		Store:  "ok",
+		Status:    "ready",
+		Store:     "ok",
+		Version:   meta.Version,
+		Commit:    meta.Commit,
+		BuildDate: meta.BuildDate,
 	}, nil
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/liushuangls/go-server-template/dto/request"
 	"github.com/liushuangls/go-server-template/dto/response"
+	"github.com/liushuangls/go-server-template/pkg/buildinfo"
 )
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -227,16 +228,16 @@ func TestAPIClientAddsTokenHeader(t *testing.T) {
 }
 
 func TestRunVersionPrintsBuildMetadata(t *testing.T) {
-	originalVersion := buildVersion
-	originalCommit := buildCommit
-	originalDate := buildDate
-	buildVersion = "1.2.3-beta.1"
-	buildCommit = "abc1234"
-	buildDate = "2026-03-09T14:00:00Z"
+	originalVersion := buildinfo.Version
+	originalCommit := buildinfo.Commit
+	originalDate := buildinfo.Date
+	buildinfo.Version = "1.2.3-beta.1"
+	buildinfo.Commit = "abc1234"
+	buildinfo.Date = "2026-03-09T14:00:00Z"
 	t.Cleanup(func() {
-		buildVersion = originalVersion
-		buildCommit = originalCommit
-		buildDate = originalDate
+		buildinfo.Version = originalVersion
+		buildinfo.Commit = originalCommit
+		buildinfo.Date = originalDate
 	})
 
 	output := captureStdout(t, func() {
@@ -302,10 +303,10 @@ func TestRunLoginUsesBuildVersionByDefault(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENTOPT_HOME", root)
 
-	originalVersion := buildVersion
-	buildVersion = "1.2.3-beta.2"
+	originalVersion := buildinfo.Version
+	buildinfo.Version = "1.2.3-beta.2"
 	t.Cleanup(func() {
-		buildVersion = originalVersion
+		buildinfo.Version = originalVersion
 	})
 
 	var uploaded request.CLILoginReq

@@ -21,6 +21,7 @@ import (
 
 	"github.com/liushuangls/go-server-template/dto/request"
 	"github.com/liushuangls/go-server-template/dto/response"
+	"github.com/liushuangls/go-server-template/pkg/buildinfo"
 )
 
 type state struct {
@@ -52,12 +53,6 @@ type apiClient struct {
 	token   string
 	http    *http.Client
 }
-
-var (
-	buildVersion = "dev"
-	buildCommit  = "unknown"
-	buildDate    = ""
-)
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -148,14 +143,7 @@ func printVersion() {
 }
 
 func versionString() string {
-	parts := []string{"agentopt", buildVersion}
-	if buildCommit != "" && buildCommit != "unknown" {
-		parts = append(parts, buildCommit)
-	}
-	if buildDate != "" {
-		parts = append(parts, buildDate)
-	}
-	return strings.Join(parts, " ")
+	return buildinfo.Summary("agentopt")
 }
 
 func runLogin(args []string) error {
@@ -167,7 +155,7 @@ func runLogin(args []string) error {
 	tools := fs.String("tools", "codex,claude-code", "comma separated tool names")
 	platform := fs.String("platform", "", "device platform")
 	consent := fs.String("consent", "config_snapshot,session_summary,execution_result", "comma separated collection scopes")
-	cliVersion := fs.String("cli-version", buildVersion, "cli version")
+	cliVersion := fs.String("cli-version", buildinfo.Version, "cli version")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

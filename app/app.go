@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/liushuangls/go-server-template/pkg/buildinfo"
 	"github.com/sourcegraph/conc"
 	"golang.org/x/sync/errgroup"
 )
@@ -56,7 +57,7 @@ func (a *App) Run() error {
 		return err
 	}
 
-	fmt.Println("Server Started at", a.Http.Conf.App.Addr)
+	fmt.Println("Server Started at", a.Http.Conf.App.Addr, buildinfo.Summary("agentopt-server"))
 
 	select {
 	case <-signalCtx.Done():

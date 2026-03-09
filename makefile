@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-AGENTOPT_LDFLAGS = -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildDate=$(BUILD_DATE)'
+AGENTOPT_LDFLAGS = -X 'github.com/liushuangls/go-server-template/pkg/buildinfo.Version=$(VERSION)' -X 'github.com/liushuangls/go-server-template/pkg/buildinfo.Commit=$(GIT_COMMIT)' -X 'github.com/liushuangls/go-server-template/pkg/buildinfo.Date=$(BUILD_DATE)'
 
 run:
 	APP_MODE=local go run main.go wire_gen.go
@@ -45,5 +45,5 @@ generate:
 
 build: generate
 	go mod tidy -v
-	go build -o=output/server main.go wire_gen.go
+	go build -ldflags "$(AGENTOPT_LDFLAGS)" -o=output/server main.go wire_gen.go
 	go build -ldflags "$(AGENTOPT_LDFLAGS)" -o=output/agentopt ./cmd/agentopt
