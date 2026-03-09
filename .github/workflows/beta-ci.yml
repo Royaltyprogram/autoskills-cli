@@ -57,6 +57,13 @@ jobs:
           BETA_SMOKE_PASSWORD: demo1234
         run: ./scripts/closed_beta_smoke.sh
 
+      - name: Run closed beta prod smoke
+        env:
+          BETA_SMOKE_EMAIL: beta1@example.com
+          BETA_SMOKE_PASSWORD: replace-me
+          SERVER_LOG_PATH: /tmp/agentopt-prod-server.log
+        run: make closed-beta-prod-smoke
+
       - name: Upload beta binaries
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,9 +89,19 @@ jobs:
           path: /tmp/agentopt-server.log
           if-no-files-found: ignore
 
+      - name: Upload prod server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentopt-beta-prod-server-log-${{ github.sha }}
+          path: /tmp/agentopt-prod-server.log
+          if-no-files-found: ignore
+
       - name: Dump server log on failure
         if: failure()
-        run: cat /tmp/agentopt-server.log
+        run: |
+          cat /tmp/agentopt-server.log || true
+          cat /tmp/agentopt-prod-server.log || true
 
   bundle:
     needs: verify

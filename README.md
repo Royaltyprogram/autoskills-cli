@@ -203,7 +203,7 @@ docker run --rm -p 8082:8082 \
   agentopt-beta
 ```
 
-The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta`, boots the local server to execute `scripts/closed_beta_smoke.sh`, uploads the verified server binaries, and then builds beta CLI bundles for `linux/amd64`, `darwin/amd64`, and `darwin/arm64` with matching checksum and manifest artifacts.
+The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta`, executes both the local-mode and real `APP_MODE=prod` smoke flows, uploads the verified server binaries and logs, and then builds beta CLI bundles for `linux/amd64`, `darwin/amd64`, and `darwin/arm64` with matching checksum and manifest artifacts.
 
 For a stricter closed beta rollout, you can also restrict network access in-app:
 
