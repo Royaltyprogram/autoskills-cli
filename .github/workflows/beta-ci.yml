@@ -57,14 +57,6 @@ jobs:
           BETA_SMOKE_PASSWORD: demo1234
         run: ./scripts/closed_beta_smoke.sh
 
-      - name: Upload beta bundle artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: agentopt-beta-bundle-${{ github.sha }}
-          path: output/release/*.tar.gz
-          if-no-files-found: error
-
       - name: Upload beta binaries
         if: always()
         uses: actions/upload-artifact@v4
@@ -93,3 +85,51 @@ jobs:
       - name: Dump server log on failure
         if: failure()
         run: cat /tmp/agentopt-server.log
+
+  bundle:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/codex-runner/package-lock.json
+
+      - name: Install Codex runner dependencies
+        run: npm ci --omit=dev
+        working-directory: tools/codex-runner
+
+      - name: Build beta bundle
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: make beta-cli-bundle
+
+      - name: Upload beta bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentopt-beta-bundle-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.sha }}
+          path: output/release/*.tar.gz
+          if-no-files-found: error
