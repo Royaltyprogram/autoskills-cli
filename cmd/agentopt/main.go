@@ -44,6 +44,11 @@ type envelope struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+type localApplyResult struct {
+	FilePath        string
+	AppliedSettings map[string]any
+}
+
 type apiClient struct {
 	baseURL string
 	token   string
@@ -88,6 +93,8 @@ func run(args []string) error {
 		return runImpact(args[1:])
 	case "audit":
 		return runAudit(args[1:])
+	case "sync":
+		return runSync(args[1:])
 	case "rollback":
 		return runRollback(args[1:])
 	case "apply":
@@ -114,6 +121,7 @@ func printUsage() {
   history           list apply history for the current project
   impact            list recommendation impact summaries for the current project
   audit             list recent audit events for the current org or project
+  sync              pull pending apply jobs and execute them locally
   rollback          restore the local config backup for a previous apply
   apply             request a patch preview and optionally write local config`)
 }
@@ -506,6 +514,51 @@ func runAudit(args []string) error {
 	return prettyPrint(resp)
 }
 
+func runSync(args []string) error {
+	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
+	targetConfig := fs.String("target-config", "", "override local config path for pending apply jobs")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, err := loadProjectState()
+	if err != nil {
+		return err
+	}
+	client := newAPIClient(st.ServerURL, st.APIToken)
+
+	path := fmt.Sprintf("/api/v1/applies/pending?project_id=%s&requested_by=%s", url.QueryEscape(st.ProjectID), url.QueryEscape(st.UserID))
+	var pending response.PendingApplyResp
+	if err := client.doJSON(http.MethodGet, path, nil, &pending); err != nil {
+		return err
+	}
+
+	results := make([]response.ApplyResultResp, 0, len(pending.Items))
+	for _, item := range pending.Items {
+		localResult, err := executeLocalApply(st, item.ApplyID, item.PatchPreview, *targetConfig)
+		if err != nil {
+			return err
+		}
+
+		var result response.ApplyResultResp
+		if err := client.doJSON(http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
+			ApplyID:         item.ApplyID,
+			Success:         true,
+			Note:            "applied by agentopt sync",
+			AppliedFile:     localResult.FilePath,
+			AppliedSettings: localResult.AppliedSettings,
+		}, &result); err != nil {
+			return err
+		}
+		results = append(results, result)
+	}
+
+	return prettyPrint(map[string]any{
+		"pending_count": len(pending.Items),
+		"results":       results,
+	})
+}
+
 func runApply(args []string) error {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	recommendationID := fs.String("recommendation-id", "", "recommendation id")
@@ -542,43 +595,8 @@ func runApply(args []string) error {
 		return nil
 	}
 
-	filePath := *targetConfig
-	if filePath == "" {
-		filePath = plan.Recommendation.TargetFileHint
-	}
-	if !filepath.IsAbs(filePath) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		filePath = filepath.Join(cwd, filePath)
-	}
-
-	config := map[string]any{}
-	originalExists, err := readOptionalJSONMap(filePath, &config)
+	localResult, err := executeLocalApply(st, plan.ApplyID, plan.PatchPreview, *targetConfig)
 	if err != nil {
-		return err
-	}
-	backup := applyBackup{
-		ApplyID:        plan.ApplyID,
-		ProjectID:      st.ProjectID,
-		FilePath:       filePath,
-		OriginalExists: originalExists,
-		OriginalJSON:   cloneAnyMap(config),
-	}
-	mergeMap(config, plan.Recommendation.SettingsUpdates)
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
-		return err
-	}
-	if err := saveApplyBackup(backup); err != nil {
 		return err
 	}
 
@@ -587,8 +605,8 @@ func runApply(args []string) error {
 		ApplyID:         plan.ApplyID,
 		Success:         true,
 		Note:            *note,
-		AppliedFile:     filePath,
-		AppliedSettings: plan.Recommendation.SettingsUpdates,
+		AppliedFile:     localResult.FilePath,
+		AppliedSettings: localResult.AppliedSettings,
 	}, &result); err != nil {
 		return err
 	}
@@ -843,6 +861,58 @@ func mergeMap(dst, src map[string]any) {
 	for key, value := range src {
 		dst[key] = value
 	}
+}
+
+func executeLocalApply(st state, applyID string, previews []response.PatchPreviewItem, targetOverride string) (localApplyResult, error) {
+	if len(previews) == 0 {
+		return localApplyResult{}, errors.New("no patch preview available for apply")
+	}
+	preview := previews[0]
+
+	filePath := targetOverride
+	if filePath == "" {
+		filePath = preview.FilePath
+	}
+	if !filepath.IsAbs(filePath) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return localApplyResult{}, err
+		}
+		filePath = filepath.Join(cwd, filePath)
+	}
+
+	config := map[string]any{}
+	originalExists, err := readOptionalJSONMap(filePath, &config)
+	if err != nil {
+		return localApplyResult{}, err
+	}
+	backup := applyBackup{
+		ApplyID:        applyID,
+		ProjectID:      st.ProjectID,
+		FilePath:       filePath,
+		OriginalExists: originalExists,
+		OriginalJSON:   cloneAnyMap(config),
+	}
+	mergeMap(config, preview.SettingsUpdates)
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return localApplyResult{}, err
+	}
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return localApplyResult{}, err
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+		return localApplyResult{}, err
+	}
+	if err := saveApplyBackup(backup); err != nil {
+		return localApplyResult{}, err
+	}
+
+	return localApplyResult{
+		FilePath:        filePath,
+		AppliedSettings: cloneAnyMap(preview.SettingsUpdates),
+	}, nil
 }
 
 func cloneAnyMap(input map[string]any) map[string]any {

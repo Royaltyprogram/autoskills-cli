@@ -117,6 +117,11 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-z", RequestedBy: "user-1"})
+	require.NoError(t, err)
+	require.Len(t, pending.Items, 2)
+	require.Equal(t, planNew.ApplyID, pending.Items[0].ApplyID)
+
 	oldAppliedAt := now.Add(-30 * time.Minute)
 	newAppliedAt := now.Add(-10 * time.Minute)
 

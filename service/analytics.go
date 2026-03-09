@@ -548,6 +548,44 @@ func (s *AnalyticsService) ApplyHistory(ctx context.Context, req *request.ApplyH
 	return &response.ApplyHistoryResp{Items: items}, nil
 }
 
+func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.PendingApplyReq) (*response.PendingApplyResp, error) {
+	_ = ctx
+
+	s.AnalyticsStore.mu.RLock()
+	defer s.AnalyticsStore.mu.RUnlock()
+
+	if _, ok := s.AnalyticsStore.projects[req.ProjectID]; !ok {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	}
+
+	items := make([]response.PendingApplyItem, 0)
+	for _, op := range s.AnalyticsStore.applyOperations {
+		if op.ProjectID != req.ProjectID || op.Status != "pending_local_apply" {
+			continue
+		}
+		if req.RequestedBy != "" && op.RequestedBy != req.RequestedBy {
+			continue
+		}
+		items = append(items, response.PendingApplyItem{
+			ApplyID:          op.ID,
+			RecommendationID: op.RecommendationID,
+			Status:           op.Status,
+			Scope:            op.Scope,
+			RequestedBy:      op.RequestedBy,
+			RequestedAt:      op.RequestedAt,
+			PatchPreview:     toPatchPreviewResp(op.PatchPreview),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].RequestedAt.Equal(items[j].RequestedAt) {
+			return items[i].ApplyID > items[j].ApplyID
+		}
+		return items[i].RequestedAt.After(items[j].RequestedAt)
+	})
+
+	return &response.PendingApplyResp{Items: items}, nil
+}
+
 func (s *AnalyticsService) ImpactSummary(ctx context.Context, req *request.ImpactSummaryReq) (*response.ImpactSummaryResp, error) {
 	_ = ctx
 

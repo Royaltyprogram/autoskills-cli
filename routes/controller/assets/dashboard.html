@@ -336,6 +336,9 @@
           <div class="meta">${item.summary}</div>
           <div class="meta" style="margin-top: 8px;">Target: <code>${item.target_file_hint}</code></div>
           <div class="meta" style="margin-top: 8px;">Reason: ${item.reason}</div>
+          <div class="meta" style="margin-top: 10px;">
+            <button type="button" onclick="requestApply('${item.id}')">Request Apply</button>
+          </div>
         </div>
       `).join("");
     }
@@ -450,6 +453,39 @@
     function selectProject(projectId) {
       $("projectId").value = projectId;
       load();
+    }
+
+    async function requestApply(recommendationId) {
+      const token = $("apiToken").value.trim();
+      const projectId = $("projectId").value.trim();
+      const requestedBy = prompt("Requested by (user id)", "dashboard-user");
+      if (!token || !projectId || !requestedBy) {
+        setStatus("API token, project id, and requested_by are required.", true);
+        return;
+      }
+
+      try {
+        const resp = await fetch("/api/v1/recommendations/apply", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-AgentOpt-Token": token
+          },
+          body: JSON.stringify({
+            recommendation_id: recommendationId,
+            requested_by: requestedBy,
+            scope: "user"
+          })
+        });
+        const env = await resp.json();
+        if (env.code !== 0) {
+          throw new Error(env.msg || "apply request failed");
+        }
+        setStatus(`Apply requested: ${env.data.apply_id}. Run agentopt sync on the target machine.`);
+        await load();
+      } catch (err) {
+        setStatus(err.message || "Failed to request apply.", true);
+      }
     }
 
     async function load() {

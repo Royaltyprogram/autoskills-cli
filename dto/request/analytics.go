@@ -82,6 +82,11 @@ type ApplyHistoryReq struct {
 	ProjectID string `query:"project_id" validate:"required"`
 }
 
+type PendingApplyReq struct {
+	ProjectID   string `query:"project_id" validate:"required"`
+	RequestedBy string `query:"requested_by"`
+}
+
 type ImpactSummaryReq struct {
 	ProjectID string `query:"project_id" validate:"required"`
 }

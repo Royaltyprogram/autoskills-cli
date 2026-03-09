@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/liushuangls/go-server-template/dto/response"
 )
 
 func TestReadOptionalJSONMapMissingFile(t *testing.T) {
@@ -51,4 +53,34 @@ func TestApplyBackupRoundTrip(t *testing.T) {
 func TestAPIClientAddsTokenHeader(t *testing.T) {
 	client := newAPIClient("http://example.com", "test-token")
 	require.Equal(t, "test-token", client.token)
+}
+
+func TestExecuteLocalApplyCreatesBackupAndWritesConfig(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTOPT_HOME", root)
+
+	target := filepath.Join(root, "config.json")
+	err := os.WriteFile(target, []byte("{\"baseline\":true}\n"), 0o644)
+	require.NoError(t, err)
+
+	result, err := executeLocalApply(state{ProjectID: "project-1"}, "apply-1", []response.PatchPreviewItem{
+		{
+			FilePath: target,
+			SettingsUpdates: map[string]any{
+				"shell_profile": "safe",
+			},
+		},
+	}, "")
+	require.NoError(t, err)
+	require.Equal(t, target, result.FilePath)
+
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "\"baseline\": true")
+	require.Contains(t, string(data), "\"shell_profile\": \"safe\"")
+
+	backup, err := loadApplyBackup("apply-1")
+	require.NoError(t, err)
+	require.True(t, backup.OriginalExists)
+	require.Equal(t, true, backup.OriginalJSON["baseline"])
 }

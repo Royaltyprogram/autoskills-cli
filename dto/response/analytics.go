@@ -146,6 +146,20 @@ type ApplyHistoryResp struct {
 	Items []ApplyHistoryItem `json:"items"`
 }
 
+type PendingApplyItem struct {
+	ApplyID          string             `json:"apply_id"`
+	RecommendationID string             `json:"recommendation_id"`
+	Status           string             `json:"status"`
+	Scope            string             `json:"scope"`
+	RequestedBy      string             `json:"requested_by"`
+	RequestedAt      time.Time          `json:"requested_at"`
+	PatchPreview     []PatchPreviewItem `json:"patch_preview"`
+}
+
+type PendingApplyResp struct {
+	Items []PendingApplyItem `json:"items"`
+}
+
 type ImpactSummaryItem struct {
 	ApplyID             string     `json:"apply_id"`
 	RecommendationID    string     `json:"recommendation_id"`

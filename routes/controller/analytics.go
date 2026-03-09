@@ -28,6 +28,7 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.GET("/impact", r.impactSummary)
 	api.GET("/audits", r.auditList)
 	api.POST("/recommendations/apply", r.applyRecommendation)
+	api.GET("/applies/pending", r.pendingApplies)
 	api.GET("/applies", r.applyHistory)
 	api.POST("/applies/result", r.reportApplyResult)
 	api.GET("/dashboard/overview", r.dashboardOverview)
@@ -103,6 +104,14 @@ func (r *AnalyticsRoute) applyRecommendation(c *echo.Context) error {
 		return err
 	}
 	return common.WrapResp(c)(r.AnalyticsService.CreateApplyPlan(c.Request().Context(), &req))
+}
+
+func (r *AnalyticsRoute) pendingApplies(c *echo.Context) error {
+	var req request.PendingApplyReq
+	if err := c.Bind(&req); err != nil {
+		return err
+	}
+	return common.WrapResp(c)(r.AnalyticsService.PendingApplies(c.Request().Context(), &req))
 }
 
 func (r *AnalyticsRoute) applyHistory(c *echo.Context) error {
