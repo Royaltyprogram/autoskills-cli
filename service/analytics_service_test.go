@@ -304,3 +304,153 @@ func TestCreateApplyPlanAutoApprovesLowRiskConfigMerge(t *testing.T) {
 	require.Equal(t, "auto_approved", plan.Decision)
 	require.Equal(t, "policy-engine", plan.ReviewedBy)
 }
+
+func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
+	ctx := context.Background()
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+
+	store, err := NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	svc := NewAnalyticsService(Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+
+	agentResp, err := svc.RegisterAgent(ctx, &request.RegisterAgentReq{
+		OrgID:      "org-exec",
+		UserID:     "user-exec",
+		DeviceName: "macbook",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.RegisterProject(ctx, &request.RegisterProjectReq{
+		OrgID:       "org-exec",
+		AgentID:     agentResp.AgentID,
+		ProjectID:   "project-exec",
+		Name:        "exec",
+		RepoHash:    "exec-hash",
+		DefaultTool: "codex",
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID:                "project-exec",
+		SessionID:                "session-before-exec",
+		Tool:                     "codex",
+		ProjectHash:              "exec-hash",
+		LanguageMix:              map[string]float64{"go": 1},
+		TotalPromptsCount:        12,
+		TotalToolCalls:           24,
+		BashCallsCount:           6,
+		ReadOps:                  12,
+		EditOps:                  4,
+		WriteOps:                 2,
+		MCPUsageCount:            1,
+		PermissionRejectCount:    2,
+		RetryCount:               1,
+		TokenIn:                  800,
+		TokenOut:                 220,
+		EstimatedCost:            0.5,
+		TaskType:                 "bugfix",
+		RepoSizeBucket:           "large",
+		ConfigProfileID:          "baseline",
+		RepoExplorationIntensity: 0.8,
+		AcceptanceProxy:          0.45,
+		Timestamp:                now.Add(-2 * time.Hour),
+	})
+	require.NoError(t, err)
+
+	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.NotEmpty(t, recommendations.Items)
+
+	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
+		RecommendationID: recommendations.Items[0].ID,
+		RequestedBy:      "user-exec",
+		Scope:            "project",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "awaiting_review", plan.Status)
+
+	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
+		ApplyID:    plan.ApplyID,
+		Decision:   "approve",
+		ReviewedBy: "user-exec",
+	})
+	require.NoError(t, err)
+
+	applyResult, err := svc.ReportApplyResult(ctx, &request.ApplyResultReq{
+		ApplyID:         plan.ApplyID,
+		Success:         true,
+		Note:            "applied by lifecycle test",
+		AppliedFile:     "AGENTS.md, .codex/config.json",
+		AppliedSettings: map[string]any{"instructions_pack": "repo-research"},
+		AppliedText:     "AgentOpt Research Pack",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "applied", applyResult.Status)
+	require.False(t, applyResult.RolledBack)
+
+	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-exec", UserID: "user-exec"})
+	require.NoError(t, err)
+	require.Empty(t, pending.Items)
+
+	history, err := svc.ApplyHistory(ctx, &request.ApplyHistoryReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Len(t, history.Items, 1)
+	require.Equal(t, "applied", history.Items[0].Status)
+	require.Equal(t, "AGENTS.md, .codex/config.json", history.Items[0].AppliedFile)
+
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID:                "project-exec",
+		SessionID:                "session-after-exec",
+		Tool:                     "codex",
+		ProjectHash:              "exec-hash",
+		LanguageMix:              map[string]float64{"go": 1},
+		TotalPromptsCount:        10,
+		TotalToolCalls:           18,
+		BashCallsCount:           4,
+		ReadOps:                  9,
+		EditOps:                  6,
+		WriteOps:                 3,
+		MCPUsageCount:            1,
+		PermissionRejectCount:    1,
+		RetryCount:               0,
+		TokenIn:                  600,
+		TokenOut:                 180,
+		EstimatedCost:            0.3,
+		TaskType:                 "bugfix",
+		RepoSizeBucket:           "large",
+		ConfigProfileID:          "repo-research",
+		RepoExplorationIntensity: 0.5,
+		AcceptanceProxy:          0.9,
+		Timestamp:                now.Add(2 * time.Hour),
+	})
+	require.NoError(t, err)
+
+	impact, err := svc.ImpactSummary(ctx, &request.ImpactSummaryReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Len(t, impact.Items, 1)
+	require.Equal(t, plan.ApplyID, impact.Items[0].ApplyID)
+	require.Greater(t, impact.Items[0].SessionsAfter, 0)
+
+	rollbackResult, err := svc.ReportApplyResult(ctx, &request.ApplyResultReq{
+		ApplyID:     plan.ApplyID,
+		Success:     true,
+		Note:        "rolled back by lifecycle test",
+		AppliedFile: "AGENTS.md, .codex/config.json",
+		RolledBack:  true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "rollback_confirmed", rollbackResult.Status)
+	require.True(t, rollbackResult.RolledBack)
+
+	historyAfterRollback, err := svc.ApplyHistory(ctx, &request.ApplyHistoryReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Len(t, historyAfterRollback.Items, 1)
+	require.Equal(t, "rollback_confirmed", historyAfterRollback.Items[0].Status)
+	require.True(t, historyAfterRollback.Items[0].RolledBack)
+}

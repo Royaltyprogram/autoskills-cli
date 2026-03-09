@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -128,6 +129,80 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	})
 	require.Len(t, pendingResp.Items, 1)
 	require.Equal(t, applyResp.ApplyID, pendingResp.Items[0].ApplyID)
+
+	applyResult := postJSON[response.ApplyResultResp](t, echo, http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
+		ApplyID:         applyResp.ApplyID,
+		Success:         true,
+		Note:            "applied by route test",
+		AppliedFile:     "AGENTS.md, .codex/config.json",
+		AppliedSettings: map[string]any{"instructions_pack": "repo-research"},
+		AppliedText:     "AgentOpt Research Pack",
+	})
+	require.Equal(t, "applied", applyResult.Status)
+	require.False(t, applyResult.RolledBack)
+
+	pendingAfterApply := getJSON[response.PendingApplyResp](t, echo, "/api/v1/applies/pending", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+		"user_id":    []string{"user-route"},
+	})
+	require.Empty(t, pendingAfterApply.Items)
+
+	applyHistory := getJSON[response.ApplyHistoryResp](t, echo, "/api/v1/applies", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.NotEmpty(t, applyHistory.Items)
+	require.Equal(t, "applied", applyHistory.Items[0].Status)
+	require.Equal(t, "AGENTS.md, .codex/config.json", applyHistory.Items[0].AppliedFile)
+
+	postApplySession := postJSON[response.SessionIngestResp](t, echo, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
+		ProjectID:                projectResp.ProjectID,
+		Tool:                     "codex",
+		TaskType:                 "bugfix",
+		ProjectHash:              "route-project-hash",
+		LanguageMix:              map[string]float64{"go": 1},
+		TotalPromptsCount:        8,
+		TotalToolCalls:           16,
+		BashCallsCount:           3,
+		ReadOps:                  9,
+		EditOps:                  6,
+		WriteOps:                 2,
+		MCPUsageCount:            1,
+		PermissionRejectCount:    1,
+		RetryCount:               0,
+		TokenIn:                  700,
+		TokenOut:                 180,
+		EstimatedCost:            0.25,
+		RepoSizeBucket:           "large",
+		ConfigProfileID:          "repo-research",
+		RepoExplorationIntensity: 0.4,
+		AcceptanceProxy:          0.9,
+		Timestamp:                time.Now().UTC().Add(2 * time.Hour),
+	})
+	require.NotEmpty(t, postApplySession.SessionID)
+
+	impactResp := getJSON[response.ImpactSummaryResp](t, echo, "/api/v1/impact", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.NotEmpty(t, impactResp.Items)
+	require.Equal(t, applyResp.ApplyID, impactResp.Items[0].ApplyID)
+	require.Greater(t, impactResp.Items[0].SessionsAfter, 0)
+
+	rollbackResp := postJSON[response.ApplyResultResp](t, echo, http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
+		ApplyID:     applyResp.ApplyID,
+		Success:     true,
+		Note:        "rolled back by route test",
+		AppliedFile: "AGENTS.md, .codex/config.json",
+		RolledBack:  true,
+	})
+	require.Equal(t, "rollback_confirmed", rollbackResp.Status)
+	require.True(t, rollbackResp.RolledBack)
+
+	applyHistoryAfterRollback := getJSON[response.ApplyHistoryResp](t, echo, "/api/v1/applies", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.NotEmpty(t, applyHistoryAfterRollback.Items)
+	require.Equal(t, "rollback_confirmed", applyHistoryAfterRollback.Items[0].Status)
+	require.True(t, applyHistoryAfterRollback.Items[0].RolledBack)
 
 	auditResp := getJSON[response.AuditListResp](t, echo, "/api/v1/audits", url.Values{
 		"org_id": []string{"org-route"},
