@@ -2,6 +2,7 @@ package configs
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,40 @@ func TestApplyEnvOverridesRejectsInvalidRateLimit(t *testing.T) {
 	err := applyEnvOverrides(cfg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid HTTP_RATE_LIMIT_PER_MINUTE")
+}
+
+func TestApplyEnvOverridesLoadsBootstrapUsersFromFile(t *testing.T) {
+	usersFile := filepath.Join(t.TempDir(), "bootstrap-users.json")
+	require.NoError(t, os.WriteFile(usersFile, []byte(`[
+		{
+			"id": "beta-user-1",
+			"org_id": "beta-org",
+			"org_name": "Beta Org",
+			"email": "beta@example.com",
+			"name": "Beta Operator",
+			"password": "secret"
+		}
+	]`), 0o644))
+
+	t.Setenv("AUTH_BOOTSTRAP_USERS_JSON", `[{"id":"beta-user-json","org_id":"json-org","org_name":"JSON Org","email":"json@example.com","name":"JSON User","password":"json-secret"}]`)
+	t.Setenv("AUTH_BOOTSTRAP_USERS_FILE", usersFile)
+
+	cfg := &Config{}
+	require.NoError(t, applyEnvOverrides(cfg))
+	require.Len(t, cfg.Auth.BootstrapUsers, 1)
+	require.Equal(t, "beta-user-1", cfg.Auth.BootstrapUsers[0].ID)
+	require.Equal(t, "beta@example.com", cfg.Auth.BootstrapUsers[0].Email)
+}
+
+func TestApplyEnvOverridesRejectsInvalidBootstrapUsersFile(t *testing.T) {
+	usersFile := filepath.Join(t.TempDir(), "bootstrap-users.json")
+	require.NoError(t, os.WriteFile(usersFile, []byte(`{bad json`), 0o644))
+	t.Setenv("AUTH_BOOTSTRAP_USERS_FILE", usersFile)
+
+	cfg := &Config{}
+	err := applyEnvOverrides(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid AUTH_BOOTSTRAP_USERS_FILE")
 }
 
 func TestLookupEnvTrimsWhitespace(t *testing.T) {

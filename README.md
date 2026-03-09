@@ -85,6 +85,15 @@ AUTH_BOOTSTRAP_USERS_JSON='[{"id":"beta-user-1","org_id":"beta-org","org_name":"
 go run .
 ```
 
+If you would rather mount a secret file than inline JSON in env, you can use:
+
+```bash
+APP_MODE=prod \
+JWT_SECRET=replace-me \
+AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
+go run .
+```
+
 In this MVP every connected repository shares one workspace per organization. `agentopt connect` keeps that shared workspace current, and `pending`, `sync`, `history`, and `impact` always read from the same rollout stream.
 
 If `sync` or `apply --yes` fails before the plan starts, check the local runner first:
@@ -157,7 +166,8 @@ docker build -t agentopt-beta .
 docker run --rm -p 8082:8082 \
   -v "$PWD/.runtime-data:/app/data" \
   -e JWT_SECRET=replace-me \
-  -e AUTH_BOOTSTRAP_USERS_JSON='[{"id":"beta-user-1","org_id":"beta-org","org_name":"Beta Org","email":"beta1@example.com","name":"Beta Operator","password":"replace-me"}]' \
+  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
+  -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
   agentopt-beta
 ```
 

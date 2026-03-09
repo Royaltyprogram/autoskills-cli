@@ -230,6 +230,17 @@ func applyEnvOverrides(cfg *Config) error {
 		}
 		cfg.Auth.BootstrapUsers = users
 	}
+	if value, ok := lookupEnv("AUTH_BOOTSTRAP_USERS_FILE"); ok {
+		raw, err := os.ReadFile(value)
+		if err != nil {
+			return fmt.Errorf("invalid AUTH_BOOTSTRAP_USERS_FILE: %w", err)
+		}
+		var users []BootstrapUser
+		if err := json.Unmarshal(raw, &users); err != nil {
+			return fmt.Errorf("invalid AUTH_BOOTSTRAP_USERS_FILE: %w", err)
+		}
+		cfg.Auth.BootstrapUsers = users
+	}
 	if value, ok := lookupEnv("HTTP_ALLOWED_ORIGINS"); ok {
 		cfg.HTTP.AllowedOrigins = splitCSV(value)
 	}
