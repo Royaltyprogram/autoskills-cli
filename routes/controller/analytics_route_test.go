@@ -113,7 +113,14 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 		RecommendationID: recResp.Items[0].ID,
 		RequestedBy:      "user-route",
 	})
-	require.Equal(t, "pending_local_apply", applyResp.Status)
+	require.Equal(t, "awaiting_review", applyResp.Status)
+
+	reviewResp := postJSON[response.ChangePlanReviewResp](t, echo, http.MethodPost, "/api/v1/change-plans/review", request.ReviewChangePlanReq{
+		ApplyID:    applyResp.ApplyID,
+		Decision:   "approve",
+		ReviewedBy: "user-route",
+	})
+	require.Equal(t, "approved_for_local_apply", reviewResp.Status)
 
 	pendingResp := getJSON[response.PendingApplyResp](t, echo, "/api/v1/applies/pending", url.Values{
 		"project_id": []string{projectResp.ProjectID},

@@ -57,14 +57,16 @@ type User struct {
 }
 
 type Agent struct {
-	ID           string
-	OrgID        string
-	UserID       string
-	DeviceName   string
-	Hostname     string
-	CLIVersion   string
-	Tools        []string
-	RegisteredAt time.Time
+	ID            string
+	OrgID         string
+	UserID        string
+	DeviceName    string
+	Hostname      string
+	Platform      string
+	CLIVersion    string
+	Tools         []string
+	ConsentScopes []string
+	RegisteredAt  time.Time
 }
 
 type Project struct {
@@ -82,58 +84,87 @@ type Project struct {
 }
 
 type ConfigSnapshot struct {
-	ID         string
-	ProjectID  string
-	Tool       string
-	ProfileID  string
-	Settings   map[string]any
-	CapturedAt time.Time
+	ID                  string
+	ProjectID           string
+	Tool                string
+	ProfileID           string
+	Settings            map[string]any
+	EnabledMCPCount     int
+	HooksEnabled        bool
+	InstructionFiles    []string
+	ConfigFingerprint   string
+	RecentConfigChanges []string
+	CapturedAt          time.Time
 }
 
 type SessionSummary struct {
-	ID                    string
-	ProjectID             string
-	Tool                  string
-	ProjectHash           string
-	LanguageMix           map[string]float64
-	TotalPromptsCount     int
-	TotalToolCalls        int
-	BashCallsCount        int
-	ReadOps               int
-	EditOps               int
-	WriteOps              int
-	MCPUsageCount         int
-	PermissionRejectCount int
-	RetryCount            int
-	TokenIn               int
-	TokenOut              int
-	EstimatedCost         float64
-	TaskType              string
-	RepoSizeBucket        string
-	ConfigProfileID       string
-	Timestamp             time.Time
+	ID                       string
+	ProjectID                string
+	Tool                     string
+	ProjectHash              string
+	LanguageMix              map[string]float64
+	TotalPromptsCount        int
+	TotalToolCalls           int
+	BashCallsCount           int
+	ReadOps                  int
+	EditOps                  int
+	WriteOps                 int
+	MCPUsageCount            int
+	PermissionRejectCount    int
+	RetryCount               int
+	TokenIn                  int
+	TokenOut                 int
+	EstimatedCost            float64
+	TaskType                 string
+	RepoSizeBucket           string
+	ConfigProfileID          string
+	TaskTypeDistribution     map[string]float64
+	RepoExplorationIntensity float64
+	ShellHeavy               bool
+	WorkloadTags             []string
+	AcceptanceProxy          float64
+	EventSummaries           []string
+	Timestamp                time.Time
 }
 
 type Recommendation struct {
-	ID              string
-	ProjectID       string
-	Kind            string
-	Title           string
+	ID               string
+	ProjectID        string
+	Kind             string
+	Title            string
+	Summary          string
+	Reason           string
+	Explanation      string
+	ExpectedBenefit  string
+	Risk             string
+	ExpectedImpact   string
+	Score            float64
+	Status           string
+	TargetTool       string
+	TargetFileHint   string
+	ResearchProvider string
+	ResearchModel    string
+	Evidence         []string
+	ChangePlan       []ChangePlanStep
+	SettingsUpdates  map[string]any
+	CreatedAt        time.Time
+}
+
+type ChangePlanStep struct {
+	Type            string
+	Action          string
+	TargetFile      string
 	Summary         string
-	Reason          string
-	ExpectedImpact  string
-	Score           float64
-	Status          string
-	TargetTool      string
-	TargetFileHint  string
 	SettingsUpdates map[string]any
-	CreatedAt       time.Time
+	ContentPreview  string
 }
 
 type PatchPreview struct {
 	FilePath        string
+	Operation       string
 	Summary         string
 	SettingsUpdates map[string]any
+	ContentPreview  string
 }
 
 type ApplyOperation struct {
@@ -143,12 +174,18 @@ type ApplyOperation struct {
 	RequestedBy      string
 	Scope            string
 	Status           string
+	ApprovalStatus   string
+	Decision         string
+	ReviewedBy       string
+	ReviewNote       string
+	AppliedText      string
 	PatchPreview     []PatchPreview
 	AppliedFile      string
 	AppliedSettings  map[string]any
 	Note             string
 	RolledBack       bool
 	RequestedAt      time.Time
+	ReviewedAt       *time.Time
 	AppliedAt        *time.Time
 }
 
@@ -300,6 +337,33 @@ func cloneFloatMap(input map[string]float64) map[string]float64 {
 	out := make(map[string]float64, len(input))
 	for k, v := range input {
 		out[k] = v
+	}
+	return out
+}
+
+func cloneStringSlice(input []string) []string {
+	if len(input) == 0 {
+		return []string{}
+	}
+	out := make([]string, len(input))
+	copy(out, input)
+	return out
+}
+
+func cloneChangePlanSteps(input []ChangePlanStep) []ChangePlanStep {
+	if len(input) == 0 {
+		return []ChangePlanStep{}
+	}
+	out := make([]ChangePlanStep, 0, len(input))
+	for _, item := range input {
+		out = append(out, ChangePlanStep{
+			Type:            item.Type,
+			Action:          item.Action,
+			TargetFile:      item.TargetFile,
+			Summary:         item.Summary,
+			SettingsUpdates: cloneAnyMap(item.SettingsUpdates),
+			ContentPreview:  item.ContentPreview,
+		})
 	}
 	return out
 }

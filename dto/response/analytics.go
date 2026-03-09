@@ -3,11 +3,13 @@ package response
 import "time"
 
 type AgentRegistrationResp struct {
-	AgentID      string    `json:"agent_id"`
-	OrgID        string    `json:"org_id"`
-	UserID       string    `json:"user_id"`
-	Status       string    `json:"status"`
-	RegisteredAt time.Time `json:"registered_at"`
+	AgentID       string    `json:"agent_id"`
+	DeviceID      string    `json:"device_id"`
+	OrgID         string    `json:"org_id"`
+	UserID        string    `json:"user_id"`
+	Status        string    `json:"status"`
+	ConsentScopes []string  `json:"consent_scopes"`
+	RegisteredAt  time.Time `json:"registered_at"`
 }
 
 type ProjectRegistrationResp struct {
@@ -17,19 +19,25 @@ type ProjectRegistrationResp struct {
 }
 
 type ConfigSnapshotResp struct {
-	SnapshotID string    `json:"snapshot_id"`
-	ProjectID  string    `json:"project_id"`
-	ProfileID  string    `json:"profile_id"`
-	CapturedAt time.Time `json:"captured_at"`
+	SnapshotID        string    `json:"snapshot_id"`
+	ProjectID         string    `json:"project_id"`
+	ProfileID         string    `json:"profile_id"`
+	ConfigFingerprint string    `json:"config_fingerprint"`
+	CapturedAt        time.Time `json:"captured_at"`
 }
 
 type ConfigSnapshotItem struct {
-	ID         string         `json:"id"`
-	ProjectID  string         `json:"project_id"`
-	Tool       string         `json:"tool"`
-	ProfileID  string         `json:"profile_id"`
-	Settings   map[string]any `json:"settings"`
-	CapturedAt time.Time      `json:"captured_at"`
+	ID                  string         `json:"id"`
+	ProjectID           string         `json:"project_id"`
+	Tool                string         `json:"tool"`
+	ProfileID           string         `json:"profile_id"`
+	Settings            map[string]any `json:"settings"`
+	EnabledMCPCount     int            `json:"enabled_mcp_count"`
+	HooksEnabled        bool           `json:"hooks_enabled"`
+	InstructionFiles    []string       `json:"instruction_files"`
+	ConfigFingerprint   string         `json:"config_fingerprint"`
+	RecentConfigChanges []string       `json:"recent_config_changes"`
+	CapturedAt          time.Time      `json:"captured_at"`
 }
 
 type ConfigSnapshotListResp struct {
@@ -45,47 +53,69 @@ type SessionIngestResp struct {
 }
 
 type SessionSummaryItem struct {
-	ID                    string             `json:"id"`
-	ProjectID             string             `json:"project_id"`
-	Tool                  string             `json:"tool"`
-	ProjectHash           string             `json:"project_hash"`
-	LanguageMix           map[string]float64 `json:"language_mix"`
-	TotalPromptsCount     int                `json:"total_prompts_count"`
-	TotalToolCalls        int                `json:"total_tool_calls"`
-	BashCallsCount        int                `json:"bash_calls_count"`
-	ReadOps               int                `json:"read_ops"`
-	EditOps               int                `json:"edit_ops"`
-	WriteOps              int                `json:"write_ops"`
-	MCPUsageCount         int                `json:"mcp_usage_count"`
-	PermissionRejectCount int                `json:"permission_reject_count"`
-	RetryCount            int                `json:"retry_count"`
-	TokenIn               int                `json:"token_in"`
-	TokenOut              int                `json:"token_out"`
-	EstimatedCost         float64            `json:"estimated_cost"`
-	TaskType              string             `json:"task_type"`
-	RepoSizeBucket        string             `json:"repo_size_bucket"`
-	ConfigProfileID       string             `json:"config_profile_id"`
-	Timestamp             time.Time          `json:"timestamp"`
+	ID                       string             `json:"id"`
+	ProjectID                string             `json:"project_id"`
+	Tool                     string             `json:"tool"`
+	ProjectHash              string             `json:"project_hash"`
+	LanguageMix              map[string]float64 `json:"language_mix"`
+	TotalPromptsCount        int                `json:"total_prompts_count"`
+	TotalToolCalls           int                `json:"total_tool_calls"`
+	BashCallsCount           int                `json:"bash_calls_count"`
+	ReadOps                  int                `json:"read_ops"`
+	EditOps                  int                `json:"edit_ops"`
+	WriteOps                 int                `json:"write_ops"`
+	MCPUsageCount            int                `json:"mcp_usage_count"`
+	PermissionRejectCount    int                `json:"permission_reject_count"`
+	RetryCount               int                `json:"retry_count"`
+	TokenIn                  int                `json:"token_in"`
+	TokenOut                 int                `json:"token_out"`
+	EstimatedCost            float64            `json:"estimated_cost"`
+	TaskType                 string             `json:"task_type"`
+	RepoSizeBucket           string             `json:"repo_size_bucket"`
+	ConfigProfileID          string             `json:"config_profile_id"`
+	TaskTypeDistribution     map[string]float64 `json:"task_type_distribution"`
+	RepoExplorationIntensity float64            `json:"repo_exploration_intensity"`
+	ShellHeavy               bool               `json:"shell_heavy"`
+	WorkloadTags             []string           `json:"workload_tags"`
+	AcceptanceProxy          float64            `json:"acceptance_proxy"`
+	EventSummaries           []string           `json:"event_summaries"`
+	Timestamp                time.Time          `json:"timestamp"`
 }
 
 type SessionSummaryListResp struct {
 	Items []SessionSummaryItem `json:"items"`
 }
 
-type RecommendationResp struct {
-	ID              string         `json:"id"`
-	ProjectID       string         `json:"project_id"`
-	Kind            string         `json:"kind"`
-	Title           string         `json:"title"`
+type ChangePlanStepResp struct {
+	Type            string         `json:"type"`
+	Action          string         `json:"action"`
+	TargetFile      string         `json:"target_file"`
 	Summary         string         `json:"summary"`
-	Reason          string         `json:"reason"`
-	ExpectedImpact  string         `json:"expected_impact"`
-	Status          string         `json:"status"`
-	Score           float64        `json:"score"`
-	TargetTool      string         `json:"target_tool"`
-	TargetFileHint  string         `json:"target_file_hint"`
 	SettingsUpdates map[string]any `json:"settings_updates"`
-	CreatedAt       time.Time      `json:"created_at"`
+	ContentPreview  string         `json:"content_preview"`
+}
+
+type RecommendationResp struct {
+	ID               string               `json:"id"`
+	ProjectID        string               `json:"project_id"`
+	Kind             string               `json:"kind"`
+	Title            string               `json:"title"`
+	Summary          string               `json:"summary"`
+	Reason           string               `json:"reason"`
+	Explanation      string               `json:"explanation"`
+	ExpectedBenefit  string               `json:"expected_benefit"`
+	Risk             string               `json:"risk"`
+	ExpectedImpact   string               `json:"expected_impact"`
+	Status           string               `json:"status"`
+	Score            float64              `json:"score"`
+	TargetTool       string               `json:"target_tool"`
+	TargetFileHint   string               `json:"target_file_hint"`
+	ResearchProvider string               `json:"research_provider"`
+	ResearchModel    string               `json:"research_model"`
+	Evidence         []string             `json:"evidence"`
+	ChangePlan       []ChangePlanStepResp `json:"change_plan"`
+	SettingsUpdates  map[string]any       `json:"settings_updates"`
+	CreatedAt        time.Time            `json:"created_at"`
 }
 
 type RecommendationListResp struct {
@@ -109,14 +139,21 @@ type ProjectListResp struct {
 
 type PatchPreviewItem struct {
 	FilePath        string         `json:"file_path"`
+	Operation       string         `json:"operation"`
 	Summary         string         `json:"summary"`
 	SettingsUpdates map[string]any `json:"settings_updates"`
+	ContentPreview  string         `json:"content_preview"`
 }
 
 type ApplyPlanResp struct {
 	ApplyID        string             `json:"apply_id"`
 	Recommendation RecommendationResp `json:"recommendation"`
 	Status         string             `json:"status"`
+	ApprovalStatus string             `json:"approval_status"`
+	Decision       string             `json:"decision"`
+	ReviewedBy     string             `json:"reviewed_by"`
+	ReviewNote     string             `json:"review_note"`
+	ReviewedAt     *time.Time         `json:"reviewed_at"`
 	PatchPreview   []PatchPreviewItem `json:"patch_preview"`
 	RequestedAt    time.Time          `json:"requested_at"`
 }
@@ -128,16 +165,32 @@ type ApplyResultResp struct {
 	RolledBack bool      `json:"rolled_back"`
 }
 
+type ChangePlanReviewResp struct {
+	ApplyID        string     `json:"apply_id"`
+	Status         string     `json:"status"`
+	ApprovalStatus string     `json:"approval_status"`
+	Decision       string     `json:"decision"`
+	ReviewedBy     string     `json:"reviewed_by"`
+	ReviewNote     string     `json:"review_note"`
+	ReviewedAt     *time.Time `json:"reviewed_at"`
+}
+
 type ApplyHistoryItem struct {
 	ApplyID          string             `json:"apply_id"`
 	RecommendationID string             `json:"recommendation_id"`
 	Status           string             `json:"status"`
+	ApprovalStatus   string             `json:"approval_status"`
+	Decision         string             `json:"decision"`
 	Scope            string             `json:"scope"`
 	RequestedBy      string             `json:"requested_by"`
+	ReviewedBy       string             `json:"reviewed_by"`
+	ReviewNote       string             `json:"review_note"`
 	RequestedAt      time.Time          `json:"requested_at"`
+	ReviewedAt       *time.Time         `json:"reviewed_at"`
 	AppliedAt        *time.Time         `json:"applied_at"`
 	AppliedFile      string             `json:"applied_file"`
 	AppliedSettings  map[string]any     `json:"applied_settings"`
+	AppliedText      string             `json:"applied_text"`
 	PatchPreview     []PatchPreviewItem `json:"patch_preview"`
 	RolledBack       bool               `json:"rolled_back"`
 }
@@ -150,6 +203,7 @@ type PendingApplyItem struct {
 	ApplyID          string             `json:"apply_id"`
 	RecommendationID string             `json:"recommendation_id"`
 	Status           string             `json:"status"`
+	ApprovalStatus   string             `json:"approval_status"`
 	Scope            string             `json:"scope"`
 	RequestedBy      string             `json:"requested_by"`
 	RequestedAt      time.Time          `json:"requested_at"`
@@ -203,16 +257,22 @@ type TaskBreakdown struct {
 
 type DashboardOverviewResp struct {
 	OrgID                   string          `json:"org_id"`
+	TotalDevices            int             `json:"total_devices"`
 	TotalProjects           int             `json:"total_projects"`
 	TotalSessions           int             `json:"total_sessions"`
 	ActiveRecommendations   int             `json:"active_recommendations"`
+	PendingReviewCount      int             `json:"pending_review_count"`
+	ApprovedQueueCount      int             `json:"approved_queue_count"`
 	TotalEstimatedCost      float64         `json:"total_estimated_cost"`
 	AvgTokensPerQuery       float64         `json:"avg_tokens_per_query"`
 	AvgToolCallsPerQuery    float64         `json:"avg_tool_calls_per_query"`
 	PermissionRejectRate    float64         `json:"permission_reject_rate"`
 	RetryRate               float64         `json:"retry_rate"`
 	RecommendationApplyRate float64         `json:"recommendation_apply_rate"`
+	InferredAcceptRate      float64         `json:"inferred_accept_rate"`
 	RollbackRate            float64         `json:"rollback_rate"`
+	ResearchProvider        string          `json:"research_provider"`
+	ResearchMode            string          `json:"research_mode"`
 	TopTaskTypes            []TaskBreakdown `json:"top_task_types"`
 	LastIngestedAt          *time.Time      `json:"last_ingested_at"`
 }

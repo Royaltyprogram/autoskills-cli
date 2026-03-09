@@ -107,6 +107,12 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 		Scope:            "project",
 	})
 	require.NoError(t, err)
+	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
+		ApplyID:    planOld.ApplyID,
+		Decision:   "approve",
+		ReviewedBy: "reviewer-1",
+	})
+	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
 
@@ -114,6 +120,12 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 		RecommendationID: recommendations.Items[0].ID,
 		RequestedBy:      "user-1",
 		Scope:            "user",
+	})
+	require.NoError(t, err)
+	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
+		ApplyID:    planNew.ApplyID,
+		Decision:   "approve",
+		ReviewedBy: "reviewer-1",
 	})
 	require.NoError(t, err)
 
@@ -126,6 +138,12 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 		RecommendationID: recommendations.Items[0].ID,
 		RequestedBy:      "another-user",
 		Scope:            "project",
+	})
+	require.NoError(t, err)
+	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
+		ApplyID:    projectScopedPlan.ApplyID,
+		Decision:   "approve",
+		ReviewedBy: "reviewer-2",
 	})
 	require.NoError(t, err)
 

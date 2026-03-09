@@ -14,10 +14,14 @@ import (
 
 type AnalyticsService struct {
 	Options
+	researchAgent *CloudResearchAgent
 }
 
 func NewAnalyticsService(opt Options) *AnalyticsService {
-	return &AnalyticsService{Options: opt}
+	return &AnalyticsService{
+		Options:       opt,
+		researchAgent: NewCloudResearchAgentPlaceholder(opt.Config),
+	}
 }
 
 func (s *AnalyticsService) RegisterAgent(ctx context.Context, req *request.RegisterAgentReq) (*response.AgentRegistrationResp, error) {
@@ -28,9 +32,15 @@ func (s *AnalyticsService) RegisterAgent(ctx context.Context, req *request.Regis
 	s.AnalyticsStore.mu.Lock()
 	defer s.AnalyticsStore.mu.Unlock()
 
-	agentID := req.AgentID
-	if agentID == "" {
-		agentID = s.AnalyticsStore.nextID("agent")
+	deviceID := req.DeviceID
+	if deviceID == "" {
+		deviceID = req.AgentID
+	}
+	if deviceID == "" {
+		deviceID = s.AnalyticsStore.nextID("device")
+	}
+	if len(req.ConsentScopes) == 0 {
+		req.ConsentScopes = []string{"config_snapshot", "session_summary", "execution_result"}
 	}
 
 	if req.OrgName == "" {
@@ -45,28 +55,32 @@ func (s *AnalyticsService) RegisterAgent(ctx context.Context, req *request.Regis
 		OrgID: req.OrgID,
 		Email: req.UserEmail,
 	}
-	s.AnalyticsStore.agents[agentID] = &Agent{
-		ID:           agentID,
-		OrgID:        req.OrgID,
-		UserID:       req.UserID,
-		DeviceName:   req.DeviceName,
-		Hostname:     req.Hostname,
-		CLIVersion:   req.CLIVersion,
-		Tools:        append([]string(nil), req.Tools...),
-		RegisteredAt: now,
+	s.AnalyticsStore.agents[deviceID] = &Agent{
+		ID:            deviceID,
+		OrgID:         req.OrgID,
+		UserID:        req.UserID,
+		DeviceName:    req.DeviceName,
+		Hostname:      req.Hostname,
+		Platform:      req.Platform,
+		CLIVersion:    req.CLIVersion,
+		Tools:         append([]string(nil), req.Tools...),
+		ConsentScopes: append([]string(nil), req.ConsentScopes...),
+		RegisteredAt:  now,
 	}
 
-	s.appendAuditLocked(req.OrgID, "", "agent.registered", "cli agent registered")
+	s.appendAuditLocked(req.OrgID, "", "device.registered", "local cli device registered")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
 
 	return &response.AgentRegistrationResp{
-		AgentID:      agentID,
-		OrgID:        req.OrgID,
-		UserID:       req.UserID,
-		Status:       "registered",
-		RegisteredAt: now,
+		AgentID:       deviceID,
+		DeviceID:      deviceID,
+		OrgID:         req.OrgID,
+		UserID:        req.UserID,
+		Status:        "registered",
+		ConsentScopes: append([]string(nil), req.ConsentScopes...),
+		RegisteredAt:  now,
 	}, nil
 }
 
@@ -100,7 +114,7 @@ func (s *AnalyticsService) RegisterProject(ctx context.Context, req *request.Reg
 	}
 	s.AnalyticsStore.projects[projectID] = project
 
-	s.appendAuditLocked(req.OrgID, projectID, "project.connected", "project connected to analytics workspace")
+	s.appendAuditLocked(req.OrgID, projectID, "project.connected", "project connected to aiops workspace")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -133,28 +147,34 @@ func (s *AnalyticsService) UploadConfigSnapshot(ctx context.Context, req *reques
 	}
 
 	snapshot := &ConfigSnapshot{
-		ID:         s.AnalyticsStore.nextID("snapshot"),
-		ProjectID:  req.ProjectID,
-		Tool:       req.Tool,
-		ProfileID:  profileID,
-		Settings:   cloneAnyMap(req.Settings),
-		CapturedAt: capturedAt,
+		ID:                  s.AnalyticsStore.nextID("snapshot"),
+		ProjectID:           req.ProjectID,
+		Tool:                req.Tool,
+		ProfileID:           profileID,
+		Settings:            cloneAnyMap(req.Settings),
+		EnabledMCPCount:     req.EnabledMCPCount,
+		HooksEnabled:        req.HooksEnabled,
+		InstructionFiles:    cloneStringSlice(req.InstructionFiles),
+		ConfigFingerprint:   req.ConfigFingerprint,
+		RecentConfigChanges: cloneStringSlice(req.RecentConfigChanges),
+		CapturedAt:          capturedAt,
 	}
 
 	s.AnalyticsStore.configSnapshots[req.ProjectID] = append(s.AnalyticsStore.configSnapshots[req.ProjectID], snapshot)
 	project.LastProfileID = profileID
 	project.LastIngestedAt = &capturedAt
 
-	s.appendAuditLocked(project.OrgID, req.ProjectID, "config.snapshot", "config snapshot uploaded")
+	s.appendAuditLocked(project.OrgID, req.ProjectID, "config.snapshot", "config snapshot uploaded from local collector")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
 
 	return &response.ConfigSnapshotResp{
-		SnapshotID: snapshot.ID,
-		ProjectID:  req.ProjectID,
-		ProfileID:  profileID,
-		CapturedAt: capturedAt,
+		SnapshotID:        snapshot.ID,
+		ProjectID:         req.ProjectID,
+		ProfileID:         profileID,
+		ConfigFingerprint: snapshot.ConfigFingerprint,
+		CapturedAt:        capturedAt,
 	}, nil
 }
 
@@ -171,12 +191,17 @@ func (s *AnalyticsService) ListConfigSnapshots(ctx context.Context, req *request
 	items := make([]response.ConfigSnapshotItem, 0, len(s.AnalyticsStore.configSnapshots[req.ProjectID]))
 	for _, snapshot := range s.AnalyticsStore.configSnapshots[req.ProjectID] {
 		items = append(items, response.ConfigSnapshotItem{
-			ID:         snapshot.ID,
-			ProjectID:  snapshot.ProjectID,
-			Tool:       snapshot.Tool,
-			ProfileID:  snapshot.ProfileID,
-			Settings:   cloneAnyMap(snapshot.Settings),
-			CapturedAt: snapshot.CapturedAt,
+			ID:                  snapshot.ID,
+			ProjectID:           snapshot.ProjectID,
+			Tool:                snapshot.Tool,
+			ProfileID:           snapshot.ProfileID,
+			Settings:            cloneAnyMap(snapshot.Settings),
+			EnabledMCPCount:     snapshot.EnabledMCPCount,
+			HooksEnabled:        snapshot.HooksEnabled,
+			InstructionFiles:    cloneStringSlice(snapshot.InstructionFiles),
+			ConfigFingerprint:   snapshot.ConfigFingerprint,
+			RecentConfigChanges: cloneStringSlice(snapshot.RecentConfigChanges),
+			CapturedAt:          snapshot.CapturedAt,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -210,27 +235,33 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 	}
 
 	summary := &SessionSummary{
-		ID:                    sessionID,
-		ProjectID:             req.ProjectID,
-		Tool:                  req.Tool,
-		ProjectHash:           req.ProjectHash,
-		LanguageMix:           cloneFloatMap(req.LanguageMix),
-		TotalPromptsCount:     req.TotalPromptsCount,
-		TotalToolCalls:        req.TotalToolCalls,
-		BashCallsCount:        req.BashCallsCount,
-		ReadOps:               req.ReadOps,
-		EditOps:               req.EditOps,
-		WriteOps:              req.WriteOps,
-		MCPUsageCount:         req.MCPUsageCount,
-		PermissionRejectCount: req.PermissionRejectCount,
-		RetryCount:            req.RetryCount,
-		TokenIn:               req.TokenIn,
-		TokenOut:              req.TokenOut,
-		EstimatedCost:         req.EstimatedCost,
-		TaskType:              req.TaskType,
-		RepoSizeBucket:        req.RepoSizeBucket,
-		ConfigProfileID:       req.ConfigProfileID,
-		Timestamp:             recordedAt,
+		ID:                       sessionID,
+		ProjectID:                req.ProjectID,
+		Tool:                     req.Tool,
+		ProjectHash:              req.ProjectHash,
+		LanguageMix:              cloneFloatMap(req.LanguageMix),
+		TotalPromptsCount:        req.TotalPromptsCount,
+		TotalToolCalls:           req.TotalToolCalls,
+		BashCallsCount:           req.BashCallsCount,
+		ReadOps:                  req.ReadOps,
+		EditOps:                  req.EditOps,
+		WriteOps:                 req.WriteOps,
+		MCPUsageCount:            req.MCPUsageCount,
+		PermissionRejectCount:    req.PermissionRejectCount,
+		RetryCount:               req.RetryCount,
+		TokenIn:                  req.TokenIn,
+		TokenOut:                 req.TokenOut,
+		EstimatedCost:            req.EstimatedCost,
+		TaskType:                 req.TaskType,
+		RepoSizeBucket:           req.RepoSizeBucket,
+		ConfigProfileID:          req.ConfigProfileID,
+		TaskTypeDistribution:     cloneFloatMap(req.TaskTypeDistribution),
+		RepoExplorationIntensity: req.RepoExplorationIntensity,
+		ShellHeavy:               req.ShellHeavy,
+		WorkloadTags:             cloneStringSlice(req.WorkloadTags),
+		AcceptanceProxy:          req.AcceptanceProxy,
+		EventSummaries:           cloneStringSlice(req.EventSummaries),
+		Timestamp:                recordedAt,
 	}
 
 	s.AnalyticsStore.sessionSummaries[req.ProjectID] = append(s.AnalyticsStore.sessionSummaries[req.ProjectID], summary)
@@ -245,7 +276,7 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 		ids = append(ids, item.ID)
 	}
 
-	s.appendAuditLocked(project.OrgID, req.ProjectID, "session.ingested", "session summary uploaded")
+	s.appendAuditLocked(project.OrgID, req.ProjectID, "session.ingested", "session summary uploaded from local collector")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -277,27 +308,33 @@ func (s *AnalyticsService) ListSessionSummaries(ctx context.Context, req *reques
 	items := make([]response.SessionSummaryItem, 0, len(s.AnalyticsStore.sessionSummaries[req.ProjectID]))
 	for _, session := range s.AnalyticsStore.sessionSummaries[req.ProjectID] {
 		items = append(items, response.SessionSummaryItem{
-			ID:                    session.ID,
-			ProjectID:             session.ProjectID,
-			Tool:                  session.Tool,
-			ProjectHash:           session.ProjectHash,
-			LanguageMix:           cloneFloatMap(session.LanguageMix),
-			TotalPromptsCount:     session.TotalPromptsCount,
-			TotalToolCalls:        session.TotalToolCalls,
-			BashCallsCount:        session.BashCallsCount,
-			ReadOps:               session.ReadOps,
-			EditOps:               session.EditOps,
-			WriteOps:              session.WriteOps,
-			MCPUsageCount:         session.MCPUsageCount,
-			PermissionRejectCount: session.PermissionRejectCount,
-			RetryCount:            session.RetryCount,
-			TokenIn:               session.TokenIn,
-			TokenOut:              session.TokenOut,
-			EstimatedCost:         session.EstimatedCost,
-			TaskType:              session.TaskType,
-			RepoSizeBucket:        session.RepoSizeBucket,
-			ConfigProfileID:       session.ConfigProfileID,
-			Timestamp:             session.Timestamp,
+			ID:                       session.ID,
+			ProjectID:                session.ProjectID,
+			Tool:                     session.Tool,
+			ProjectHash:              session.ProjectHash,
+			LanguageMix:              cloneFloatMap(session.LanguageMix),
+			TotalPromptsCount:        session.TotalPromptsCount,
+			TotalToolCalls:           session.TotalToolCalls,
+			BashCallsCount:           session.BashCallsCount,
+			ReadOps:                  session.ReadOps,
+			EditOps:                  session.EditOps,
+			WriteOps:                 session.WriteOps,
+			MCPUsageCount:            session.MCPUsageCount,
+			PermissionRejectCount:    session.PermissionRejectCount,
+			RetryCount:               session.RetryCount,
+			TokenIn:                  session.TokenIn,
+			TokenOut:                 session.TokenOut,
+			EstimatedCost:            session.EstimatedCost,
+			TaskType:                 session.TaskType,
+			RepoSizeBucket:           session.RepoSizeBucket,
+			ConfigProfileID:          session.ConfigProfileID,
+			TaskTypeDistribution:     cloneFloatMap(session.TaskTypeDistribution),
+			RepoExplorationIntensity: session.RepoExplorationIntensity,
+			ShellHeavy:               session.ShellHeavy,
+			WorkloadTags:             cloneStringSlice(session.WorkloadTags),
+			AcceptanceProxy:          session.AcceptanceProxy,
+			EventSummaries:           cloneStringSlice(session.EventSummaries),
+			Timestamp:                session.Timestamp,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -371,6 +408,9 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		totalApplyOps        int
 		totalSuccessfulApply int
 		totalRollbacks       int
+		totalPendingReview   int
+		totalApprovedQueue   int
+		totalAcceptProxy     float64
 		lastIngestedAt       *time.Time
 		taskCounts           = map[string]int{}
 	)
@@ -384,6 +424,7 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 			totalToolCalls += session.TotalToolCalls
 			totalRejects += session.PermissionRejectCount
 			totalRetries += session.RetryCount
+			totalAcceptProxy += session.AcceptanceProxy
 			taskCounts[session.TaskType]++
 			if lastIngestedAt == nil || session.Timestamp.After(*lastIngestedAt) {
 				ts := session.Timestamp
@@ -408,6 +449,12 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		if op.Status == "applied" {
 			totalSuccessfulApply++
 		}
+		if op.Status == "awaiting_review" {
+			totalPendingReview++
+		}
+		if op.Status == "approved_for_local_apply" {
+			totalApprovedQueue++
+		}
 		if op.RolledBack {
 			totalRollbacks++
 		}
@@ -415,16 +462,22 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 
 	return &response.DashboardOverviewResp{
 		OrgID:                   req.OrgID,
+		TotalDevices:            countDevicesByOrg(s.AnalyticsStore.agents, req.OrgID),
 		TotalProjects:           len(projectIDs),
 		TotalSessions:           totalSessions,
 		ActiveRecommendations:   totalActiveRecs,
+		PendingReviewCount:      totalPendingReview,
+		ApprovedQueueCount:      totalApprovedQueue,
 		TotalEstimatedCost:      round(totalCost),
 		AvgTokensPerQuery:       safeDiv(float64(totalTokens), float64(totalQueries)),
 		AvgToolCallsPerQuery:    safeDiv(float64(totalToolCalls), float64(totalQueries)),
 		PermissionRejectRate:    safeDiv(float64(totalRejects), float64(maxInt(totalToolCalls, 1))),
 		RetryRate:               safeDiv(float64(totalRetries), float64(maxInt(totalQueries, 1))),
 		RecommendationApplyRate: safeDiv(float64(totalSuccessfulApply), float64(maxInt(totalActiveRecs+totalSuccessfulApply, 1))),
+		InferredAcceptRate:      safeDiv(totalAcceptProxy, float64(maxInt(totalSessions, 1))),
 		RollbackRate:            safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1))),
+		ResearchProvider:        s.researchAgent.Provider,
+		ResearchMode:            s.researchAgent.Mode,
 		TopTaskTypes:            sortedTaskBreakdown(taskCounts),
 		LastIngestedAt:          lastIngestedAt,
 	}, nil
@@ -490,12 +543,14 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 		ProjectID:        rec.ProjectID,
 		RequestedBy:      req.RequestedBy,
 		Scope:            scope,
-		Status:           "pending_local_apply",
+		Status:           "awaiting_review",
+		ApprovalStatus:   "awaiting_review",
+		Decision:         "pending",
 		PatchPreview:     patchPreview,
 		RequestedAt:      now,
 	}
 	s.AnalyticsStore.applyOperations[op.ID] = op
-	s.appendAuditLocked(s.AnalyticsStore.projects[rec.ProjectID].OrgID, rec.ProjectID, "recommendation.apply_requested", "apply plan created")
+	s.appendAuditLocked(s.AnalyticsStore.projects[rec.ProjectID].OrgID, rec.ProjectID, "change_plan.requested", "change plan created and waiting for review")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -504,8 +559,92 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 		ApplyID:        op.ID,
 		Recommendation: toRecommendationResp(rec),
 		Status:         op.Status,
+		ApprovalStatus: op.ApprovalStatus,
+		Decision:       op.Decision,
 		PatchPreview:   toPatchPreviewResp(patchPreview),
 		RequestedAt:    now,
+	}, nil
+}
+
+func (s *AnalyticsService) ListChangePlans(ctx context.Context, req *request.ChangePlanListReq) (*response.ApplyHistoryResp, error) {
+	_ = ctx
+
+	s.AnalyticsStore.mu.RLock()
+	defer s.AnalyticsStore.mu.RUnlock()
+
+	if _, ok := s.AnalyticsStore.projects[req.ProjectID]; !ok {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project_id"))
+	}
+
+	items := make([]response.ApplyHistoryItem, 0)
+	for _, op := range s.AnalyticsStore.applyOperations {
+		if op.ProjectID != req.ProjectID {
+			continue
+		}
+		if req.Status != "" && op.Status != req.Status && op.ApprovalStatus != req.Status {
+			continue
+		}
+		if req.UserID != "" && op.RequestedBy != req.UserID && op.ReviewedBy != req.UserID {
+			continue
+		}
+		items = append(items, toApplyHistoryItem(op))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].RequestedAt.Equal(items[j].RequestedAt) {
+			return items[i].ApplyID > items[j].ApplyID
+		}
+		return items[i].RequestedAt.After(items[j].RequestedAt)
+	})
+
+	return &response.ApplyHistoryResp{Items: items}, nil
+}
+
+func (s *AnalyticsService) ReviewChangePlan(ctx context.Context, req *request.ReviewChangePlanReq) (*response.ChangePlanReviewResp, error) {
+	_ = ctx
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	op, ok := s.AnalyticsStore.applyOperations[req.ApplyID]
+	if !ok {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown apply_id"))
+	}
+
+	decision := strings.ToLower(strings.TrimSpace(req.Decision))
+	if decision != "approve" && decision != "approved" && decision != "reject" && decision != "rejected" {
+		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("decision must be approve or reject"))
+	}
+
+	now := time.Now().UTC()
+	op.ReviewedBy = req.ReviewedBy
+	op.ReviewNote = req.ReviewNote
+	op.ReviewedAt = &now
+
+	switch decision {
+	case "approve", "approved":
+		op.Decision = "approved"
+		op.ApprovalStatus = "approved"
+		op.Status = "approved_for_local_apply"
+		s.appendAuditLocked(s.AnalyticsStore.projects[op.ProjectID].OrgID, op.ProjectID, "change_plan.approved", "change plan approved for local apply")
+	default:
+		op.Decision = "rejected"
+		op.ApprovalStatus = "rejected"
+		op.Status = "rejected"
+		s.appendAuditLocked(s.AnalyticsStore.projects[op.ProjectID].OrgID, op.ProjectID, "change_plan.rejected", "change plan rejected during review")
+	}
+
+	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		return nil, err
+	}
+
+	return &response.ChangePlanReviewResp{
+		ApplyID:        op.ID,
+		Status:         op.Status,
+		ApprovalStatus: op.ApprovalStatus,
+		Decision:       op.Decision,
+		ReviewedBy:     op.ReviewedBy,
+		ReviewNote:     op.ReviewNote,
+		ReviewedAt:     op.ReviewedAt,
 	}, nil
 }
 
@@ -524,19 +663,7 @@ func (s *AnalyticsService) ApplyHistory(ctx context.Context, req *request.ApplyH
 		if op.ProjectID != req.ProjectID {
 			continue
 		}
-		items = append(items, response.ApplyHistoryItem{
-			ApplyID:          op.ID,
-			RecommendationID: op.RecommendationID,
-			Status:           op.Status,
-			Scope:            op.Scope,
-			RequestedBy:      op.RequestedBy,
-			RequestedAt:      op.RequestedAt,
-			AppliedAt:        op.AppliedAt,
-			AppliedFile:      op.AppliedFile,
-			AppliedSettings:  cloneAnyMap(op.AppliedSettings),
-			PatchPreview:     toPatchPreviewResp(op.PatchPreview),
-			RolledBack:       op.RolledBack,
-		})
+		items = append(items, toApplyHistoryItem(op))
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].RequestedAt.Equal(items[j].RequestedAt) {
@@ -560,7 +687,7 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 
 	items := make([]response.PendingApplyItem, 0)
 	for _, op := range s.AnalyticsStore.applyOperations {
-		if op.ProjectID != req.ProjectID || op.Status != "pending_local_apply" {
+		if op.ProjectID != req.ProjectID || op.Status != "approved_for_local_apply" {
 			continue
 		}
 		switch op.Scope {
@@ -578,6 +705,7 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 			ApplyID:          op.ID,
 			RecommendationID: op.RecommendationID,
 			Status:           op.Status,
+			ApprovalStatus:   op.ApprovalStatus,
 			Scope:            op.Scope,
 			RequestedBy:      op.RequestedBy,
 			RequestedAt:      op.RequestedAt,
@@ -700,6 +828,7 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	op.AppliedAt = &now
 	op.AppliedFile = req.AppliedFile
 	op.AppliedSettings = cloneAnyMap(req.AppliedSettings)
+	op.AppliedText = req.AppliedText
 	op.Note = req.Note
 	op.RolledBack = req.RolledBack
 	switch {
@@ -710,9 +839,12 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	default:
 		op.Status = "failed"
 	}
+	if op.ApprovalStatus == "" {
+		op.ApprovalStatus = "approved"
+	}
 
 	project := s.AnalyticsStore.projects[op.ProjectID]
-	s.appendAuditLocked(project.OrgID, op.ProjectID, "recommendation.apply_result", op.Status)
+	s.appendAuditLocked(project.OrgID, op.ProjectID, "execution.result", op.Status)
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -734,106 +866,10 @@ func (s *AnalyticsService) refreshRecommendationsLocked(project *Project) []*Rec
 	}
 
 	sessions := s.AnalyticsStore.sessionSummaries[project.ID]
-	if len(sessions) == 0 {
-		s.AnalyticsStore.projectRecommendations[project.ID] = nil
-		return nil
-	}
-
-	latestTool := project.DefaultTool
-	if latestTool == "" {
-		latestTool = sessions[len(sessions)-1].Tool
-	}
-
-	var (
-		prompts      int
-		toolCalls    int
-		bashCalls    int
-		readOps      int
-		editOps      int
-		retries      int
-		rejects      int
-		largeRepoHit int
-		taskCounts   = map[string]int{}
-	)
-
-	for _, session := range sessions {
-		prompts += maxInt(session.TotalPromptsCount, 1)
-		toolCalls += session.TotalToolCalls
-		bashCalls += session.BashCallsCount
-		readOps += session.ReadOps
-		editOps += session.EditOps
-		retries += session.RetryCount
-		rejects += session.PermissionRejectCount
-		taskCounts[strings.ToLower(session.TaskType)]++
-		if session.RepoSizeBucket == "large" || session.RepoSizeBucket == "xlarge" {
-			largeRepoHit++
-		}
-	}
-
-	dominantTask := dominantTask(taskCounts)
-	readShare := safeDiv(float64(readOps), float64(maxInt(readOps+editOps, 1)))
-	bashShare := safeDiv(float64(bashCalls), float64(maxInt(toolCalls, 1)))
-	rejectRate := safeDiv(float64(rejects), float64(maxInt(toolCalls, 1)))
-	retryRate := safeDiv(float64(retries), float64(maxInt(prompts, 1)))
-
-	candidates := make([]*Recommendation, 0, 4)
-	if largeRepoHit > 0 || dominantTask == "repo-qna" || readShare > 0.58 {
-		candidates = append(candidates, s.newRecommendationLocked(project.ID, latestTool, recommendationTemplate{
-			Kind:           "repo-qna-pack",
-			Title:          "Adopt repo exploration instruction pack",
-			Summary:        "Large-repo exploration is frequent, so a retrieval-oriented pack should reduce search churn.",
-			Reason:         "The project shows heavy read-oriented sessions or large-repo behavior.",
-			ExpectedImpact: "Lower tokens per query and faster repo Q&A turn-around.",
-			Score:          0.86,
-			Settings: map[string]any{
-				"instructions_pack":   "repo-qna",
-				"retrieval_mode":      "hierarchical",
-				"context_window_hint": "large-repo",
-			},
-		}))
-	}
-	if bashShare > 0.2 || rejectRate > 0.05 {
-		candidates = append(candidates, s.newRecommendationLocked(project.ID, latestTool, recommendationTemplate{
-			Kind:           "shell-safe-profile",
-			Title:          "Enable shell-safe execution profile",
-			Summary:        "Bash activity and permission denials suggest the current shell policy is too noisy.",
-			Reason:         "Frequent shell usage or rejected commands usually benefit from tighter guardrails and scoped approvals.",
-			ExpectedImpact: "Lower permission rejection rate and fewer retries around shell automation.",
-			Score:          0.82,
-			Settings: map[string]any{
-				"shell_profile":   "safe",
-				"bash_guardrails": "strict",
-				"approval_scope":  "scoped",
-			},
-		}))
-	}
-	if dominantTask == "bugfix" || dominantTask == "test" || retryRate > 0.12 {
-		candidates = append(candidates, s.newRecommendationLocked(project.ID, latestTool, recommendationTemplate{
-			Kind:           "post-edit-test-hook",
-			Title:          "Add post-edit test hook",
-			Summary:        "Bugfix and retry-heavy sessions benefit from immediate validation after code edits.",
-			Reason:         "The session mix points to verification-heavy workflows.",
-			ExpectedImpact: "Higher inferred accept rate and fewer repeated fix attempts.",
-			Score:          0.79,
-			Settings: map[string]any{
-				"post_edit_hook":   "go test ./...",
-				"hook_timeout_sec": 120,
-			},
-		}))
-	}
-	if len(candidates) == 0 {
-		candidates = append(candidates, s.newRecommendationLocked(project.ID, latestTool, recommendationTemplate{
-			Kind:           "measurement-baseline",
-			Title:          "Keep observing with baseline profile",
-			Summary:        "The current signal is still thin, so keep measurement active before pushing a stronger recommendation.",
-			Reason:         "Not enough differentiated behavior yet.",
-			ExpectedImpact: "Improved confidence for the next recommendation cycle.",
-			Score:          0.55,
-			Settings: map[string]any{
-				"metrics_sampling":    "session-summary-only",
-				"recommendation_mode": "observe",
-			},
-		}))
+	rawCandidates := s.researchAgent.AnalyzeProject(project, sessions, s.AnalyticsStore.configSnapshots[project.ID])
+	candidates := make([]*Recommendation, 0, len(rawCandidates))
+	for _, candidate := range rawCandidates {
+		candidates = append(candidates, s.newRecommendationLocked(project, candidate))
 	}
 
 	ids := make([]string, 0, len(candidates))
@@ -846,42 +882,59 @@ func (s *AnalyticsService) refreshRecommendationsLocked(project *Project) []*Rec
 	return candidates
 }
 
-type recommendationTemplate struct {
-	Kind           string
-	Title          string
-	Summary        string
-	Reason         string
-	ExpectedImpact string
-	Score          float64
-	Settings       map[string]any
-}
-
-func (s *AnalyticsService) newRecommendationLocked(projectID, tool string, tpl recommendationTemplate) *Recommendation {
+func (s *AnalyticsService) newRecommendationLocked(project *Project, tpl researchRecommendation) *Recommendation {
+	tool := project.DefaultTool
+	if strings.TrimSpace(tool) == "" {
+		tool = "codex"
+	}
+	targetFile := targetFileHint(tool)
+	if len(tpl.Steps) > 0 && tpl.Steps[0].TargetFile != "" {
+		targetFile = tpl.Steps[0].TargetFile
+	}
 	return &Recommendation{
-		ID:              s.AnalyticsStore.nextID("rec"),
-		ProjectID:       projectID,
-		Kind:            tpl.Kind,
-		Title:           tpl.Title,
-		Summary:         tpl.Summary,
-		Reason:          tpl.Reason,
-		ExpectedImpact:  tpl.ExpectedImpact,
-		Score:           tpl.Score,
-		Status:          "active",
-		TargetTool:      tool,
-		TargetFileHint:  targetFileHint(tool),
-		SettingsUpdates: cloneAnyMap(tpl.Settings),
-		CreatedAt:       time.Now().UTC(),
+		ID:               s.AnalyticsStore.nextID("rec"),
+		ProjectID:        project.ID,
+		Kind:             tpl.Kind,
+		Title:            tpl.Title,
+		Summary:          tpl.Summary,
+		Reason:           tpl.Reason,
+		Explanation:      tpl.Explanation,
+		ExpectedBenefit:  tpl.ExpectedBenefit,
+		Risk:             tpl.Risk,
+		ExpectedImpact:   tpl.ExpectedImpact,
+		Score:            tpl.Score,
+		Status:           "active",
+		TargetTool:       tool,
+		TargetFileHint:   targetFile,
+		ResearchProvider: s.researchAgent.Provider,
+		ResearchModel:    s.researchAgent.Model,
+		Evidence:         cloneStringSlice(tpl.Evidence),
+		ChangePlan:       cloneChangePlanSteps(tpl.Steps),
+		SettingsUpdates:  cloneAnyMap(tpl.Settings),
+		CreatedAt:        time.Now().UTC(),
 	}
 }
 
 func buildPatchPreview(rec *Recommendation) []PatchPreview {
-	return []PatchPreview{
-		{
+	if len(rec.ChangePlan) == 0 {
+		return []PatchPreview{{
 			FilePath:        rec.TargetFileHint,
+			Operation:       "merge_patch",
 			Summary:         rec.Title,
 			SettingsUpdates: cloneAnyMap(rec.SettingsUpdates),
-		},
+		}}
 	}
+	out := make([]PatchPreview, 0, len(rec.ChangePlan))
+	for _, step := range rec.ChangePlan {
+		out = append(out, PatchPreview{
+			FilePath:        step.TargetFile,
+			Operation:       step.Action,
+			Summary:         step.Summary,
+			SettingsUpdates: cloneAnyMap(step.SettingsUpdates),
+			ContentPreview:  step.ContentPreview,
+		})
+	}
+	return out
 }
 
 func dominantTask(counts map[string]int) string {
@@ -907,19 +960,26 @@ func targetFileHint(tool string) string {
 
 func toRecommendationResp(rec *Recommendation) response.RecommendationResp {
 	return response.RecommendationResp{
-		ID:              rec.ID,
-		ProjectID:       rec.ProjectID,
-		Kind:            rec.Kind,
-		Title:           rec.Title,
-		Summary:         rec.Summary,
-		Reason:          rec.Reason,
-		ExpectedImpact:  rec.ExpectedImpact,
-		Status:          rec.Status,
-		Score:           rec.Score,
-		TargetTool:      rec.TargetTool,
-		TargetFileHint:  rec.TargetFileHint,
-		SettingsUpdates: cloneAnyMap(rec.SettingsUpdates),
-		CreatedAt:       rec.CreatedAt,
+		ID:               rec.ID,
+		ProjectID:        rec.ProjectID,
+		Kind:             rec.Kind,
+		Title:            rec.Title,
+		Summary:          rec.Summary,
+		Reason:           rec.Reason,
+		Explanation:      rec.Explanation,
+		ExpectedBenefit:  rec.ExpectedBenefit,
+		Risk:             rec.Risk,
+		ExpectedImpact:   rec.ExpectedImpact,
+		Status:           rec.Status,
+		Score:            rec.Score,
+		TargetTool:       rec.TargetTool,
+		TargetFileHint:   rec.TargetFileHint,
+		ResearchProvider: rec.ResearchProvider,
+		ResearchModel:    rec.ResearchModel,
+		Evidence:         cloneStringSlice(rec.Evidence),
+		ChangePlan:       toChangePlanResp(rec.ChangePlan),
+		SettingsUpdates:  cloneAnyMap(rec.SettingsUpdates),
+		CreatedAt:        rec.CreatedAt,
 	}
 }
 
@@ -928,11 +988,60 @@ func toPatchPreviewResp(items []PatchPreview) []response.PatchPreviewItem {
 	for _, item := range items {
 		out = append(out, response.PatchPreviewItem{
 			FilePath:        item.FilePath,
+			Operation:       item.Operation,
 			Summary:         item.Summary,
 			SettingsUpdates: cloneAnyMap(item.SettingsUpdates),
+			ContentPreview:  item.ContentPreview,
 		})
 	}
 	return out
+}
+
+func toChangePlanResp(items []ChangePlanStep) []response.ChangePlanStepResp {
+	out := make([]response.ChangePlanStepResp, 0, len(items))
+	for _, item := range items {
+		out = append(out, response.ChangePlanStepResp{
+			Type:            item.Type,
+			Action:          item.Action,
+			TargetFile:      item.TargetFile,
+			Summary:         item.Summary,
+			SettingsUpdates: cloneAnyMap(item.SettingsUpdates),
+			ContentPreview:  item.ContentPreview,
+		})
+	}
+	return out
+}
+
+func toApplyHistoryItem(op *ApplyOperation) response.ApplyHistoryItem {
+	return response.ApplyHistoryItem{
+		ApplyID:          op.ID,
+		RecommendationID: op.RecommendationID,
+		Status:           op.Status,
+		ApprovalStatus:   op.ApprovalStatus,
+		Decision:         op.Decision,
+		Scope:            op.Scope,
+		RequestedBy:      op.RequestedBy,
+		ReviewedBy:       op.ReviewedBy,
+		ReviewNote:       op.ReviewNote,
+		RequestedAt:      op.RequestedAt,
+		ReviewedAt:       op.ReviewedAt,
+		AppliedAt:        op.AppliedAt,
+		AppliedFile:      op.AppliedFile,
+		AppliedSettings:  cloneAnyMap(op.AppliedSettings),
+		AppliedText:      op.AppliedText,
+		PatchPreview:     toPatchPreviewResp(op.PatchPreview),
+		RolledBack:       op.RolledBack,
+	}
+}
+
+func countDevicesByOrg(devices map[string]*Agent, orgID string) int {
+	total := 0
+	for _, device := range devices {
+		if device.OrgID == orgID {
+			total++
+		}
+	}
+	return total
 }
 
 func (s *AnalyticsService) appendAuditLocked(orgID, projectID, eventType, message string) {

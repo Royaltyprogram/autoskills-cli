@@ -18,7 +18,9 @@ func NewAnalyticsRoute(opt Options) *AnalyticsRoute {
 func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api := router.Group("/api/v1")
 	api.POST("/agents/register", r.registerAgent)
+	api.POST("/devices/register", r.registerAgent)
 	api.POST("/projects/register", r.registerProject)
+	api.POST("/projects/connect", r.registerProject)
 	api.POST("/config-snapshots", r.uploadConfigSnapshot)
 	api.GET("/config-snapshots", r.listConfigSnapshots)
 	api.POST("/session-summaries", r.uploadSessionSummary)
@@ -28,9 +30,13 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.GET("/impact", r.impactSummary)
 	api.GET("/audits", r.auditList)
 	api.POST("/recommendations/apply", r.applyRecommendation)
+	api.GET("/change-plans", r.listChangePlans)
+	api.POST("/change-plans/review", r.reviewChangePlan)
 	api.GET("/applies/pending", r.pendingApplies)
+	api.GET("/execution-queue", r.pendingApplies)
 	api.GET("/applies", r.applyHistory)
 	api.POST("/applies/result", r.reportApplyResult)
+	api.POST("/executions/result", r.reportApplyResult)
 	api.GET("/dashboard/overview", r.dashboardOverview)
 }
 
@@ -112,6 +118,22 @@ func (r *AnalyticsRoute) pendingApplies(c *echo.Context) error {
 		return err
 	}
 	return common.WrapResp(c)(r.AnalyticsService.PendingApplies(c.Request().Context(), &req))
+}
+
+func (r *AnalyticsRoute) listChangePlans(c *echo.Context) error {
+	var req request.ChangePlanListReq
+	if err := c.Bind(&req); err != nil {
+		return err
+	}
+	return common.WrapResp(c)(r.AnalyticsService.ListChangePlans(c.Request().Context(), &req))
+}
+
+func (r *AnalyticsRoute) reviewChangePlan(c *echo.Context) error {
+	var req request.ReviewChangePlanReq
+	if err := c.Bind(&req); err != nil {
+		return err
+	}
+	return common.WrapResp(c)(r.AnalyticsService.ReviewChangePlan(c.Request().Context(), &req))
 }
 
 func (r *AnalyticsRoute) applyHistory(c *echo.Context) error {
