@@ -20,6 +20,9 @@ mock-e2e:
 closed-beta-smoke:
 	./scripts/closed_beta_smoke.sh
 
+beta-cli-bundle:
+	./scripts/build_beta_bundle.sh
+
 generate:
 	go generate ./data
 	go tool wire gen wire.go

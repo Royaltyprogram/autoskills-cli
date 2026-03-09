@@ -880,7 +880,7 @@
           </div>
           <div class="context-card">
             <span class="field-label">Workspace</span>
-            <strong id="contextProject">Waiting for selection</strong>
+            <strong id="contextProject">Shared workspace</strong>
           </div>
           <div class="context-card">
             <span class="field-label">Scope</span>
@@ -912,47 +912,54 @@
           <div class="section-kicker">CLI onboarding</div>
           <h2>Install and connect the CLI</h2>
         </div>
-        <div class="section-copy">Generate a CLI token in this dashboard, then run the login command locally and paste the token when prompted.</div>
+        <div class="section-copy">Ask the operator for the closed beta CLI bundle, unpack it, then run the bundled commands from that directory. The bundle includes the local apply runner assets.</div>
       </div>
 
       <div class="command-grid">
         <article class="command-card">
-          <span class="field-label">1. Install</span>
-          <div class="command-shell" id="installCommand">go install github.com/liushuangls/go-server-template/cmd/agentopt@latest</div>
+          <span class="field-label">1. Unpack beta bundle</span>
+          <div class="command-shell" id="installCommand">tar -xzf agentopt-beta-&lt;os&gt;-&lt;arch&gt;.tar.gz && cd agentopt-beta-&lt;os&gt;-&lt;arch&gt;</div>
           <div class="command-actions">
             <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="installCommand" data-copy-label="install command">Copy</button>
           </div>
         </article>
         <article class="command-card">
           <span class="field-label">2. Authenticate</span>
-          <div class="command-shell" id="loginCommand">agentopt login --server http://127.0.0.1:8082</div>
+          <div class="command-shell" id="loginCommand">./agentopt login --server http://127.0.0.1:8082</div>
           <div class="command-actions">
             <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="loginCommand" data-copy-label="login command">Copy</button>
           </div>
         </article>
         <article class="command-card">
-          <span class="field-label">3. Select workspace</span>
-          <div class="command-shell" id="projectCommand">agentopt use-project --project-id &lt;select a workspace&gt;</div>
+          <span class="field-label">3. Connect workspace</span>
+          <div class="command-shell" id="connectCommand">./agentopt connect --project demo-repo --repo-path .</div>
           <div class="command-actions">
-            <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="projectCommand" data-copy-label="workspace command">Copy</button>
+            <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="connectCommand" data-copy-label="connect command">Copy</button>
           </div>
         </article>
         <article class="command-card">
-          <span class="field-label">4. Check queue</span>
-          <div class="command-shell" id="pendingCommand">agentopt pending --project-id &lt;select a workspace&gt;</div>
+          <span class="field-label">4. Upload latest signals</span>
+          <div class="command-shell" id="uploadCommand">./agentopt snapshot && ./agentopt session --recent 1</div>
+          <div class="command-actions">
+            <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="uploadCommand" data-copy-label="upload command">Copy</button>
+          </div>
+        </article>
+        <article class="command-card">
+          <span class="field-label">5. Check queue</span>
+          <div class="command-shell" id="pendingCommand">./agentopt pending</div>
           <div class="command-actions">
             <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="pendingCommand" data-copy-label="pending command">Copy</button>
           </div>
         </article>
         <article class="command-card">
-          <span class="field-label">5. Apply approved plan</span>
-          <div class="command-shell" id="syncCommand">agentopt sync --project-id &lt;select a workspace&gt;</div>
+          <span class="field-label">6. Apply approved plan</span>
+          <div class="command-shell" id="syncCommand">./agentopt sync</div>
           <div class="command-actions">
             <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="syncCommand" data-copy-label="sync command">Copy</button>
           </div>
         </article>
         <article class="command-card">
-          <span class="field-label">6. Latest CLI token</span>
+          <span class="field-label">7. Latest CLI token</span>
           <div class="command-shell token-output" id="issuedCliToken">Issue a CLI token from this dashboard.</div>
           <div class="command-actions">
             <button class="secondary-button" type="button" data-action="copy-command" data-copy-target="issuedCliToken" data-copy-label="CLI token">Copy</button>
@@ -960,7 +967,7 @@
         </article>
       </div>
 
-      <div class="form-note" id="cliTokenMeta">CLI tokens are shown once, scoped to your account, and expire after 30 days. Workspace-specific commands update when you switch the selected project below.</div>
+      <div class="form-note" id="cliTokenMeta">CLI tokens are shown once, scoped to your account, and expire after 30 days. Run the bundled `./agentopt` binary from the unpacked beta directory so local apply can find `tools/codex-runner`.</div>
     </section>
 
     <section class="panel">
@@ -976,9 +983,9 @@
 
     <section class="summary-grid">
       <article class="summary-card">
-        <div class="summary-label">Connected Workspaces</div>
+        <div class="summary-label">Shared Workspace</div>
         <div class="summary-value" id="totalProjects">0</div>
-        <div class="summary-caption">Projects currently sending setup and session signals.</div>
+        <div class="summary-caption">All connected repositories now share one rollout and recommendation stream.</div>
       </article>
       <article class="summary-card">
         <div class="summary-label">Needs Your Decision</div>
@@ -991,9 +998,14 @@
         <div class="summary-caption">Approved plans that the CLI can apply on its next sync.</div>
       </article>
       <article class="summary-card">
-        <div class="summary-label">Avg Tokens / Query</div>
-        <div class="summary-value" id="avgTokensPerQuery">0</div>
-        <div class="summary-caption">A compact read on how much prompt effort each captured query currently costs.</div>
+        <div class="summary-label">Avg Input Tokens / Query</div>
+        <div class="summary-value" id="avgInputTokensPerQuery">0</div>
+        <div class="summary-caption">Prompt-side token usage captured from local CLI sessions.</div>
+      </article>
+      <article class="summary-card">
+        <div class="summary-label">Avg Output Tokens / Query</div>
+        <div class="summary-value" id="avgOutputTokensPerQuery">0</div>
+        <div class="summary-caption">Response-side token usage captured from local CLI sessions.</div>
       </article>
     </section>
 
@@ -1078,7 +1090,7 @@
             <div class="section-copy">Configuration context and recent work patterns are grouped here instead of sharing the main screen.</div>
           </div>
           <div class="workspace-wrap">
-            <div class="workspace-list" id="projectList"></div>
+            <div class="workspace-list" id="workspaceSummary"></div>
             <div class="subgrid">
               <section class="subpanel">
                 <h3>Setup snapshot</h3>
@@ -1099,7 +1111,6 @@
     const STORAGE_KEYS = {
       sessionUser: "agentopt_session_user",
       sessionOrg: "agentopt_session_org",
-      projectId: "agentopt_project_id",
       applyScope: "agentopt_apply_scope",
       activeTab: "agentopt_dashboard_tab"
     };
@@ -1196,7 +1207,6 @@
       [
         STORAGE_KEYS.sessionUser,
         STORAGE_KEYS.sessionOrg,
-        STORAGE_KEYS.projectId,
         STORAGE_KEYS.activeTab
       ].forEach((key) => writeStorage(key, ""));
       state.session = null;
@@ -1210,11 +1220,10 @@
       };
       const user = session.user || {};
       const org = session.organization || {};
-      const projectID = state.selectedProjectID || readStorage(STORAGE_KEYS.projectId);
       const scope = $("applyScope").value || "user";
-      const project = projects.find((item) => item.id === projectID) || null;
-      const projectName = project && project.name ? project.name : (projectID || "First connected workspace");
-      const projectSummary = projectID ? `${projectName} (${projectID})` : projectName;
+      const project = projects.find((item) => item.id === state.selectedProjectID) || projects[0] || null;
+      const projectName = project && project.name ? project.name : "Shared workspace";
+      const projectSummary = project && project.id ? `${projectName} (${project.id})` : projectName;
 
       $("sessionHeading").textContent = user.name
         ? `Welcome back, ${user.name}.`
@@ -1226,7 +1235,7 @@
       $("contextOrg").textContent = org.name || org.id || "-";
       $("contextProject").textContent = projectSummary;
       $("contextScope").textContent = scope === "project" ? "Entire workspace" : "Just me";
-      renderCLICommands(projectID);
+      renderCLICommands();
     }
 
     function syncBusyUI() {
@@ -1288,7 +1297,6 @@
     function restorePreferences() {
       $("applyScope").value = readStorage(STORAGE_KEYS.applyScope, "user");
       state.activeTab = readStorage(STORAGE_KEYS.activeTab, "focus");
-      state.selectedProjectID = readStorage(STORAGE_KEYS.projectId);
       state.session = {
         user: readJSONStorage(STORAGE_KEYS.sessionUser, {}) || {},
         organization: readJSONStorage(STORAGE_KEYS.sessionOrg, {}) || {}
@@ -1327,20 +1335,14 @@
       }
     }
 
-    function renderCLICommands(projectID = "") {
+    function renderCLICommands() {
       const origin = window.location.origin || "http://127.0.0.1:8082";
-      const selectedProjectID = projectID || state.selectedProjectID || readStorage(STORAGE_KEYS.projectId);
-      $("installCommand").textContent = "go install github.com/liushuangls/go-server-template/cmd/agentopt@latest";
-      $("loginCommand").textContent = `agentopt login --server ${origin}`;
-      $("projectCommand").textContent = selectedProjectID
-        ? `agentopt use-project --project-id ${selectedProjectID}`
-        : "agentopt use-project --project-id <select a workspace>";
-      $("pendingCommand").textContent = selectedProjectID
-        ? `agentopt pending --project-id ${selectedProjectID}`
-        : "agentopt pending --project-id <select a workspace>";
-      $("syncCommand").textContent = selectedProjectID
-        ? `agentopt sync --project-id ${selectedProjectID}`
-        : "agentopt sync --project-id <select a workspace>";
+      $("installCommand").textContent = "tar -xzf agentopt-beta-<os>-<arch>.tar.gz && cd agentopt-beta-<os>-<arch>";
+      $("loginCommand").textContent = `./agentopt login --server ${origin}`;
+      $("connectCommand").textContent = "./agentopt connect --project demo-repo --repo-path .";
+      $("uploadCommand").textContent = "./agentopt snapshot && ./agentopt session --recent 1";
+      $("pendingCommand").textContent = "./agentopt pending";
+      $("syncCommand").textContent = "./agentopt sync";
     }
 
     async function copyText(value) {
@@ -1505,7 +1507,14 @@
     function workloadNarrative(overview) {
       const action = String(overview.action_summary || "").trim();
       const outcome = String(overview.outcome_summary || "").trim();
-      const combined = `${action} ${outcome}`.trim();
+      const input = Number(overview.avg_input_tokens_per_query || 0);
+      const output = Number(overview.avg_output_tokens_per_query || 0);
+      const tokenRead = input > 0 || output > 0
+        ? (input >= output
+          ? " Prompt-side token usage is currently the larger share of each captured query."
+          : " Response-side token usage is currently the larger share of each captured query.")
+        : "";
+      const combined = `${action} ${outcome}${tokenRead}`.trim();
       return combined || "AgentOpt is collecting enough setup and session context to produce steadier recommendations.";
     }
 
@@ -1591,10 +1600,18 @@
     }
 
     function impactTone(item) {
-      if (Number(item.tokens_per_query_delta) < -50 || Number(item.tokens_per_session_delta) < -150) {
+      if (
+        Number(item.input_tokens_per_query_delta) < -50 ||
+        Number(item.output_tokens_per_query_delta) < -50 ||
+        Number(item.tokens_per_session_delta) < -150
+      ) {
         return "good";
       }
-      if (Number(item.tokens_per_query_delta) > 50 || Number(item.tokens_per_session_delta) > 150) {
+      if (
+        Number(item.input_tokens_per_query_delta) > 50 ||
+        Number(item.output_tokens_per_query_delta) > 50 ||
+        Number(item.tokens_per_session_delta) > 150
+      ) {
         return "warn";
       }
       return "sky";
@@ -1660,13 +1677,15 @@
       $("totalProjects").textContent = formatCount(overview.total_projects);
       $("pendingReviewCount").textContent = formatCount(overview.pending_review_count);
       $("approvedQueueCount").textContent = formatCount(overview.approved_queue_count);
-      $("avgTokensPerQuery").textContent = formatCount(Math.round(Number(overview.avg_tokens_per_query || 0)));
+      $("avgInputTokensPerQuery").textContent = formatCount(Math.round(Number(overview.avg_input_tokens_per_query || 0)));
+      $("avgOutputTokensPerQuery").textContent = formatCount(Math.round(Number(overview.avg_output_tokens_per_query || 0)));
 
       $("totalProjects").nextElementSibling.textContent = `${formatCount(overview.total_sessions)} session signal(s) have been uploaded so far.`;
       $("approvedQueueCount").nextElementSibling.textContent = `${formatCount(overview.successful_rollout_count)} rollout(s) have completed successfully so far.`;
-      $("avgTokensPerQuery").nextElementSibling.textContent = failedExecutions === "0"
-        ? `${formatCount(avgQueriesPerSession)} captured quer${avgQueriesPerSession === 1 ? "y" : "ies"} per session on average.`
-        : `${failedExecutions} rollout(s) still need follow-up after local execution.`;
+      $("avgInputTokensPerQuery").nextElementSibling.textContent = `${formatCount(overview.total_input_tokens || 0)} total input tokens uploaded so far.`;
+      $("avgOutputTokensPerQuery").nextElementSibling.textContent = failedExecutions === "0"
+        ? `${formatCount(overview.total_output_tokens || 0)} total output tokens uploaded so far across ${formatCount(avgQueriesPerSession)} average quer${avgQueriesPerSession === 1 ? "y" : "ies"} per session.`
+        : `${formatCount(overview.total_output_tokens || 0)} total output tokens uploaded so far. ${failedExecutions} rollout(s) still need follow-up after local execution.`;
       $("overviewNarrative").textContent = workloadNarrative(overview);
     }
 
@@ -1762,10 +1781,15 @@
       if (Number(item.sessions_after) > 0) {
         lines.push(`${formatCount(item.sessions_after)} follow-up session${Number(item.sessions_after) === 1 ? "" : "s"} have been observed since rollout.`);
       }
-      if (Number(item.tokens_per_query_delta) < -50) {
-        lines.push("Captured queries are taking meaningfully fewer tokens than before.");
-      } else if (Number(item.tokens_per_query_delta) > 50) {
-        lines.push("Captured queries are taking more tokens than before.");
+      if (Number(item.input_tokens_per_query_delta) < -50) {
+        lines.push("Prompt-side token usage per query is down from the baseline.");
+      } else if (Number(item.input_tokens_per_query_delta) > 50) {
+        lines.push("Prompt-side token usage per query is up from the baseline.");
+      }
+      if (Number(item.output_tokens_per_query_delta) < -50) {
+        lines.push("Response-side token usage per query is down from the baseline.");
+      } else if (Number(item.output_tokens_per_query_delta) > 50) {
+        lines.push("Response-side token usage per query is up from the baseline.");
       }
       if (Number(item.tokens_per_session_delta) < -150) {
         lines.push("Per-session token usage is trending down after the rollout.");
@@ -1802,29 +1826,35 @@
       `).join("");
     }
 
-    function renderProjects(items) {
-      if (!items.length) {
-        $("projectList").innerHTML = emptyState(
-          "No workspaces connected",
-          "Connect a project from the CLI and it will appear here."
+    function renderWorkspaceSummary(items) {
+      const workspace = items[0];
+      if (!workspace) {
+        $("workspaceSummary").innerHTML = emptyState(
+          "No workspace connected",
+          "Run `agentopt connect --project <repo-name> --repo-path .` once from the CLI to start the shared workspace."
         );
         return;
       }
 
-      $("projectList").innerHTML = items.map((item) => {
-        const active = item.id === state.selectedProjectID ? " is-active" : "";
-        const activity = item.last_ingested_at ? `Updated ${formatDateTime(item.last_ingested_at)}` : "Waiting for activity";
-        const identity = item.name && item.name !== item.id
-          ? `${item.name} (${item.id})`
-          : item.id;
+      const activity = workspace.last_ingested_at
+        ? `Updated ${formatDateTime(workspace.last_ingested_at)}`
+        : "Waiting for activity";
 
-        return `
-          <button class="workspace-chip${active}" type="button" data-action="select-project" data-project-id="${escapeAttr(item.id)}">
-            <span>${escapeHTML(identity)}</span>
-            <small>${escapeHTML(activity)}</small>
-          </button>
-        `;
-      }).join("");
+      $("workspaceSummary").innerHTML = `
+        <div class="item">
+          <div class="item-top">
+            <div class="item-title">
+              ${escapeHTML(workspace.name || "Shared workspace")}
+              <small>${escapeHTML(activity)}</small>
+            </div>
+            ${pill("Shared", "sky")}
+          </div>
+          <div class="step-list">
+            <div class="step-line">${escapeHTML(workspace.id || "workspace")}</div>
+            <div class="step-line">${escapeHTML(workspace.repo_path || "Signals from every connected repository roll into the same workspace.")}</div>
+          </div>
+        </div>
+      `;
     }
 
     function renderConfigSnapshots(items) {
@@ -1861,10 +1891,14 @@
 
     function sessionSummaryLines(item) {
       const queries = toArray(item.raw_queries);
-      const totalTokens = Number(item.token_in || 0) + Number(item.token_out || 0);
+      const inputTokens = Number(item.token_in || 0);
+      const outputTokens = Number(item.token_out || 0);
+      const totalTokens = inputTokens + outputTokens;
       const lines = [`${formatCount(queries.length)} raw quer${queries.length === 1 ? "y" : "ies"} captured from the CLI.`];
 
-      if (totalTokens > 0) {
+      if (inputTokens > 0 || outputTokens > 0) {
+        lines.push(`${formatCount(inputTokens)} input and ${formatCount(outputTokens)} output tokens were uploaded for this session.`);
+      } else if (totalTokens > 0) {
         lines.push(`${formatCount(totalTokens)} total tokens were uploaded for this session.`);
       }
       if (queries[0]) {
@@ -1989,17 +2023,6 @@
       }
     }
 
-    function selectProject(projectID) {
-      if (!projectID || state.busy) {
-        return;
-      }
-
-      state.selectedProjectID = projectID;
-      writeStorage(STORAGE_KEYS.projectId, projectID);
-      renderSessionContext();
-      load();
-    }
-
     async function requestApply(recommendationID) {
       const scope = $("applyScope").value || "user";
       const requestedBy = state.session && state.session.user ? state.session.user.id : "";
@@ -2079,9 +2102,7 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              label: state.selectedProjectID
-                ? `CLI for ${state.selectedProjectID}`
-                : "CLI login token"
+              label: "CLI login token"
             })
           }, "Failed to issue a CLI token.");
 
@@ -2163,22 +2184,17 @@
       try {
         const [overview, projectsData, cliTokensData] = await Promise.all([
           requestJSON(`/api/v1/dashboard/overview?org_id=${encodeURIComponent(orgID)}`, {}, "Failed to load the dashboard overview."),
-          requestJSON(`/api/v1/projects?org_id=${encodeURIComponent(orgID)}`, {}, "Failed to load your workspaces."),
+          requestJSON(`/api/v1/projects?org_id=${encodeURIComponent(orgID)}`, {}, "Failed to load the shared workspace."),
           requestJSON("/api/v1/auth/cli-tokens", {}, "Failed to load issued CLI tokens.")
         ]);
 
         const projects = toArray(projectsData.items);
-        let projectID = state.selectedProjectID || readStorage(STORAGE_KEYS.projectId);
-        if (!projectID && projects.length > 0) {
-          projectID = projects[0].id;
-        }
-
+        const projectID = projects[0] ? projects[0].id : "";
         state.selectedProjectID = projectID;
-        writeStorage(STORAGE_KEYS.projectId, projectID);
         renderSessionContext(projects);
 
         renderOverview(overview);
-        renderProjects(projects);
+        renderWorkspaceSummary(projects);
         renderCLITokens(toArray(cliTokensData.items));
 
         state.recommendationIndex = new Map();
@@ -2229,10 +2245,10 @@
         renderApplyHistory(applyHistory);
 
         if (projectID) {
-          const workspaceName = projects.find((item) => item.id === projectID)?.name || projectID;
-          setStatus(`Showing ${workspaceName}. Review suggestions, approve what you want, and let the CLI apply the rest safely.`);
+          const workspaceName = projects.find((item) => item.id === projectID)?.name || "Shared workspace";
+          setStatus(`Showing ${workspaceName}. Every connected repository now shares the same approval and rollout flow.`);
         } else {
-          setStatus("Showing your organization overview. Select a workspace to review its suggestions.");
+          setStatus("Showing your organization overview. Connect the CLI once to start the shared workspace.");
         }
       } catch (error) {
         if (isUnauthorized(error)) {
@@ -2270,9 +2286,6 @@
           break;
         case "switch-tab":
           setActiveTab(button.dataset.tab || "focus");
-          break;
-        case "select-project":
-          selectProject(button.dataset.projectId || "");
           break;
         case "copy-command":
           copyCommand(button.dataset.copyTarget || "", button.dataset.copyLabel || "command");

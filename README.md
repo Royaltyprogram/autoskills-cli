@@ -121,6 +121,18 @@ export BETA_SMOKE_PASSWORD=replace-me
 make closed-beta-smoke
 ```
 
+To build the CLI artifact you hand to beta users:
+
+```bash
+make beta-cli-bundle
+```
+
+That command produces `output/release/agentopt-beta-<os>-<arch>.tar.gz` with:
+
+- `agentopt`
+- `tools/codex-runner/run.mjs`
+- the pinned Node dependencies required for local apply
+
 ## Research Agent MVP
 
 The cloud research agent is intentionally narrow in this MVP:
