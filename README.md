@@ -16,9 +16,9 @@ The product shape is:
 - `AIops Server`
   - stores metrics, recommendations, change plans, execution history, impact, and audit logs
 - `Web Dashboard`
-  - reviews recommendations
+  - shows a user-facing summary of recommendations and workspace health
   - approves or rejects change plans
-  - inspects rollout queue, impact, and audit history
+  - inspects rollout queue and measured impact without exposing raw low-level internals
 
 Detailed codebase documentation:
 
@@ -29,7 +29,7 @@ Detailed codebase documentation:
 - Recommendation requests now create `change plans` in `awaiting_review`
 - Low-risk single-file config merges can be `auto-approved` by the policy engine
 - Only approved plans appear in the local execution queue
-- The dashboard exposes a `review queue` and `approved execution queue`
+- The dashboard now favors a user-facing approval surface instead of a developer-style operations console
 - Config snapshots and session summaries now carry richer config metrics and derived features
 - Local apply supports both `JSON merge patches` and safe `text append` patches such as `AGENTS.md`
 

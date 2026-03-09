@@ -18,5 +18,5 @@ func (s *APISuite) TestDashboardPage_OK() {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), http.StatusOK, resp.StatusCode)
-	require.Contains(s.T(), string(body), "Your stack, measured and optimized.")
+	require.Contains(s.T(), string(body), "Approve with confidence. Measure what changed.")
 }

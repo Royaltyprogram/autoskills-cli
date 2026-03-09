@@ -24,9 +24,9 @@ It has four runtime surfaces:
    - tracks rollout state and impact metrics
 
 4. `Web Dashboard`
-   - reviews recommendations
+   - presents a user-facing approval and outcome view
    - approves or rejects change plans
-   - shows approved execution queue, impact, and audit history
+   - shows rollout queue, workspace state, and measured impact with less low-level detail
 
 ## High-Level Architecture
 

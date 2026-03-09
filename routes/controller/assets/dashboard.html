@@ -3,17 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentOpt AIops Dashboard</title>
+  <title>AgentOpt Workspace Dashboard</title>
   <style>
     :root {
-      --bg: #f4efe6;
-      --panel: rgba(255, 252, 247, 0.9);
-      --ink: #1f2933;
-      --muted: #52606d;
-      --accent: #c05621;
-      --accent-2: #1f7a8c;
-      --line: rgba(31, 41, 51, 0.08);
-      --ok: #2f855a;
+      --bg-top: #f6efe1;
+      --bg-bottom: #e8efe8;
+      --panel: rgba(255, 250, 244, 0.84);
+      --panel-strong: rgba(255, 255, 255, 0.92);
+      --ink: #17232d;
+      --muted: #5d6a73;
+      --line: rgba(23, 35, 45, 0.08);
+      --accent: #bd5d38;
+      --accent-deep: #8c3b20;
+      --support: #1c6b73;
+      --good: #1e7a4e;
+      --warn: #9a6a18;
+      --danger: #a43b30;
+      --shadow: 0 20px 70px rgba(23, 35, 45, 0.12);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
     }
 
     * {
@@ -23,139 +32,265 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: Georgia, "Times New Roman", serif;
       color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at top left, rgba(192, 86, 33, 0.16), transparent 30%),
-        radial-gradient(circle at bottom right, rgba(31, 122, 140, 0.14), transparent 35%),
-        linear-gradient(135deg, #efe6d8 0%, #f7f2ea 45%, #e8f0ef 100%);
+        radial-gradient(circle at top left, rgba(189, 93, 56, 0.20), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(28, 107, 115, 0.16), transparent 32%),
+        linear-gradient(160deg, var(--bg-top) 0%, #f8f4ed 42%, var(--bg-bottom) 100%);
     }
 
-    .shell {
-      width: min(1120px, calc(100% - 32px));
-      margin: 32px auto;
-      padding: 28px;
+    .page-shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 28px auto 40px;
+      padding: 24px;
+      border-radius: 36px;
       border: 1px solid var(--line);
-      border-radius: 28px;
-      background: var(--panel);
-      box-shadow: 0 18px 60px rgba(31, 41, 51, 0.12);
-      backdrop-filter: blur(14px);
+      background: rgba(255, 251, 246, 0.72);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
     }
 
     h1, h2, h3, p {
       margin: 0;
     }
 
-    .hero {
-      display: grid;
-      grid-template-columns: 1.3fr 1fr;
-      gap: 20px;
-      align-items: end;
-      margin-bottom: 24px;
+    .eyebrow,
+    .section-kicker,
+    .field-label,
+    .summary-label {
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 11px;
     }
 
-    .eyebrow {
-      color: var(--accent);
-      font-size: 12px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      margin-bottom: 10px;
+    .eyebrow,
+    .section-kicker {
+      color: var(--accent-deep);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr 0.95fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero-copy,
+    .access-panel,
+    .panel,
+    .summary-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: var(--radius-xl);
+    }
+
+    .hero-copy {
+      padding: 30px;
+      min-height: 280px;
+      background:
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.78), transparent 44%),
+        linear-gradient(135deg, rgba(255, 251, 246, 0.94), rgba(252, 247, 240, 0.72));
+    }
+
+    .hero-copy::after {
+      content: "";
+      position: absolute;
+      right: -36px;
+      bottom: -42px;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(189, 93, 56, 0.18), rgba(28, 107, 115, 0.08));
+    }
+
+    .hero h1,
+    .panel h2,
+    .subpanel h3 {
+      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+      font-weight: 600;
     }
 
     .hero h1 {
-      font-size: clamp(34px, 5vw, 58px);
+      font-size: clamp(38px, 5.4vw, 64px);
       line-height: 0.95;
-      margin-bottom: 12px;
+      max-width: 10ch;
+      margin: 12px 0 14px;
     }
 
     .hero p {
+      max-width: 58ch;
       color: var(--muted);
-      max-width: 56ch;
-      line-height: 1.5;
+      line-height: 1.7;
+      font-size: 15px;
     }
 
-    .controls {
-      display: grid;
+    .hero-note-row {
+      display: flex;
+      flex-wrap: wrap;
       gap: 10px;
-      padding: 18px;
-      border-radius: 20px;
-      background: rgba(255, 255, 255, 0.7);
-      border: 1px solid var(--line);
+      margin-top: 20px;
     }
 
-    .controls-row {
+    .hero-note {
+      display: inline-flex;
+      align-items: center;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(23, 35, 45, 0.08);
+      background: rgba(255, 255, 255, 0.78);
+      font-size: 13px;
+      color: var(--ink);
+    }
+
+    .access-panel {
+      padding: 24px;
       display: grid;
-      grid-template-columns: 1fr 1fr auto;
-      gap: 10px;
+      gap: 14px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(250, 244, 236, 0.82));
     }
 
-    input, button {
-      border-radius: 14px;
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field-label {
+      color: var(--muted);
+    }
+
+    input,
+    select,
+    button {
+      width: 100%;
       border: 1px solid var(--line);
-      padding: 12px 14px;
+      border-radius: 16px;
       font: inherit;
     }
 
-    input {
-      background: white;
+    input,
+    select {
+      background: rgba(255, 255, 255, 0.94);
+      padding: 13px 14px;
+      color: var(--ink);
     }
 
     button {
       cursor: pointer;
-      background: linear-gradient(135deg, var(--accent), #dd6b20);
-      color: white;
+      padding: 13px 16px;
       font-weight: 700;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 22px rgba(23, 35, 45, 0.12);
+    }
+
+    .primary-button {
+      background: linear-gradient(135deg, var(--accent), #d87a4b);
+      color: white;
+    }
+
+    .secondary-button {
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+    }
+
+    .ghost-button {
+      background: rgba(28, 107, 115, 0.08);
+      color: var(--support);
     }
 
     .status {
       min-height: 20px;
       color: var(--muted);
       font-size: 14px;
+      line-height: 1.5;
     }
 
-    .grid {
+    .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 12px;
     }
 
-    .card {
+    .summary-card {
       padding: 18px;
+      background: var(--panel-strong);
+    }
+
+    .summary-label {
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .summary-value {
+      font-size: 32px;
+      line-height: 1;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .summary-caption {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .context-bar {
+      margin-bottom: 18px;
+      padding: 16px 18px;
       border-radius: 18px;
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.72);
-    }
-
-    .card .label {
-      font-size: 13px;
       color: var(--muted);
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      font-size: 14px;
+      line-height: 1.6;
     }
 
-    .card .value {
-      font-size: 28px;
-      font-weight: 700;
-    }
-
-    .section {
+    .content-grid {
       display: grid;
-      grid-template-columns: 1.1fr 1.2fr;
+      grid-template-columns: 1.08fr 0.92fr;
       gap: 16px;
+      margin-bottom: 16px;
     }
 
     .panel {
-      padding: 18px;
-      border-radius: 22px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.68);
+      padding: 20px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(250, 244, 236, 0.74));
     }
 
-    .panel h2 {
-      font-size: 20px;
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
       margin-bottom: 14px;
+    }
+
+    .section-head h2 {
+      font-size: 27px;
+      line-height: 1.05;
+      margin-top: 4px;
+    }
+
+    .section-copy {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 44ch;
     }
 
     .list {
@@ -163,152 +298,401 @@
       gap: 12px;
     }
 
+    .item,
+    .subpanel {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(23, 35, 45, 0.08);
+      background: rgba(255, 252, 248, 0.88);
+    }
+
     .item {
-      padding: 14px;
-      border-radius: 16px;
-      background: rgba(244, 239, 230, 0.82);
-      border: 1px solid rgba(31, 41, 51, 0.06);
+      padding: 16px;
+    }
+
+    .item-top,
+    .action-row,
+    .workspace-list {
+      display: flex;
+      gap: 10px;
+      align-items: center;
     }
 
     .item-top {
-      display: flex;
       justify-content: space-between;
-      gap: 12px;
       margin-bottom: 8px;
-      align-items: center;
+    }
+
+    .item-title {
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 700;
+    }
+
+    .item-title small {
+      display: block;
+      margin-top: 4px;
+      font-weight: 500;
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .pill {
       display: inline-flex;
       align-items: center;
-      padding: 6px 10px;
+      justify-content: center;
+      padding: 7px 11px;
       border-radius: 999px;
-      background: rgba(47, 133, 90, 0.12);
-      color: var(--ok);
       font-size: 12px;
       font-weight: 700;
+      white-space: nowrap;
+      background: rgba(23, 35, 45, 0.08);
+      color: var(--ink);
+    }
+
+    .pill-good {
+      background: rgba(30, 122, 78, 0.12);
+      color: var(--good);
+    }
+
+    .pill-warn {
+      background: rgba(154, 106, 24, 0.14);
+      color: var(--warn);
+    }
+
+    .pill-danger {
+      background: rgba(164, 59, 48, 0.12);
+      color: var(--danger);
+    }
+
+    .pill-sky {
+      background: rgba(28, 107, 115, 0.11);
+      color: var(--support);
     }
 
     .meta {
       color: var(--muted);
       font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .fact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .fact {
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(244, 238, 229, 0.86);
+      border: 1px solid rgba(23, 35, 45, 0.05);
+    }
+
+    .fact strong {
+      display: block;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .step-line {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(23, 35, 45, 0.05);
+      font-size: 14px;
+      color: var(--ink);
       line-height: 1.5;
     }
 
-    code {
-      font-family: "SFMono-Regular", Menlo, monospace;
-      font-size: 13px;
-      background: rgba(31, 41, 51, 0.06);
-      border-radius: 8px;
-      padding: 2px 6px;
+    .action-row {
+      margin-top: 14px;
+      flex-wrap: wrap;
     }
 
-    @media (max-width: 920px) {
+    .action-row button {
+      width: auto;
+      min-width: 126px;
+    }
+
+    .workspace-wrap {
+      display: grid;
+      gap: 14px;
+    }
+
+    .workspace-list {
+      flex-wrap: wrap;
+    }
+
+    .workspace-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: auto;
+      padding: 11px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .workspace-chip.is-active {
+      background: linear-gradient(135deg, rgba(189, 93, 56, 0.14), rgba(28, 107, 115, 0.08));
+      border-color: rgba(189, 93, 56, 0.24);
+    }
+
+    .workspace-chip small {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .subgrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .subpanel {
+      padding: 16px;
+    }
+
+    .subpanel h3 {
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+
+    .empty {
+      background: rgba(255, 252, 248, 0.64);
+    }
+
+    @media (max-width: 1024px) {
       .hero,
-      .section,
-      .grid,
-      .controls-row {
+      .content-grid,
+      .summary-grid,
+      .subgrid {
         grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page-shell {
+        width: min(100%, calc(100% - 18px));
+        padding: 14px;
+        margin: 10px auto 18px;
+      }
+
+      .hero-copy,
+      .access-panel,
+      .panel,
+      .summary-card {
+        border-radius: 24px;
+      }
+
+      .hero-copy,
+      .access-panel,
+      .panel {
+        padding: 18px;
+      }
+
+      .field-grid,
+      .fact-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero h1 {
+        max-width: none;
       }
     }
   </style>
 </head>
 <body>
-  <main class="shell">
+  <main class="page-shell">
     <section class="hero">
-      <div>
-        <div class="eyebrow">AI Coding Configuration Operations</div>
-        <h1>Review. Approve. Roll out. Measure again.</h1>
-        <p>Local CLI collects safe metrics and applies approved changes. The cloud research agent is wired for OpenAI, but this build uses a placeholder analyzer until the API integration is turned on.</p>
-      </div>
-      <div class="controls">
-        <div class="controls-row">
-          <input id="apiToken" placeholder="api token">
-          <input id="orgId" placeholder="org_id" value="demo-org">
-          <input id="projectId" placeholder="project_id or leave blank">
-          <button id="loadBtn" type="button">Load</button>
+      <article class="hero-copy">
+        <div class="eyebrow">AI Workspace Operations</div>
+        <h1>Approve with confidence. Measure what changed.</h1>
+        <p>AgentOpt watches how your AI workspace is configured, suggests safer improvements, and helps you roll them out only after approval.</p>
+        <div class="hero-note-row">
+          <span class="hero-note">No raw code upload</span>
+          <span class="hero-note">Approval before rollout</span>
+          <span class="hero-note">Impact tracked after changes</span>
         </div>
-        <div class="controls-row">
-          <input id="requestedBy" placeholder="requested_by / user_id">
-          <input id="applyScope" placeholder="scope: user or project" value="user">
-          <div></div>
-        </div>
-        <div class="status" id="status">Enter your API token and organization, then load metrics.</div>
-      </div>
-    </section>
-
-    <section class="grid" id="metricGrid">
-      <article class="card"><div class="label">Devices</div><div class="value" id="totalDevices">0</div></article>
-      <article class="card"><div class="label">Pending Review</div><div class="value" id="pendingReviewCount">0</div></article>
-      <article class="card"><div class="label">Approved Queue</div><div class="value" id="approvedQueueCount">0</div></article>
-      <article class="card"><div class="label">Inferred Accept</div><div class="value" id="inferredAcceptRate">0</div></article>
-    </section>
-
-    <section class="section">
-      <article class="panel">
-        <h2>Operational Signals</h2>
-        <div class="list" id="signalsList"></div>
       </article>
+      <form class="access-panel" onsubmit="event.preventDefault(); load();">
+        <div>
+          <div class="section-kicker">Workspace access</div>
+          <p class="section-copy">Open one workspace, review its suggestions, and decide what should change next.</p>
+        </div>
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">Access token</span>
+            <input id="apiToken" placeholder="agentopt token">
+          </label>
+          <label class="field">
+            <span class="field-label">Organization</span>
+            <input id="orgId" placeholder="organization id" value="demo-org">
+          </label>
+          <label class="field">
+            <span class="field-label">Workspace</span>
+            <input id="projectId" placeholder="leave blank to use the first workspace">
+          </label>
+          <label class="field">
+            <span class="field-label">Reviewer</span>
+            <input id="requestedBy" placeholder="your user id">
+          </label>
+          <label class="field">
+            <span class="field-label">Rollout scope</span>
+            <select id="applyScope">
+              <option value="user">Just me</option>
+              <option value="project">Entire workspace</option>
+            </select>
+          </label>
+        </div>
+        <button id="loadBtn" class="primary-button" type="submit">Open dashboard</button>
+        <div class="status" id="status">Enter your access details to load a workspace.</div>
+      </form>
+    </section>
+
+    <section class="summary-grid">
+      <article class="summary-card">
+        <div class="summary-label">Connected Workspaces</div>
+        <div class="summary-value" id="totalProjects">0</div>
+        <div class="summary-caption">Projects currently sending setup and session signals.</div>
+      </article>
+      <article class="summary-card">
+        <div class="summary-label">Needs Your Decision</div>
+        <div class="summary-value" id="pendingReviewCount">0</div>
+        <div class="summary-caption">Suggested changes still waiting for approval.</div>
+      </article>
+      <article class="summary-card">
+        <div class="summary-label">Ready On Your Devices</div>
+        <div class="summary-value" id="approvedQueueCount">0</div>
+        <div class="summary-caption">Approved plans that the CLI can apply on its next sync.</div>
+      </article>
+      <article class="summary-card">
+        <div class="summary-label">Changes Kept In Place</div>
+        <div class="summary-value" id="inferredAcceptRate">0%</div>
+        <div class="summary-caption">A proxy for how often rollouts stay in place after execution.</div>
+      </article>
+    </section>
+
+    <section class="context-bar" id="overviewNarrative">
+      Recommendations will sharpen after a few more sessions and setup snapshots.
+    </section>
+
+    <section class="content-grid">
       <article class="panel">
-        <h2>Recommendations</h2>
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Recommended next</div>
+            <h2>Suggestions for this workspace</h2>
+          </div>
+          <div class="section-copy">These suggestions are ranked by expected value and presented in plain language before anything changes locally.</div>
+        </div>
         <div class="list" id="recommendationList"></div>
       </article>
-    </section>
-    <section class="section" style="margin-top: 16px;">
       <article class="panel">
-        <h2>Current Config</h2>
-        <div class="list" id="configSnapshotList"></div>
-      </article>
-      <article class="panel">
-        <h2>Recent Sessions</h2>
-        <div class="list" id="sessionSummaryList"></div>
-      </article>
-    </section>
-    <section class="section" style="margin-top: 16px;">
-      <article class="panel">
-        <h2>Review Queue</h2>
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Needs approval</div>
+            <h2>Waiting for your sign-off</h2>
+          </div>
+          <div class="section-copy">Only approved plans can be picked up by the local CLI agent.</div>
+        </div>
         <div class="list" id="reviewQueueList"></div>
       </article>
+    </section>
+
+    <section class="content-grid">
       <article class="panel">
-        <h2>Approved Execution Queue</h2>
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Queued rollout</div>
+            <h2>Ready to apply</h2>
+          </div>
+          <div class="section-copy">These plans are approved and waiting for the next safe local sync.</div>
+        </div>
         <div class="list" id="pendingApplyList"></div>
       </article>
-    </section>
-    <section class="section" style="margin-top: 16px;">
       <article class="panel">
-        <h2>Apply History</h2>
-        <div class="list" id="applyHistoryList"></div>
-      </article>
-      <article class="panel">
-        <h2>Recommendation Impact</h2>
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Measured outcomes</div>
+            <h2>What improved after rollout</h2>
+          </div>
+          <div class="section-copy">AgentOpt compares before and after signals so you can see whether a change actually helped.</div>
+        </div>
         <div class="list" id="impactList"></div>
       </article>
     </section>
-    <section class="section" style="margin-top: 16px;">
+
+    <section class="content-grid">
       <article class="panel">
-        <h2>Projects</h2>
-        <div class="list" id="projectList"></div>
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Current workspace</div>
+            <h2>Setup and recent patterns</h2>
+          </div>
+          <div class="section-copy">A compact view of the workspace you are currently reviewing.</div>
+        </div>
+        <div class="workspace-wrap">
+          <div class="workspace-list" id="projectList"></div>
+          <div class="subgrid">
+            <section class="subpanel">
+              <h3>Setup snapshot</h3>
+              <div class="list" id="configSnapshotList"></div>
+            </section>
+            <section class="subpanel">
+              <h3>Recent work patterns</h3>
+              <div class="list" id="sessionSummaryList"></div>
+            </section>
+          </div>
+        </div>
       </article>
       <article class="panel">
-        <h2>Research Agent</h2>
-        <div class="list" id="researchAgentList"></div>
-      </article>
-    </section>
-    <section class="section" style="margin-top: 16px;">
-      <article class="panel" style="grid-column: 1 / -1;">
-        <h2>Audit Trail</h2>
-        <div class="list" id="auditList"></div>
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Recent changes</div>
+            <h2>Rollout history at a glance</h2>
+          </div>
+          <div class="section-copy">See what was approved, applied, or rolled back without exposing low-level internal details.</div>
+        </div>
+        <div class="list" id="applyHistoryList"></div>
       </article>
     </section>
   </main>
 
   <script>
+    const state = {
+      selectedProjectID: "",
+      recommendationIndex: new Map()
+    };
+
     const $ = (id) => document.getElementById(id);
+
+    function escapeHTML(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
 
     function setStatus(text, isError = false) {
       const el = $("status");
       el.textContent = text;
-      el.style.color = isError ? "#c53030" : "#52606d";
+      el.style.color = isError ? "#a43b30" : "#5d6a73";
     }
 
     function authHeaders() {
@@ -321,144 +705,235 @@
       return headers;
     }
 
-    function renderSignals(overview) {
-      const entries = [
-        ["Research provider", `${overview.research_provider} / ${overview.research_mode}`],
-        ["Avg tokens / query", overview.avg_tokens_per_query],
-        ["Avg tool calls / query", overview.avg_tool_calls_per_query],
-        ["Permission reject rate", overview.permission_reject_rate],
-        ["Retry rate", overview.retry_rate],
-        ["Apply rate", overview.recommendation_apply_rate],
-        ["Inferred accept", overview.inferred_accept_rate],
-        ["Rollback rate", overview.rollback_rate]
-      ];
-      $("signalsList").innerHTML = entries.map(([label, value]) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${label}</strong>
-            <span class="pill">${value}</span>
-          </div>
-          <div class="meta">Latest ingest: ${overview.last_ingested_at || "n/a"}</div>
+    function toArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function formatCount(value) {
+      return new Intl.NumberFormat("en-US").format(Number(value || 0));
+    }
+
+    function formatPercent(value) {
+      return `${Math.round(Number(value || 0) * 100)}%`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) {
+        return "Not yet";
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      return new Intl.DateTimeFormat("en-US", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(date);
+    }
+
+    function titleize(value) {
+      return String(value || "")
+        .replace(/[_-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function baseName(path) {
+      const parts = String(path || "").split(/[\\/]/);
+      return parts[parts.length - 1] || "workspace settings";
+    }
+
+    function emptyState(title, description) {
+      return `
+        <div class="item empty">
+          <div class="item-title">${escapeHTML(title)}</div>
+          <div class="meta">${escapeHTML(description)}</div>
         </div>
-      `).join("");
+      `;
+    }
+
+    function pill(label, tone) {
+      const safeTone = tone ? ` pill-${tone}` : "";
+      return `<span class="pill${safeTone}">${escapeHTML(label)}</span>`;
+    }
+
+    function riskTone(risk) {
+      const raw = String(risk || "").toLowerCase();
+      if (raw.includes("high")) {
+        return "danger";
+      }
+      if (raw.includes("medium")) {
+        return "warn";
+      }
+      return "good";
+    }
+
+    function statusTone(status) {
+      const raw = String(status || "").toLowerCase();
+      if (raw.includes("rollback")) {
+        return "warn";
+      }
+      if (raw.includes("failed") || raw.includes("rejected")) {
+        return "danger";
+      }
+      if (raw.includes("approved") || raw.includes("applied")) {
+        return "good";
+      }
+      return "sky";
+    }
+
+    function conciseStatus(status) {
+      switch (String(status || "").toLowerCase()) {
+        case "awaiting_review":
+          return "Waiting";
+        case "approved_for_local_apply":
+          return "Ready";
+        case "applied":
+          return "Applied";
+        case "rollback_confirmed":
+          return "Rolled back";
+        case "rejected":
+          return "Declined";
+        case "failed":
+          return "Failed";
+        default:
+          return titleize(status || "Pending");
+      }
+    }
+
+    function workloadNarrative(overview) {
+      const top = toArray(overview.top_task_types)[0];
+      if (!top) {
+        return "AgentOpt is collecting enough setup and session context to produce steadier recommendations.";
+      }
+      const task = titleize(top.task_type || "mixed");
+      return `${formatCount(top.sessions)} recent sessions leaned toward ${task} work. Changes kept in place are currently estimated at ${formatPercent(overview.inferred_accept_rate)}.`;
+    }
+
+    function stepSummary(step) {
+      if (step && step.summary) {
+        return String(step.summary);
+      }
+      if (step && step.operation && String(step.operation).includes("append")) {
+        return `Add guidance to ${baseName(step.file_path)}`;
+      }
+      if (step && step.target_file) {
+        return `Update ${baseName(step.target_file)}`;
+      }
+      if (step && step.file_path) {
+        return `Update ${baseName(step.file_path)}`;
+      }
+      return "Update workspace configuration";
+    }
+
+    function renderStepList(items, limit = 3) {
+      const summaries = toArray(items).map(stepSummary).filter(Boolean);
+      const visible = summaries.slice(0, limit);
+      if (summaries.length > limit) {
+        visible.push(`${summaries.length - limit} more step${summaries.length - limit === 1 ? "" : "s"} in this plan`);
+      }
+      return visible.map((line) => `<div class="step-line">${escapeHTML(line)}</div>`).join("");
+    }
+
+    function recommendationTitle(recommendationID) {
+      const rec = state.recommendationIndex.get(recommendationID);
+      return rec ? rec.title : "Configuration update";
+    }
+
+    function recommendationSummary(recommendationID) {
+      const rec = state.recommendationIndex.get(recommendationID);
+      return rec ? rec.summary : "A reviewed configuration update for this workspace.";
+    }
+
+    function impactTone(item) {
+      if (Number(item.retry_delta) < -0.01 || Number(item.reject_delta) < -0.01 || Number(item.cost_delta) < -0.05) {
+        return "good";
+      }
+      if (Number(item.retry_delta) > 0.01 || Number(item.reject_delta) > 0.01 || Number(item.cost_delta) > 0.05) {
+        return "warn";
+      }
+      return "sky";
+    }
+
+    function impactLabel(item) {
+      if (impactTone(item) === "good") {
+        return "Improving";
+      }
+      if (impactTone(item) === "warn") {
+        return "Watch closely";
+      }
+      return "Early read";
+    }
+
+    function renderOverview(overview) {
+      $("totalProjects").textContent = formatCount(overview.total_projects);
+      $("pendingReviewCount").textContent = formatCount(overview.pending_review_count);
+      $("approvedQueueCount").textContent = formatCount(overview.approved_queue_count);
+      $("inferredAcceptRate").textContent = formatPercent(overview.inferred_accept_rate);
+      $("overviewNarrative").textContent = workloadNarrative(overview);
     }
 
     function renderRecommendations(items) {
       if (!items.length) {
-        $("recommendationList").innerHTML = `<div class="item"><strong>No recommendations yet.</strong><div class="meta">Upload at least one session summary from the CLI.</div></div>`;
+        $("recommendationList").innerHTML = emptyState(
+          "No suggestions yet",
+          "Upload at least one session summary from the CLI and AgentOpt will start proposing improvements."
+        );
         return;
       }
-      $("recommendationList").innerHTML = items.map((item) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${item.title}</strong>
-            <span class="pill">score ${item.score}</span>
-          </div>
-          <div class="meta">${item.summary}</div>
-          <div class="meta" style="margin-top: 8px;">Target: <code>${item.target_file_hint}</code></div>
-          <div class="meta" style="margin-top: 8px;">Benefit: ${item.expected_benefit}</div>
-          <div class="meta">Risk: ${item.risk}</div>
-          <div class="meta" style="margin-top: 8px;">Reason: ${item.reason}</div>
-          <div class="meta">Plan: ${(item.change_plan || []).map((step) => `${step.action} ${step.target_file}`).join(" | ") || "n/a"}</div>
-          <div class="meta" style="margin-top: 10px;">
-            <button type="button" onclick="requestApply('${item.id}')">Create Plan</button>
-          </div>
-        </div>
-      `).join("");
-    }
 
-    function renderConfigSnapshots(items) {
-      if (!items.length) {
-        $("configSnapshotList").innerHTML = `<div class="item"><strong>No config snapshots.</strong><div class="meta">Upload a config snapshot from the CLI first.</div></div>`;
-        return;
-      }
-      $("configSnapshotList").innerHTML = items.slice(0, 3).map((item) => `
+      $("recommendationList").innerHTML = items.slice(0, 4).map((item) => `
         <div class="item">
           <div class="item-top">
-            <strong>${item.profile_id || "baseline"}</strong>
-            <span class="pill">${item.tool}</span>
+            <div class="item-title">
+              ${escapeHTML(item.title)}
+              <small>${escapeHTML(item.summary)}</small>
+            </div>
+            ${pill(item.risk || "Low risk", riskTone(item.risk))}
           </div>
-          <div class="meta">Captured: ${item.captured_at}</div>
-          <div class="meta">Fingerprint: <code>${item.config_fingerprint || "n/a"}</code></div>
-          <div class="meta">MCPs: ${item.enabled_mcp_count} | Hooks: ${item.hooks_enabled}</div>
-          <div class="meta"><code>${JSON.stringify(item.settings)}</code></div>
-        </div>
-      `).join("");
-    }
-
-    function renderSessionSummaries(items) {
-      if (!items.length) {
-        $("sessionSummaryList").innerHTML = `<div class="item"><strong>No recent sessions.</strong><div class="meta">Upload session summaries from the CLI first.</div></div>`;
-        return;
-      }
-      $("sessionSummaryList").innerHTML = items.map((item) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${item.task_type}</strong>
-            <span class="pill">$${Number(item.estimated_cost).toFixed(2)}</span>
+          <div class="fact-grid">
+            <div class="fact">
+              <strong>Why now</strong>
+              ${escapeHTML(item.reason)}
+            </div>
+            <div class="fact">
+              <strong>Expected outcome</strong>
+              ${escapeHTML(item.expected_benefit)}
+            </div>
           </div>
-          <div class="meta">Tool: ${item.tool} | Prompts: ${item.total_prompts_count} | Calls: ${item.total_tool_calls}</div>
-          <div class="meta">Rejects: ${item.permission_reject_count} | Retries: ${item.retry_count} | Profile: ${item.config_profile_id || "n/a"}</div>
-          <div class="meta">Exploration: ${item.repo_exploration_intensity} | Shell heavy: ${item.shell_heavy} | Accept proxy: ${item.acceptance_proxy}</div>
-          <div class="meta">Recorded: ${item.timestamp}</div>
-        </div>
-      `).join("");
-    }
-
-    function renderProjects(items) {
-      if (!items.length) {
-        $("projectList").innerHTML = `<div class="item"><strong>No projects found.</strong><div class="meta">Connect a project from the CLI first.</div></div>`;
-        return;
-      }
-      $("projectList").innerHTML = items.map((item) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${item.name}</strong>
-            <button type="button" onclick="selectProject('${item.id}')">Use</button>
+          <div class="meta">${escapeHTML(item.expected_impact || "")}</div>
+          <div class="step-list">${renderStepList(item.change_plan, 2)}</div>
+          <div class="action-row">
+            <button class="primary-button" type="button" onclick="requestApply('${item.id}')">Create review plan</button>
           </div>
-          <div class="meta"><code>${item.id}</code></div>
-          <div class="meta">Tool: ${item.default_tool || "n/a"} | Last ingest: ${item.last_ingested_at || "n/a"}</div>
-        </div>
-      `).join("");
-    }
-
-    function renderApplyHistory(items) {
-      if (!items.length) {
-        $("applyHistoryList").innerHTML = `<div class="item"><strong>No apply history yet.</strong><div class="meta">Approve a change plan and let the local CLI execute it.</div></div>`;
-        return;
-      }
-      $("applyHistoryList").innerHTML = items.map((item) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${item.status}</strong>
-            <span class="pill">${item.approval_status || item.scope}</span>
-          </div>
-          <div class="meta">Apply ID: <code>${item.apply_id}</code></div>
-          <div class="meta">Recommendation: <code>${item.recommendation_id}</code></div>
-          <div class="meta">Decision: ${item.decision || "pending"} | Reviewer: ${item.reviewed_by || "n/a"}</div>
-          <div class="meta">Policy: ${item.policy_mode || "n/a"} | ${item.policy_reason || "n/a"}</div>
-          <div class="meta">File: ${item.applied_file || "preview only"} | Requested: ${item.requested_at}</div>
         </div>
       `).join("");
     }
 
     function renderReviewQueue(items) {
       if (!items.length) {
-        $("reviewQueueList").innerHTML = `<div class="item"><strong>No plans waiting for review.</strong><div class="meta">Create a change plan from a recommendation first.</div></div>`;
+        $("reviewQueueList").innerHTML = emptyState(
+          "Nothing is waiting for approval",
+          "When you create a plan from a suggestion, it will appear here for approval."
+        );
         return;
       }
+
       $("reviewQueueList").innerHTML = items.map((item) => `
         <div class="item">
           <div class="item-top">
-            <strong>${item.apply_id}</strong>
-            <span class="pill">${item.status}</span>
+            <div class="item-title">
+              ${escapeHTML(recommendationTitle(item.recommendation_id))}
+              <small>${escapeHTML(recommendationSummary(item.recommendation_id))}</small>
+            </div>
+            ${pill("Needs approval", "warn")}
           </div>
-          <div class="meta">Requested by: ${item.requested_by}</div>
-          <div class="meta">Policy: ${item.policy_mode || "n/a"} | ${item.policy_reason || "n/a"}</div>
-          <div class="meta">Preview: ${(item.patch_preview || []).map((preview) => `${preview.operation} ${preview.file_path}`).join(" | ")}</div>
-          <div class="meta" style="margin-top: 10px;">
-            <button type="button" onclick="reviewPlan('${item.apply_id}', 'approve')">Approve</button>
-            <button type="button" onclick="reviewPlan('${item.apply_id}', 'reject')">Reject</button>
+          <div class="meta">Requested by ${escapeHTML(item.requested_by || "a teammate")} on ${escapeHTML(formatDateTime(item.requested_at))}.</div>
+          <div class="step-list">${renderStepList(item.patch_preview, 3)}</div>
+          <div class="action-row">
+            <button class="primary-button" type="button" onclick="reviewPlan('${item.apply_id}', 'approve')">Approve</button>
+            <button class="secondary-button" type="button" onclick="reviewPlan('${item.apply_id}', 'reject')">Decline</button>
           </div>
         </div>
       `).join("");
@@ -466,85 +941,216 @@
 
     function renderPendingApplies(items) {
       if (!items.length) {
-        $("pendingApplyList").innerHTML = `<div class="item"><strong>No approved plans in queue.</strong><div class="meta">Approve a change plan to hand it to the local CLI.</div></div>`;
+        $("pendingApplyList").innerHTML = emptyState(
+          "No approved plans are waiting",
+          "Approved changes will show up here until the local CLI sync applies them."
+        );
         return;
       }
-      $("pendingApplyList").innerHTML = items.map((item) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${item.apply_id}</strong>
-            <span class="pill">${item.approval_status || item.scope}</span>
+
+      $("pendingApplyList").innerHTML = items.map((item) => {
+        const approvalLabel = item.policy_mode === "auto_approved" ? "Fast-tracked" : "Approved";
+        return `
+          <div class="item">
+            <div class="item-top">
+              <div class="item-title">
+                ${escapeHTML(recommendationTitle(item.recommendation_id))}
+                <small>${escapeHTML(recommendationSummary(item.recommendation_id))}</small>
+              </div>
+              ${pill(approvalLabel, item.policy_mode === "auto_approved" ? "sky" : "good")}
+            </div>
+            <div class="meta">Ready for the next local sync. Requested ${escapeHTML(formatDateTime(item.requested_at))}.</div>
+            <div class="step-list">${renderStepList(item.patch_preview, 2)}</div>
           </div>
-          <div class="meta">Requested by: ${item.requested_by}</div>
-          <div class="meta">Policy: ${item.policy_mode || "n/a"} | ${item.policy_reason || "n/a"}</div>
-          <div class="meta">Status: ${item.status} | Requested: ${item.requested_at}</div>
-          <div class="meta">Recommendation: <code>${item.recommendation_id}</code></div>
-        </div>
-      `).join("");
+        `;
+      }).join("");
+    }
+
+    function impactHighlights(item) {
+      const lines = [];
+      if (Number(item.sessions_after) > 0) {
+        lines.push(`${formatCount(item.sessions_after)} session${Number(item.sessions_after) === 1 ? "" : "s"} measured after rollout.`);
+      }
+      if (Number(item.retry_delta) < -0.01) {
+        lines.push(`Retry pressure is down ${formatPercent(Math.abs(item.retry_delta))}.`);
+      } else if (Number(item.retry_delta) > 0.01) {
+        lines.push(`Retry pressure is up ${formatPercent(item.retry_delta)}.`);
+      }
+      if (Number(item.reject_delta) < -0.01) {
+        lines.push(`Permission friction is down ${formatPercent(Math.abs(item.reject_delta))}.`);
+      } else if (Number(item.reject_delta) > 0.01) {
+        lines.push(`Permission friction is up ${formatPercent(item.reject_delta)}.`);
+      }
+      if (lines.length === 0) {
+        lines.push("More post-change usage will make this read clearer.");
+      }
+      return lines;
     }
 
     function renderImpact(items) {
       if (!items.length) {
-        $("impactList").innerHTML = `<div class="item"><strong>No impact data yet.</strong><div class="meta">Apply a recommendation and collect post-apply sessions.</div></div>`;
+        $("impactList").innerHTML = emptyState(
+          "No impact readout yet",
+          "Approve and apply a recommendation, then gather a few more sessions to see the before and after comparison."
+        );
         return;
       }
-      $("impactList").innerHTML = items.map((item) => `
+
+      $("impactList").innerHTML = items.slice(0, 4).map((item) => `
         <div class="item">
           <div class="item-top">
-            <strong>${item.recommendation_id}</strong>
-            <span class="pill">${item.status}</span>
+            <div class="item-title">
+              ${escapeHTML(recommendationTitle(item.recommendation_id))}
+              <small>${escapeHTML(item.interpretation || "Early measurement in progress.")}</small>
+            </div>
+            ${pill(impactLabel(item), impactTone(item))}
           </div>
-          <div class="meta">${item.interpretation}</div>
-          <div class="meta" style="margin-top: 8px;">Cost: ${item.avg_cost_before} -> ${item.avg_cost_after} (delta ${item.cost_delta})</div>
-          <div class="meta">Retry rate: ${item.avg_retry_rate_before} -> ${item.avg_retry_rate_after} (delta ${item.retry_delta})</div>
-          <div class="meta">Reject rate: ${item.avg_reject_rate_before} -> ${item.avg_reject_rate_after} (delta ${item.reject_delta})</div>
-          <div class="meta">Sessions: before ${item.sessions_before}, after ${item.sessions_after}</div>
+          <div class="step-list">${impactHighlights(item).map((line) => `<div class="step-line">${escapeHTML(line)}</div>`).join("")}</div>
         </div>
       `).join("");
     }
 
-    function renderAudits(items) {
+    function renderProjects(items) {
       if (!items.length) {
-        $("auditList").innerHTML = `<div class="item"><strong>No audit events.</strong><div class="meta">Ingest data or apply a recommendation to populate the audit trail.</div></div>`;
+        $("projectList").innerHTML = emptyState(
+          "No workspaces connected",
+          "Connect a project from the CLI and it will appear here."
+        );
         return;
       }
-      $("auditList").innerHTML = items.map((item) => `
-        <div class="item">
-          <div class="item-top">
-            <strong>${item.type}</strong>
-            <span class="pill">${item.created_at}</span>
-          </div>
-          <div class="meta">${item.message}</div>
-          <div class="meta">Project: <code>${item.project_id || "org-scope"}</code></div>
-        </div>
-      `).join("");
+
+      $("projectList").innerHTML = items.map((item) => {
+        const active = item.id === state.selectedProjectID ? " is-active" : "";
+        const activity = item.last_ingested_at ? `Updated ${formatDateTime(item.last_ingested_at)}` : "Waiting for activity";
+        return `
+          <button class="workspace-chip${active}" type="button" onclick="selectProject('${item.id}')">
+            <span>${escapeHTML(item.name || item.id)}</span>
+            <small>${escapeHTML(activity)}</small>
+          </button>
+        `;
+      }).join("");
     }
 
-    function renderResearchAgent(overview) {
-      $("researchAgentList").innerHTML = `
+    function renderConfigSnapshots(items) {
+      const snapshot = items[0];
+      if (!snapshot) {
+        $("configSnapshotList").innerHTML = emptyState(
+          "No setup snapshot yet",
+          "Upload a config snapshot from the CLI to see the current setup here."
+        );
+        return;
+      }
+
+      const guides = toArray(snapshot.instruction_files).length;
+      const notes = [
+        `${titleize(snapshot.profile_id || "baseline")} profile is active.`,
+        snapshot.hooks_enabled ? "Safety hooks are enabled." : "Safety hooks are not enabled yet.",
+        guides > 0 ? `${guides} shared instruction guide${guides === 1 ? "" : "s"} detected.` : "No shared instruction guide detected yet.",
+        `${formatCount(snapshot.enabled_mcp_count)} connected integration${Number(snapshot.enabled_mcp_count) === 1 ? "" : "s"}.`
+      ];
+
+      $("configSnapshotList").innerHTML = `
         <div class="item">
           <div class="item-top">
-            <strong>${overview.research_provider}</strong>
-            <span class="pill">${overview.research_mode}</span>
+            <div class="item-title">
+              Current setup
+              <small>Updated ${escapeHTML(formatDateTime(snapshot.captured_at))}</small>
+            </div>
+            ${pill(titleize(snapshot.tool || "tool"), "sky")}
           </div>
-          <div class="meta">OpenAI API integration is intentionally left as a placeholder during development.</div>
-          <div class="meta">Current orchestration still enforces structured change plans, approval, and local-only execution.</div>
+          <div class="step-list">${notes.map((line) => `<div class="step-line">${escapeHTML(line)}</div>`).join("")}</div>
         </div>
       `;
     }
 
-    function selectProject(projectId) {
-      $("projectId").value = projectId;
+    function sessionSummaryLines(item) {
+      const lines = [];
+      lines.push(`${titleize(item.task_type || "mixed")} work session.`);
+      lines.push(item.shell_heavy ? "Work relied heavily on shell commands." : "Work stayed mostly inside the editor and tools.");
+      if (Number(item.permission_reject_count) > 0) {
+        lines.push(`${formatCount(item.permission_reject_count)} approval block${Number(item.permission_reject_count) === 1 ? "" : "s"} occurred.`);
+      } else {
+        lines.push("Approval friction stayed low.");
+      }
+      if (Number(item.retry_count) > 0) {
+        lines.push(Number(item.retry_count) === 1 ? "1 retry was needed." : `${formatCount(item.retry_count)} retries were needed.`);
+      } else {
+        lines.push("Progress looked stable without retries.");
+      }
+      return lines;
+    }
+
+    function renderSessionSummaries(items) {
+      if (!items.length) {
+        $("sessionSummaryList").innerHTML = emptyState(
+          "No recent work patterns yet",
+          "Recent sessions will appear here after the CLI uploads usage summaries."
+        );
+        return;
+      }
+
+      $("sessionSummaryList").innerHTML = items.slice(0, 3).map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <div class="item-title">
+              ${escapeHTML(titleize(item.task_type || "Recent work"))}
+              <small>Recorded ${escapeHTML(formatDateTime(item.timestamp))}</small>
+            </div>
+            ${pill(formatPercent(item.acceptance_proxy || 0), "good")}
+          </div>
+          <div class="step-list">${sessionSummaryLines(item).map((line) => `<div class="step-line">${escapeHTML(line)}</div>`).join("")}</div>
+        </div>
+      `).join("");
+    }
+
+    function historyTone(item) {
+      if (item.rolled_back) {
+        return "warn";
+      }
+      return statusTone(item.status);
+    }
+
+    function renderApplyHistory(items) {
+      if (!items.length) {
+        $("applyHistoryList").innerHTML = emptyState(
+          "No rollout history yet",
+          "Once a suggestion is approved and executed, the result will appear here."
+        );
+        return;
+      }
+
+      $("applyHistoryList").innerHTML = items.slice(0, 5).map((item) => {
+        const when = item.applied_at || item.reviewed_at || item.requested_at;
+        const byline = item.reviewed_by ? `Approved by ${item.reviewed_by}.` : "Awaiting a decision.";
+        return `
+          <div class="item">
+            <div class="item-top">
+              <div class="item-title">
+                ${escapeHTML(recommendationTitle(item.recommendation_id))}
+                <small>${escapeHTML(conciseStatus(item.status))} on ${formatDateTime(when)}</small>
+              </div>
+              ${pill(conciseStatus(item.status), historyTone(item))}
+            </div>
+            <div class="meta">${escapeHTML(byline)}</div>
+            <div class="step-list">${renderStepList(item.patch_preview, 2)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function selectProject(projectID) {
+      $("projectId").value = projectID;
+      localStorage.setItem("agentopt_project_id", projectID);
       load();
     }
 
-    async function requestApply(recommendationId) {
+    async function requestApply(recommendationID) {
       const token = $("apiToken").value.trim();
-      const projectId = $("projectId").value.trim();
       const requestedBy = $("requestedBy").value.trim();
-      const scope = ($("applyScope").value.trim() || "user").toLowerCase();
-      if (!token || !projectId || !requestedBy) {
-        setStatus("API token, project id, and requested_by are required.", true);
+      const scope = $("applyScope").value || "user";
+
+      if (!token || !requestedBy) {
+        setStatus("Access token and reviewer are required before you can request a plan.", true);
         return;
       }
 
@@ -556,32 +1162,34 @@
             "X-AgentOpt-Token": token
           },
           body: JSON.stringify({
-            recommendation_id: recommendationId,
+            recommendation_id: recommendationID,
             requested_by: requestedBy,
             scope
           })
         });
         const env = await resp.json();
         if (env.code !== 0) {
-          throw new Error(env.msg || "apply request failed");
+          throw new Error(env.msg || "Failed to create a review plan.");
         }
-        const suffix = env.data.policy_mode === "auto_approved"
-          ? "Policy engine auto-approved it. agentopt sync can execute it immediately."
-          : "Review and approve it before agentopt sync executes anything.";
-        setStatus(`Change plan requested: ${env.data.apply_id}. ${suffix}`);
+        const message = env.data.policy_mode === "auto_approved"
+          ? "The plan was fast-tracked by policy and is ready for the next local sync."
+          : "The plan is now waiting for approval.";
         await load();
+        setStatus(message);
       } catch (err) {
-        setStatus(err.message || "Failed to request apply.", true);
+        setStatus(err.message || "Failed to create a review plan.", true);
       }
     }
 
-    async function reviewPlan(applyId, decision) {
+    async function reviewPlan(applyID, decision) {
       const token = $("apiToken").value.trim();
       const reviewer = $("requestedBy").value.trim();
+
       if (!token || !reviewer) {
-        setStatus("API token and requested_by are required for review.", true);
+        setStatus("Access token and reviewer are required before you can approve or decline a plan.", true);
         return;
       }
+
       try {
         const resp = await fetch("/api/v1/change-plans/review", {
           method: "POST",
@@ -590,7 +1198,7 @@
             "X-AgentOpt-Token": token
           },
           body: JSON.stringify({
-            apply_id: applyId,
+            apply_id: applyID,
             decision,
             reviewed_by: reviewer,
             review_note: `dashboard ${decision}`
@@ -598,150 +1206,154 @@
         });
         const env = await resp.json();
         if (env.code !== 0) {
-          throw new Error(env.msg || "review failed");
+          throw new Error(env.msg || "Failed to update the review decision.");
         }
-        setStatus(`Change plan ${applyId} ${env.data.decision}.`);
         await load();
+        setStatus(decision === "approve"
+          ? "Approved. The local CLI can pick up this change on the next sync."
+          : "Declined. The plan will stay out of the rollout queue.");
       } catch (err) {
-        setStatus(err.message || "Failed to review change plan.", true);
+        setStatus(err.message || "Failed to update the review decision.", true);
       }
     }
 
     async function load() {
-      const orgId = $("orgId").value.trim();
-      if (!orgId) {
-        setStatus("org_id is required.", true);
+      const orgID = $("orgId").value.trim();
+      if (!orgID) {
+        setStatus("Organization is required.", true);
         return;
       }
 
-      setStatus("Loading analytics...");
+      localStorage.setItem("agentopt_org_id", orgID);
+      localStorage.setItem("agentopt_requested_by", $("requestedBy").value.trim());
+      localStorage.setItem("agentopt_apply_scope", $("applyScope").value);
+
+      setStatus("Loading workspace signals...");
 
       try {
-        const [overviewResp, projectResp] = await Promise.all([
-          fetch(`/api/v1/dashboard/overview?org_id=${encodeURIComponent(orgId)}`, { headers: authHeaders() }),
-          fetch(`/api/v1/projects?org_id=${encodeURIComponent(orgId)}`, { headers: authHeaders() })
+        const [overviewResp, projectsResp] = await Promise.all([
+          fetch(`/api/v1/dashboard/overview?org_id=${encodeURIComponent(orgID)}`, { headers: authHeaders() }),
+          fetch(`/api/v1/projects?org_id=${encodeURIComponent(orgID)}`, { headers: authHeaders() })
         ]);
 
         const overviewEnv = await overviewResp.json();
-        const projectEnv = await projectResp.json();
+        const projectsEnv = await projectsResp.json();
 
         if (overviewEnv.code !== 0) {
-          throw new Error(overviewEnv.msg || "overview request failed");
+          throw new Error(overviewEnv.msg || "Failed to load the dashboard overview.");
         }
-        if (projectEnv.code !== 0) {
-          throw new Error(projectEnv.msg || "projects request failed");
+        if (projectsEnv.code !== 0) {
+          throw new Error(projectsEnv.msg || "Failed to load your workspaces.");
         }
 
         const overview = overviewEnv.data;
-        const projects = projectEnv.data.items || [];
+        const projects = toArray(projectsEnv.data.items);
+        let projectID = $("projectId").value.trim();
+        if (!projectID && projects.length > 0) {
+          projectID = projects[0].id;
+          $("projectId").value = projectID;
+        }
+        if (projectID) {
+          localStorage.setItem("agentopt_project_id", projectID);
+        }
+        state.selectedProjectID = projectID;
+
+        renderOverview(overview);
         renderProjects(projects);
 
-        let projectId = $("projectId").value.trim();
-        if (!projectId && projects.length > 0) {
-          projectId = projects[0].id;
-          $("projectId").value = projectId;
-        }
+        state.recommendationIndex = new Map();
 
         let recommendations = [];
         let reviewQueue = [];
         let pendingApplies = [];
-        let applyHistory = [];
         let impacts = [];
-        let audits = [];
+        let applyHistory = [];
         let snapshots = [];
         let sessions = [];
-        if (projectId) {
+
+        if (projectID) {
           const requestedBy = $("requestedBy").value.trim();
           const pendingPath = requestedBy
-            ? `/api/v1/applies/pending?project_id=${encodeURIComponent(projectId)}&user_id=${encodeURIComponent(requestedBy)}`
-            : `/api/v1/applies/pending?project_id=${encodeURIComponent(projectId)}`;
-          const reviewPath = `/api/v1/change-plans?project_id=${encodeURIComponent(projectId)}&status=awaiting_review`;
-          const [recResp, reviewResp, pendingResp, applyResp, impactResp, auditResp, snapshotResp, sessionResp] = await Promise.all([
-            fetch(`/api/v1/recommendations?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
-            fetch(reviewPath, { headers: authHeaders() }),
+            ? `/api/v1/applies/pending?project_id=${encodeURIComponent(projectID)}&user_id=${encodeURIComponent(requestedBy)}`
+            : `/api/v1/applies/pending?project_id=${encodeURIComponent(projectID)}`;
+
+          const [recResp, reviewResp, pendingResp, impactResp, historyResp, snapshotResp, sessionResp] = await Promise.all([
+            fetch(`/api/v1/recommendations?project_id=${encodeURIComponent(projectID)}`, { headers: authHeaders() }),
+            fetch(`/api/v1/change-plans?project_id=${encodeURIComponent(projectID)}&status=awaiting_review`, { headers: authHeaders() }),
             fetch(pendingPath, { headers: authHeaders() }),
-            fetch(`/api/v1/applies?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
-            fetch(`/api/v1/impact?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
-            fetch(`/api/v1/audits?org_id=${encodeURIComponent(orgId)}&project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
-            fetch(`/api/v1/config-snapshots?project_id=${encodeURIComponent(projectId)}`, { headers: authHeaders() }),
-            fetch(`/api/v1/session-summaries?project_id=${encodeURIComponent(projectId)}&limit=5`, { headers: authHeaders() })
+            fetch(`/api/v1/impact?project_id=${encodeURIComponent(projectID)}`, { headers: authHeaders() }),
+            fetch(`/api/v1/applies?project_id=${encodeURIComponent(projectID)}`, { headers: authHeaders() }),
+            fetch(`/api/v1/config-snapshots?project_id=${encodeURIComponent(projectID)}`, { headers: authHeaders() }),
+            fetch(`/api/v1/session-summaries?project_id=${encodeURIComponent(projectID)}&limit=5`, { headers: authHeaders() })
           ]);
+
           const recEnv = await recResp.json();
           const reviewEnv = await reviewResp.json();
           const pendingEnv = await pendingResp.json();
-          const applyEnv = await applyResp.json();
           const impactEnv = await impactResp.json();
-          const auditEnv = await auditResp.json();
+          const historyEnv = await historyResp.json();
           const snapshotEnv = await snapshotResp.json();
           const sessionEnv = await sessionResp.json();
+
           if (recEnv.code !== 0) {
-            throw new Error(recEnv.msg || "recommendation request failed");
+            throw new Error(recEnv.msg || "Failed to load workspace suggestions.");
           }
           if (reviewEnv.code !== 0) {
-            throw new Error(reviewEnv.msg || "review queue request failed");
-          }
-          if (applyEnv.code !== 0) {
-            throw new Error(applyEnv.msg || "apply history request failed");
+            throw new Error(reviewEnv.msg || "Failed to load the approval queue.");
           }
           if (pendingEnv.code !== 0) {
-            throw new Error(pendingEnv.msg || "pending applies request failed");
+            throw new Error(pendingEnv.msg || "Failed to load approved changes.");
           }
           if (impactEnv.code !== 0) {
-            throw new Error(impactEnv.msg || "impact request failed");
+            throw new Error(impactEnv.msg || "Failed to load measured outcomes.");
           }
-          if (auditEnv.code !== 0) {
-            throw new Error(auditEnv.msg || "audit request failed");
+          if (historyEnv.code !== 0) {
+            throw new Error(historyEnv.msg || "Failed to load rollout history.");
           }
           if (snapshotEnv.code !== 0) {
-            throw new Error(snapshotEnv.msg || "snapshot request failed");
+            throw new Error(snapshotEnv.msg || "Failed to load the latest setup snapshot.");
           }
           if (sessionEnv.code !== 0) {
-            throw new Error(sessionEnv.msg || "session request failed");
+            throw new Error(sessionEnv.msg || "Failed to load recent work patterns.");
           }
-          recommendations = recEnv.data.items || [];
-          reviewQueue = reviewEnv.data.items || [];
-          pendingApplies = pendingEnv.data.items || [];
-          applyHistory = applyEnv.data.items || [];
-          impacts = impactEnv.data.items || [];
-          audits = auditEnv.data.items || [];
-          snapshots = snapshotEnv.data.items || [];
-          sessions = sessionEnv.data.items || [];
-        } else {
-          const auditResp = await fetch(`/api/v1/audits?org_id=${encodeURIComponent(orgId)}`, { headers: authHeaders() });
-          const auditEnv = await auditResp.json();
-          if (auditEnv.code !== 0) {
-            throw new Error(auditEnv.msg || "audit request failed");
-          }
-          audits = auditEnv.data.items || [];
+
+          recommendations = toArray(recEnv.data.items);
+          reviewQueue = toArray(reviewEnv.data.items);
+          pendingApplies = toArray(pendingEnv.data.items);
+          impacts = toArray(impactEnv.data.items);
+          applyHistory = toArray(historyEnv.data.items);
+          snapshots = toArray(snapshotEnv.data.items);
+          sessions = toArray(sessionEnv.data.items);
+
+          recommendations.forEach((item) => {
+            state.recommendationIndex.set(item.id, item);
+          });
         }
 
-        $("totalDevices").textContent = overview.total_devices;
-        $("pendingReviewCount").textContent = overview.pending_review_count;
-        $("approvedQueueCount").textContent = overview.approved_queue_count;
-        $("inferredAcceptRate").textContent = overview.inferred_accept_rate;
-
-        renderSignals(overview);
-        renderResearchAgent(overview);
         renderRecommendations(recommendations);
-        renderConfigSnapshots(snapshots);
-        renderSessionSummaries(sessions);
         renderReviewQueue(reviewQueue);
         renderPendingApplies(pendingApplies);
-        renderApplyHistory(applyHistory);
         renderImpact(impacts);
-        renderAudits(audits);
-        setStatus(projectId ? `Loaded ${recommendations.length} recommendations for ${projectId}.` : "Loaded organization overview.");
+        renderConfigSnapshots(snapshots);
+        renderSessionSummaries(sessions);
+        renderApplyHistory(applyHistory);
+
+        if (projectID) {
+          const workspaceName = projects.find((item) => item.id === projectID)?.name || projectID;
+          setStatus(`Showing ${workspaceName}. Review suggestions, approve what you want, and let the CLI apply the rest safely.`);
+        } else {
+          setStatus("Showing your organization overview. Select a workspace to review its suggestions.");
+        }
       } catch (err) {
-        setStatus(err.message || "Failed to load dashboard.", true);
+        setStatus(err.message || "Failed to load the dashboard.", true);
       }
     }
 
     $("apiToken").value = localStorage.getItem("agentopt_api_token") || "";
+    $("orgId").value = localStorage.getItem("agentopt_org_id") || "demo-org";
+    $("projectId").value = localStorage.getItem("agentopt_project_id") || "";
     $("requestedBy").value = localStorage.getItem("agentopt_requested_by") || "";
     $("applyScope").value = localStorage.getItem("agentopt_apply_scope") || "user";
-    $("requestedBy").addEventListener("change", () => localStorage.setItem("agentopt_requested_by", $("requestedBy").value.trim()));
-    $("applyScope").addEventListener("change", () => localStorage.setItem("agentopt_apply_scope", $("applyScope").value.trim()));
-    $("loadBtn").addEventListener("click", load);
   </script>
 </body>
 </html>
