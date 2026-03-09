@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -37,8 +38,10 @@ type applyBackup struct {
 	ApplyID        string         `json:"apply_id"`
 	ProjectID      string         `json:"project_id"`
 	FilePath       string         `json:"file_path"`
+	FileKind       string         `json:"file_kind"`
 	OriginalExists bool           `json:"original_exists"`
 	OriginalJSON   map[string]any `json:"original_json"`
+	OriginalText   string         `json:"original_text"`
 }
 
 type envelope struct {
@@ -50,6 +53,7 @@ type envelope struct {
 type localApplyResult struct {
 	FilePath        string
 	AppliedSettings map[string]any
+	AppliedText     string
 }
 
 type apiClient struct {
@@ -104,6 +108,8 @@ func run(args []string) error {
 		return runRollback(args[1:])
 	case "apply":
 		return runApply(args[1:])
+	case "review":
+		return runReview(args[1:])
 	case "--help", "-h", "help":
 		printUsage()
 		return nil
@@ -127,9 +133,10 @@ func printUsage() {
   pending           list pending apply jobs visible to the current user/project
   impact            list recommendation impact summaries for the current project
   audit             list recent audit events for the current org or project
-  sync              pull pending apply jobs and execute them locally
+  sync              pull approved change plans and execute them locally
   rollback          restore the local config backup for a previous apply
-  apply             request a patch preview and optionally write local config`)
+  apply             request a change plan and optionally approve/apply it locally
+  review            approve or reject a requested change plan`)
 }
 
 func runLogin(args []string) error {
@@ -143,6 +150,8 @@ func runLogin(args []string) error {
 	device := fs.String("device", "", "device name")
 	hostname := fs.String("hostname", "", "hostname")
 	tools := fs.String("tools", "codex,claude-code", "comma separated tool names")
+	platform := fs.String("platform", "", "device platform")
+	consent := fs.String("consent", "config_snapshot,session_summary,execution_result", "comma separated collection scopes")
 	cliVersion := fs.String("cli-version", "0.1.0-dev", "cli version")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -166,14 +175,16 @@ func runLogin(args []string) error {
 
 	client := newAPIClient(*server, *token)
 	req := request.RegisterAgentReq{
-		OrgID:      *orgID,
-		OrgName:    *orgName,
-		UserID:     *userID,
-		UserEmail:  *email,
-		DeviceName: deviceName,
-		Hostname:   host,
-		CLIVersion: *cliVersion,
-		Tools:      splitComma(*tools),
+		OrgID:         *orgID,
+		OrgName:       *orgName,
+		UserID:        *userID,
+		UserEmail:     *email,
+		DeviceName:    deviceName,
+		Hostname:      host,
+		Platform:      defaultString(*platform, runtimePlatform()),
+		CLIVersion:    *cliVersion,
+		Tools:         splitComma(*tools),
+		ConsentScopes: splitComma(*consent),
 	}
 	var resp response.AgentRegistrationResp
 	if err := client.doJSON(http.MethodPost, "/api/v1/agents/register", req, &resp); err != nil {
@@ -185,7 +196,7 @@ func runLogin(args []string) error {
 		APIToken:   *token,
 		OrgID:      resp.OrgID,
 		UserID:     resp.UserID,
-		AgentID:    resp.AgentID,
+		AgentID:    firstNonEmpty(resp.DeviceID, resp.AgentID),
 		DeviceName: deviceName,
 		Hostname:   host,
 	}
@@ -258,8 +269,9 @@ func runSnapshot(args []string) error {
 		return err
 	}
 	settings := map[string]any{
-		"approval_policy":   "interactive",
+		"approval_policy":   "review-required",
 		"instructions_pack": "baseline",
+		"local_guard":       "strict",
 	}
 	if *filePath != "" {
 		if err := loadJSONFile(*filePath, &settings); err != nil {
@@ -268,11 +280,16 @@ func runSnapshot(args []string) error {
 	}
 
 	req := request.ConfigSnapshotReq{
-		ProjectID:  st.ProjectID,
-		Tool:       *tool,
-		ProfileID:  *profileID,
-		Settings:   settings,
-		CapturedAt: time.Now().UTC(),
+		ProjectID:           st.ProjectID,
+		Tool:                *tool,
+		ProfileID:           *profileID,
+		Settings:            settings,
+		EnabledMCPCount:     inferEnabledMCPCount(settings),
+		HooksEnabled:        inferHooksEnabled(settings),
+		InstructionFiles:    inferInstructionFiles(settings),
+		ConfigFingerprint:   sanitizeID(fmt.Sprintf("%s-%s-%d", st.ProjectID, *profileID, len(settings))),
+		RecentConfigChanges: []string{"snapshot_collected_by_cli"},
+		CapturedAt:          time.Now().UTC(),
 	}
 	client := newAPIClient(st.ServerURL, st.APIToken)
 	var resp response.ConfigSnapshotResp
@@ -298,25 +315,31 @@ func runSession(args []string) error {
 	}
 
 	req := request.SessionSummaryReq{
-		Tool:                  *tool,
-		TaskType:              *task,
-		ProjectHash:           sanitizeID(st.ProjectName),
-		LanguageMix:           map[string]float64{"go": 0.9, "yaml": 0.1},
-		TotalPromptsCount:     14,
-		TotalToolCalls:        32,
-		BashCallsCount:        9,
-		ReadOps:               24,
-		EditOps:               11,
-		WriteOps:              4,
-		MCPUsageCount:         1,
-		PermissionRejectCount: 3,
-		RetryCount:            2,
-		TokenIn:               18000,
-		TokenOut:              6400,
-		EstimatedCost:         0.82,
-		RepoSizeBucket:        *repoSize,
-		ConfigProfileID:       "baseline",
-		Timestamp:             time.Now().UTC(),
+		Tool:                     *tool,
+		TaskType:                 *task,
+		ProjectHash:              sanitizeID(st.ProjectName),
+		LanguageMix:              map[string]float64{"go": 0.9, "yaml": 0.1},
+		TotalPromptsCount:        14,
+		TotalToolCalls:           32,
+		BashCallsCount:           9,
+		ReadOps:                  24,
+		EditOps:                  11,
+		WriteOps:                 4,
+		MCPUsageCount:            1,
+		PermissionRejectCount:    3,
+		RetryCount:               2,
+		TokenIn:                  18000,
+		TokenOut:                 6400,
+		EstimatedCost:            0.82,
+		RepoSizeBucket:           *repoSize,
+		ConfigProfileID:          "baseline",
+		TaskTypeDistribution:     map[string]float64{*task: 1},
+		RepoExplorationIntensity: 0.71,
+		ShellHeavy:               true,
+		WorkloadTags:             []string{*task, "local-cli"},
+		AcceptanceProxy:          0.74,
+		EventSummaries:           []string{"collector: session summary placeholder", "research_agent_input: metrics only"},
+		Timestamp:                time.Now().UTC(),
 	}
 	if *filePath != "" {
 		if err := loadJSONFile(*filePath, &req); err != nil {
@@ -606,6 +629,7 @@ func runSyncOnce(st state, client *apiClient, targetConfig string) error {
 			Note:            "applied by agentopt sync",
 			AppliedFile:     localResult.FilePath,
 			AppliedSettings: localResult.AppliedSettings,
+			AppliedText:     localResult.AppliedText,
 		}, &result); err != nil {
 			return err
 		}
@@ -654,6 +678,10 @@ func runApply(args []string) error {
 		return nil
 	}
 
+	if _, err := reviewChangePlan(client, plan.ApplyID, "approve", st.UserID, "approved by local cli"); err != nil {
+		return err
+	}
+
 	localResult, err := executeLocalApply(st, plan.ApplyID, plan.PatchPreview, *targetConfig)
 	if err != nil {
 		return err
@@ -666,10 +694,41 @@ func runApply(args []string) error {
 		Note:            *note,
 		AppliedFile:     localResult.FilePath,
 		AppliedSettings: localResult.AppliedSettings,
+		AppliedText:     localResult.AppliedText,
 	}, &result); err != nil {
 		return err
 	}
 	return prettyPrint(result)
+}
+
+func runReview(args []string) error {
+	fs := flag.NewFlagSet("review", flag.ContinueOnError)
+	applyID := fs.String("apply-id", "", "change plan id")
+	decision := fs.String("decision", "approve", "approve or reject")
+	reviewedBy := fs.String("reviewed-by", "", "reviewer id override")
+	note := fs.String("note", "", "review note")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*applyID) == "" {
+		return errors.New("review requires --apply-id")
+	}
+
+	st, err := loadState()
+	if err != nil {
+		return err
+	}
+	reviewer := *reviewedBy
+	if strings.TrimSpace(reviewer) == "" {
+		reviewer = st.UserID
+	}
+
+	client := newAPIClient(st.ServerURL, st.APIToken)
+	resp, err := reviewChangePlan(client, *applyID, *decision, reviewer, *note)
+	if err != nil {
+		return err
+	}
+	return prettyPrint(resp)
 }
 
 func runRollback(args []string) error {
@@ -693,16 +752,23 @@ func runRollback(args []string) error {
 	}
 
 	if backup.OriginalExists {
-		data, err := json.MarshalIndent(backup.OriginalJSON, "", "  ")
-		if err != nil {
-			return err
-		}
-		data = append(data, '\n')
 		if err := os.MkdirAll(filepath.Dir(backup.FilePath), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(backup.FilePath, data, 0o644); err != nil {
-			return err
+		switch backup.FileKind {
+		case "text_append", "text_replace":
+			if err := os.WriteFile(backup.FilePath, []byte(backup.OriginalText), 0o644); err != nil {
+				return err
+			}
+		default:
+			data, err := json.MarshalIndent(backup.OriginalJSON, "", "  ")
+			if err != nil {
+				return err
+			}
+			data = append(data, '\n')
+			if err := os.WriteFile(backup.FilePath, data, 0o644); err != nil {
+				return err
+			}
 		}
 	} else {
 		if err := os.Remove(backup.FilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -718,6 +784,7 @@ func runRollback(args []string) error {
 		Note:            *note,
 		AppliedFile:     backup.FilePath,
 		AppliedSettings: backup.OriginalJSON,
+		AppliedText:     backup.OriginalText,
 		RolledBack:      true,
 	}, &result); err != nil {
 		return err
@@ -940,38 +1007,70 @@ func executeLocalApply(st state, applyID string, previews []response.PatchPrevie
 		filePath = filepath.Join(cwd, filePath)
 	}
 
-	config := map[string]any{}
-	originalExists, err := readOptionalJSONMap(filePath, &config)
-	if err != nil {
-		return localApplyResult{}, err
-	}
-	backup := applyBackup{
-		ApplyID:        applyID,
-		ProjectID:      st.ProjectID,
-		FilePath:       filePath,
-		OriginalExists: originalExists,
-		OriginalJSON:   cloneAnyMap(config),
-	}
-	mergeMap(config, preview.SettingsUpdates)
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		return localApplyResult{}, err
 	}
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return localApplyResult{}, err
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
-		return localApplyResult{}, err
-	}
-	if err := saveApplyBackup(backup); err != nil {
-		return localApplyResult{}, err
-	}
+	switch preview.Operation {
+	case "append_block", "text_append":
+		originalBytes, err := os.ReadFile(filePath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return localApplyResult{}, err
+		}
+		originalExists := err == nil
+		backup := applyBackup{
+			ApplyID:        applyID,
+			ProjectID:      st.ProjectID,
+			FilePath:       filePath,
+			FileKind:       "text_append",
+			OriginalExists: originalExists,
+			OriginalText:   string(originalBytes),
+		}
+		newText := string(originalBytes)
+		if !strings.Contains(newText, preview.ContentPreview) {
+			newText += preview.ContentPreview
+		}
+		if err := os.WriteFile(filePath, []byte(newText), 0o644); err != nil {
+			return localApplyResult{}, err
+		}
+		if err := saveApplyBackup(backup); err != nil {
+			return localApplyResult{}, err
+		}
+		return localApplyResult{
+			FilePath:    filePath,
+			AppliedText: preview.ContentPreview,
+		}, nil
+	default:
+		config := map[string]any{}
+		originalExists, err := readOptionalJSONMap(filePath, &config)
+		if err != nil {
+			return localApplyResult{}, err
+		}
+		backup := applyBackup{
+			ApplyID:        applyID,
+			ProjectID:      st.ProjectID,
+			FilePath:       filePath,
+			FileKind:       "json_merge",
+			OriginalExists: originalExists,
+			OriginalJSON:   cloneAnyMap(config),
+		}
+		mergeMap(config, preview.SettingsUpdates)
+		data, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return localApplyResult{}, err
+		}
+		data = append(data, '\n')
+		if err := os.WriteFile(filePath, data, 0o644); err != nil {
+			return localApplyResult{}, err
+		}
+		if err := saveApplyBackup(backup); err != nil {
+			return localApplyResult{}, err
+		}
 
-	return localApplyResult{
-		FilePath:        filePath,
-		AppliedSettings: cloneAnyMap(preview.SettingsUpdates),
-	}, nil
+		return localApplyResult{
+			FilePath:        filePath,
+			AppliedSettings: cloneAnyMap(preview.SettingsUpdates),
+		}, nil
+	}
 }
 
 func cloneAnyMap(input map[string]any) map[string]any {
@@ -1037,4 +1136,65 @@ func deleteApplyBackup(applyID string) error {
 		return err
 	}
 	return nil
+}
+
+func reviewChangePlan(client *apiClient, applyID, decision, reviewedBy, note string) (response.ChangePlanReviewResp, error) {
+	var resp response.ChangePlanReviewResp
+	err := client.doJSON(http.MethodPost, "/api/v1/change-plans/review", request.ReviewChangePlanReq{
+		ApplyID:    applyID,
+		Decision:   decision,
+		ReviewedBy: reviewedBy,
+		ReviewNote: note,
+	}, &resp)
+	return resp, err
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func runtimePlatform() string {
+	return runtime.GOOS + "/" + runtime.GOARCH
+}
+
+func inferEnabledMCPCount(settings map[string]any) int {
+	if raw, ok := settings["enabled_mcp_count"].(float64); ok {
+		return int(raw)
+	}
+	return 1
+}
+
+func inferHooksEnabled(settings map[string]any) bool {
+	if raw, ok := settings["hooks_enabled"].(bool); ok {
+		return raw
+	}
+	_, hasHook := settings["post_edit_hook"]
+	return hasHook
+}
+
+func inferInstructionFiles(settings map[string]any) []string {
+	files := []string{}
+	if raw, ok := settings["instruction_files"].([]any); ok {
+		for _, item := range raw {
+			if text, ok := item.(string); ok {
+				files = append(files, text)
+			}
+		}
+	}
+	if len(files) == 0 {
+		files = append(files, "AGENTS.md")
+	}
+	return files
 }

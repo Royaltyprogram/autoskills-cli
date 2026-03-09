@@ -19,5 +19,20 @@
   "estimated_cost": 1.05,
   "task_type": "bugfix",
   "repo_size_bucket": "large",
-  "config_profile_id": "baseline"
+  "config_profile_id": "baseline",
+  "task_type_distribution": {
+    "bugfix": 0.7,
+    "test": 0.3
+  },
+  "repo_exploration_intensity": 0.68,
+  "shell_heavy": true,
+  "workload_tags": [
+    "bugfix",
+    "verification-heavy"
+  ],
+  "acceptance_proxy": 0.74,
+  "event_summaries": [
+    "session summary only, no raw transcript uploaded",
+    "collector observed multiple shell and edit phases"
+  ]
 }

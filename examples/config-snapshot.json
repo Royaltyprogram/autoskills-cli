@@ -1,6 +1,12 @@
 {
-  "approval_policy": "interactive",
+  "approval_policy": "review-required",
   "instructions_pack": "baseline",
+  "hooks_enabled": false,
+  "enabled_mcp_count": 2,
+  "instruction_files": [
+    "AGENTS.md",
+    ".claude/settings.local.json"
+  ],
   "mcp_servers": [
     "filesystem",
     "git"
