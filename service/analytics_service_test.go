@@ -100,6 +100,9 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	for i := 1; i < len(recommendations.Items); i++ {
 		require.GreaterOrEqual(t, recommendations.Items[i-1].Score, recommendations.Items[i].Score)
 	}
+	require.GreaterOrEqual(t, len(recommendations.Items[0].ChangePlan), 2)
+	require.Equal(t, "AGENTS.md", recommendations.Items[0].ChangePlan[0].TargetFile)
+	require.Equal(t, ".codex/config.json", recommendations.Items[0].ChangePlan[1].TargetFile)
 
 	planOld, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
 		RecommendationID: recommendations.Items[0].ID,
@@ -107,6 +110,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 		Scope:            "project",
 	})
 	require.NoError(t, err)
+	require.Len(t, planOld.PatchPreview, len(recommendations.Items[0].ChangePlan))
 	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
 		ApplyID:    planOld.ApplyID,
 		Decision:   "approve",

@@ -134,13 +134,22 @@ func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*Sessio
 			ExpectedImpact:  "Higher repo navigation efficiency and lower token waste.",
 			Score:           0.9,
 			Evidence:        append(cloneStringSlice(evidenceBase), "recommendation=repo_research_pack"),
-			Steps: []ChangePlanStep{{
-				Type:           "text_append",
-				Action:         "append_block",
-				TargetFile:     "AGENTS.md",
-				Summary:        "Append a repo research instruction pack for investigation-heavy work.",
-				ContentPreview: "\n## AgentOpt Research Pack\n- Prefer repo structure discovery before deep edits.\n- Summarize impacted files before patching.\n- Verify hooks, MCPs, and approval scope before execution.\n",
-			}},
+			Steps: []ChangePlanStep{
+				{
+					Type:           "text_append",
+					Action:         "append_block",
+					TargetFile:     "AGENTS.md",
+					Summary:        "Append a repo research instruction pack for investigation-heavy work.",
+					ContentPreview: "\n## AgentOpt Research Pack\n- Prefer repo structure discovery before deep edits.\n- Summarize impacted files before patching.\n- Verify hooks, MCPs, and approval scope before execution.\n",
+				},
+				{
+					Type:            "json_merge",
+					Action:          "merge_patch",
+					TargetFile:      targetFileHint(latestTool),
+					Summary:         "Enable repo research defaults in the active AI coding tool config.",
+					SettingsUpdates: map[string]any{"instructions_pack": "repo-research", "retrieval_mode": "hierarchical", "context_window_hint": "large-repo"},
+				},
+			},
 			Settings: map[string]any{"instructions_pack": "repo-research", "retrieval_mode": "hierarchical"},
 		})
 	}
@@ -157,13 +166,22 @@ func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*Sessio
 			ExpectedImpact:  "Fewer retries and better post-apply retention.",
 			Score:           0.84,
 			Evidence:        append(cloneStringSlice(evidenceBase), "recommendation=verification_hook"),
-			Steps: []ChangePlanStep{{
-				Type:            "json_merge",
-				Action:          "merge_patch",
-				TargetFile:      targetFileHint(latestTool),
-				Summary:         "Enable a lightweight post-edit verification hook.",
-				SettingsUpdates: map[string]any{"post_edit_hook": "placeholder: run local verification", "hook_timeout_sec": 90},
-			}},
+			Steps: []ChangePlanStep{
+				{
+					Type:            "json_merge",
+					Action:          "merge_patch",
+					TargetFile:      targetFileHint(latestTool),
+					Summary:         "Enable a lightweight post-edit verification hook.",
+					SettingsUpdates: map[string]any{"post_edit_hook": "placeholder: run local verification", "hook_timeout_sec": 90},
+				},
+				{
+					Type:           "text_append",
+					Action:         "append_block",
+					TargetFile:     "AGENTS.md",
+					Summary:        "Add a verification note so collaborators understand the rollout intent.",
+					ContentPreview: "\n## AgentOpt Verification Note\n- Run the configured verification hook after substantial edits.\n",
+				},
+			},
 			Settings: map[string]any{"post_edit_hook": "placeholder: run local verification", "hook_timeout_sec": 90},
 		})
 	}
