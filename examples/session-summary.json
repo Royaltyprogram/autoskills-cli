@@ -1,0 +1,23 @@
+{
+  "tool": "codex",
+  "project_hash": "demo-hash",
+  "language_mix": {
+    "go": 0.9,
+    "yaml": 0.1
+  },
+  "total_prompts_count": 16,
+  "total_tool_calls": 38,
+  "bash_calls_count": 11,
+  "read_ops": 26,
+  "edit_ops": 12,
+  "write_ops": 4,
+  "mcp_usage_count": 2,
+  "permission_reject_count": 4,
+  "retry_count": 3,
+  "token_in": 22400,
+  "token_out": 7900,
+  "estimated_cost": 1.05,
+  "task_type": "bugfix",
+  "repo_size_bucket": "large",
+  "config_profile_id": "baseline"
+}

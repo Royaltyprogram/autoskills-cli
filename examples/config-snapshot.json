@@ -1,0 +1,9 @@
+{
+  "approval_policy": "interactive",
+  "instructions_pack": "baseline",
+  "mcp_servers": [
+    "filesystem",
+    "git"
+  ],
+  "telemetry_mode": "summary_only"
+}

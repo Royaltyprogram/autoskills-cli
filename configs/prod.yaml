@@ -1,0 +1,30 @@
+App:
+  Addr: ":8082"
+  Mode: prod
+  StorePath: "data/agentopt-store.json"
+
+DB:
+  Dialect: sqlite3
+  DSN: file:agentopt?mode=memory&cache=shared&_fk=1
+  MaxIdle: 2
+  MaxActive: 4
+  MaxLifetime: 300
+  AutoMigrate: false
+
+Redis:
+  Addr: 127.0.0.1:6379
+  DB: 0
+  Password: ""
+
+Log:
+  FileDir: log
+  MaxSize: 100
+  MaxBackups: 5
+  MaxAge: 60
+  Compress: false
+  LocalTime: false
+  AddSource: true
+
+Jwt:
+  Secret: "dev-secret"
+  Issuer: "agentopt.local"

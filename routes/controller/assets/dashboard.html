@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentOpt Dashboard</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --panel: rgba(255, 252, 247, 0.9);
+      --ink: #1f2933;
+      --muted: #52606d;
+      --accent: #c05621;
+      --accent-2: #1f7a8c;
+      --line: rgba(31, 41, 51, 0.08);
+      --ok: #2f855a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(192, 86, 33, 0.16), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(31, 122, 140, 0.14), transparent 35%),
+        linear-gradient(135deg, #efe6d8 0%, #f7f2ea 45%, #e8f0ef 100%);
+    }
+
+    .shell {
+      width: min(1120px, calc(100% - 32px));
+      margin: 32px auto;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--panel);
+      box-shadow: 0 18px 60px rgba(31, 41, 51, 0.12);
+      backdrop-filter: blur(14px);
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 20px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .hero h1 {
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 0.95;
+      margin-bottom: 12px;
+    }
+
+    .hero p {
+      color: var(--muted);
+      max-width: 56ch;
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid var(--line);
+    }
+
+    .controls-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 10px;
+    }
+
+    input, button {
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      font: inherit;
+    }
+
+    input {
+      background: white;
+    }
+
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #dd6b20);
+      color: white;
+      font-weight: 700;
+    }
+
+    .status {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .card .label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .card .value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .section {
+      display: grid;
+      grid-template-columns: 1.1fr 1.2fr;
+      gap: 16px;
+    }
+
+    .panel {
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.68);
+    }
+
+    .panel h2 {
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .item {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(244, 239, 230, 0.82);
+      border: 1px solid rgba(31, 41, 51, 0.06);
+    }
+
+    .item-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(47, 133, 90, 0.12);
+      color: var(--ok);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Menlo, monospace;
+      font-size: 13px;
+      background: rgba(31, 41, 51, 0.06);
+      border-radius: 8px;
+      padding: 2px 6px;
+    }
+
+    @media (max-width: 920px) {
+      .hero,
+      .section,
+      .grid,
+      .controls-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">AI Coding Setup Analytics</div>
+        <h1>Your stack, measured and optimized.</h1>
+        <p>Thin CLI uploads safe summaries. The server scores usage patterns, ranks setup recommendations, and shows what actually changed after rollout.</p>
+      </div>
+      <div class="controls">
+        <div class="controls-row">
+          <input id="orgId" placeholder="org_id" value="demo-org">
+          <input id="projectId" placeholder="project_id or leave blank">
+          <button id="loadBtn" type="button">Load</button>
+        </div>
+        <div class="status" id="status">Enter an organization and project ID, then load metrics.</div>
+      </div>
+    </section>
+
+    <section class="grid" id="metricGrid">
+      <article class="card"><div class="label">Projects</div><div class="value" id="totalProjects">0</div></article>
+      <article class="card"><div class="label">Sessions</div><div class="value" id="totalSessions">0</div></article>
+      <article class="card"><div class="label">Active Recommendations</div><div class="value" id="activeRecommendations">0</div></article>
+      <article class="card"><div class="label">Estimated Cost</div><div class="value" id="estimatedCost">$0.00</div></article>
+    </section>
+
+    <section class="section">
+      <article class="panel">
+        <h2>Operational Signals</h2>
+        <div class="list" id="signalsList"></div>
+      </article>
+      <article class="panel">
+        <h2>Recommendations</h2>
+        <div class="list" id="recommendationList"></div>
+      </article>
+    </section>
+    <section class="section" style="margin-top: 16px;">
+      <article class="panel">
+        <h2>Projects</h2>
+        <div class="list" id="projectList"></div>
+      </article>
+      <article class="panel">
+        <h2>Apply History</h2>
+        <div class="list" id="applyHistoryList"></div>
+      </article>
+    </section>
+    <section class="section" style="margin-top: 16px;">
+      <article class="panel" style="grid-column: 1 / -1;">
+        <h2>Recommendation Impact</h2>
+        <div class="list" id="impactList"></div>
+      </article>
+    </section>
+    <section class="section" style="margin-top: 16px;">
+      <article class="panel" style="grid-column: 1 / -1;">
+        <h2>Audit Trail</h2>
+        <div class="list" id="auditList"></div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function setStatus(text, isError = false) {
+      const el = $("status");
+      el.textContent = text;
+      el.style.color = isError ? "#c53030" : "#52606d";
+    }
+
+    function renderSignals(overview) {
+      const entries = [
+        ["Avg tokens / query", overview.avg_tokens_per_query],
+        ["Avg tool calls / query", overview.avg_tool_calls_per_query],
+        ["Permission reject rate", overview.permission_reject_rate],
+        ["Retry rate", overview.retry_rate],
+        ["Apply rate", overview.recommendation_apply_rate],
+        ["Rollback rate", overview.rollback_rate]
+      ];
+      $("signalsList").innerHTML = entries.map(([label, value]) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${label}</strong>
+            <span class="pill">${value}</span>
+          </div>
+          <div class="meta">Latest ingest: ${overview.last_ingested_at || "n/a"}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderRecommendations(items) {
+      if (!items.length) {
+        $("recommendationList").innerHTML = `<div class="item"><strong>No recommendations yet.</strong><div class="meta">Upload at least one session summary from the CLI.</div></div>`;
+        return;
+      }
+      $("recommendationList").innerHTML = items.map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${item.title}</strong>
+            <span class="pill">score ${item.score}</span>
+          </div>
+          <div class="meta">${item.summary}</div>
+          <div class="meta" style="margin-top: 8px;">Target: <code>${item.target_file_hint}</code></div>
+          <div class="meta" style="margin-top: 8px;">Reason: ${item.reason}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderProjects(items) {
+      if (!items.length) {
+        $("projectList").innerHTML = `<div class="item"><strong>No projects found.</strong><div class="meta">Connect a project from the CLI first.</div></div>`;
+        return;
+      }
+      $("projectList").innerHTML = items.map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${item.name}</strong>
+            <button type="button" onclick="selectProject('${item.id}')">Use</button>
+          </div>
+          <div class="meta"><code>${item.id}</code></div>
+          <div class="meta">Tool: ${item.default_tool || "n/a"} | Last ingest: ${item.last_ingested_at || "n/a"}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderApplyHistory(items) {
+      if (!items.length) {
+        $("applyHistoryList").innerHTML = `<div class="item"><strong>No apply history yet.</strong><div class="meta">Apply a recommendation from the CLI to populate this view.</div></div>`;
+        return;
+      }
+      $("applyHistoryList").innerHTML = items.map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${item.status}</strong>
+            <span class="pill">${item.scope}</span>
+          </div>
+          <div class="meta">Apply ID: <code>${item.apply_id}</code></div>
+          <div class="meta">Recommendation: <code>${item.recommendation_id}</code></div>
+          <div class="meta">File: ${item.applied_file || "preview only"} | Requested: ${item.requested_at}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderImpact(items) {
+      if (!items.length) {
+        $("impactList").innerHTML = `<div class="item"><strong>No impact data yet.</strong><div class="meta">Apply a recommendation and collect post-apply sessions.</div></div>`;
+        return;
+      }
+      $("impactList").innerHTML = items.map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${item.recommendation_id}</strong>
+            <span class="pill">${item.status}</span>
+          </div>
+          <div class="meta">${item.interpretation}</div>
+          <div class="meta" style="margin-top: 8px;">Cost: ${item.avg_cost_before} -> ${item.avg_cost_after} (delta ${item.cost_delta})</div>
+          <div class="meta">Retry rate: ${item.avg_retry_rate_before} -> ${item.avg_retry_rate_after} (delta ${item.retry_delta})</div>
+          <div class="meta">Reject rate: ${item.avg_reject_rate_before} -> ${item.avg_reject_rate_after} (delta ${item.reject_delta})</div>
+          <div class="meta">Sessions: before ${item.sessions_before}, after ${item.sessions_after}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderAudits(items) {
+      if (!items.length) {
+        $("auditList").innerHTML = `<div class="item"><strong>No audit events.</strong><div class="meta">Ingest data or apply a recommendation to populate the audit trail.</div></div>`;
+        return;
+      }
+      $("auditList").innerHTML = items.map((item) => `
+        <div class="item">
+          <div class="item-top">
+            <strong>${item.type}</strong>
+            <span class="pill">${item.created_at}</span>
+          </div>
+          <div class="meta">${item.message}</div>
+          <div class="meta">Project: <code>${item.project_id || "org-scope"}</code></div>
+        </div>
+      `).join("");
+    }
+
+    function selectProject(projectId) {
+      $("projectId").value = projectId;
+      load();
+    }
+
+    async function load() {
+      const orgId = $("orgId").value.trim();
+      if (!orgId) {
+        setStatus("org_id is required.", true);
+        return;
+      }
+
+      setStatus("Loading analytics...");
+
+      try {
+        const [overviewResp, projectResp] = await Promise.all([
+          fetch(`/api/v1/dashboard/overview?org_id=${encodeURIComponent(orgId)}`),
+          fetch(`/api/v1/projects?org_id=${encodeURIComponent(orgId)}`)
+        ]);
+
+        const overviewEnv = await overviewResp.json();
+        const projectEnv = await projectResp.json();
+
+        if (overviewEnv.code !== 0) {
+          throw new Error(overviewEnv.msg || "overview request failed");
+        }
+        if (projectEnv.code !== 0) {
+          throw new Error(projectEnv.msg || "projects request failed");
+        }
+
+        const overview = overviewEnv.data;
+        const projects = projectEnv.data.items || [];
+        renderProjects(projects);
+
+        let projectId = $("projectId").value.trim();
+        if (!projectId && projects.length > 0) {
+          projectId = projects[0].id;
+          $("projectId").value = projectId;
+        }
+
+        let recommendations = [];
+        let applyHistory = [];
+        let impacts = [];
+        let audits = [];
+        if (projectId) {
+          const [recResp, applyResp, impactResp, auditResp] = await Promise.all([
+            fetch(`/api/v1/recommendations?project_id=${encodeURIComponent(projectId)}`),
+            fetch(`/api/v1/applies?project_id=${encodeURIComponent(projectId)}`),
+            fetch(`/api/v1/impact?project_id=${encodeURIComponent(projectId)}`),
+            fetch(`/api/v1/audits?org_id=${encodeURIComponent(orgId)}&project_id=${encodeURIComponent(projectId)}`)
+          ]);
+          const recEnv = await recResp.json();
+          const applyEnv = await applyResp.json();
+          const impactEnv = await impactResp.json();
+          const auditEnv = await auditResp.json();
+          if (recEnv.code !== 0) {
+            throw new Error(recEnv.msg || "recommendation request failed");
+          }
+          if (applyEnv.code !== 0) {
+            throw new Error(applyEnv.msg || "apply history request failed");
+          }
+          if (impactEnv.code !== 0) {
+            throw new Error(impactEnv.msg || "impact request failed");
+          }
+          if (auditEnv.code !== 0) {
+            throw new Error(auditEnv.msg || "audit request failed");
+          }
+          recommendations = recEnv.data.items || [];
+          applyHistory = applyEnv.data.items || [];
+          impacts = impactEnv.data.items || [];
+          audits = auditEnv.data.items || [];
+        } else {
+          const auditResp = await fetch(`/api/v1/audits?org_id=${encodeURIComponent(orgId)}`);
+          const auditEnv = await auditResp.json();
+          if (auditEnv.code !== 0) {
+            throw new Error(auditEnv.msg || "audit request failed");
+          }
+          audits = auditEnv.data.items || [];
+        }
+
+        $("totalProjects").textContent = overview.total_projects;
+        $("totalSessions").textContent = overview.total_sessions;
+        $("activeRecommendations").textContent = overview.active_recommendations;
+        $("estimatedCost").textContent = `$${Number(overview.total_estimated_cost).toFixed(2)}`;
+
+        renderSignals(overview);
+        renderRecommendations(recommendations);
+        renderApplyHistory(applyHistory);
+        renderImpact(impacts);
+        renderAudits(audits);
+        setStatus(projectId ? `Loaded ${recommendations.length} recommendations for ${projectId}.` : "Loaded organization overview.");
+      } catch (err) {
+        setStatus(err.message || "Failed to load dashboard.", true);
+      }
+    }
+
+    $("loadBtn").addEventListener("click", load);
+  </script>
+</body>
+</html>
