@@ -52,6 +52,30 @@ func TestApplyEnvOverridesLoadsBootstrapUsersFromFile(t *testing.T) {
 	require.Equal(t, "beta@example.com", cfg.Auth.BootstrapUsers[0].Email)
 }
 
+func TestApplyEnvOverridesLoadsSecretsFromFiles(t *testing.T) {
+	root := t.TempDir()
+	apiTokenFile := filepath.Join(root, "api-token")
+	dbDSNFile := filepath.Join(root, "db-dsn")
+	jwtSecretFile := filepath.Join(root, "jwt-secret")
+
+	require.NoError(t, os.WriteFile(apiTokenFile, []byte("beta-static-token\n"), 0o644))
+	require.NoError(t, os.WriteFile(dbDSNFile, []byte("file:agentopt.db?_fk=1\n"), 0o644))
+	require.NoError(t, os.WriteFile(jwtSecretFile, []byte("super-secret\n"), 0o644))
+
+	t.Setenv("APP_API_TOKEN", "env-token")
+	t.Setenv("DB_DSN", "env-dsn")
+	t.Setenv("JWT_SECRET", "env-secret")
+	t.Setenv("APP_API_TOKEN_FILE", apiTokenFile)
+	t.Setenv("DB_DSN_FILE", dbDSNFile)
+	t.Setenv("JWT_SECRET_FILE", jwtSecretFile)
+
+	cfg := &Config{}
+	require.NoError(t, applyEnvOverrides(cfg))
+	require.Equal(t, "beta-static-token", cfg.App.APIToken)
+	require.Equal(t, "file:agentopt.db?_fk=1", cfg.DB.DSN)
+	require.Equal(t, "super-secret", cfg.Jwt.Secret)
+}
+
 func TestApplyEnvOverridesRejectsInvalidBootstrapUsersFile(t *testing.T) {
 	usersFile := filepath.Join(t.TempDir(), "bootstrap-users.json")
 	require.NoError(t, os.WriteFile(usersFile, []byte(`{bad json`), 0o644))
@@ -61,6 +85,17 @@ func TestApplyEnvOverridesRejectsInvalidBootstrapUsersFile(t *testing.T) {
 	err := applyEnvOverrides(cfg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid AUTH_BOOTSTRAP_USERS_FILE")
+}
+
+func TestApplyEnvOverridesRejectsEmptySecretFiles(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "empty-secret")
+	require.NoError(t, os.WriteFile(secretFile, []byte(" \n"), 0o644))
+	t.Setenv("JWT_SECRET_FILE", secretFile)
+
+	cfg := &Config{}
+	err := applyEnvOverrides(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid JWT_SECRET_FILE")
 }
 
 func TestLookupEnvTrimsWhitespace(t *testing.T) {

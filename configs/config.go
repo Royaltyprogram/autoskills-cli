@@ -197,14 +197,35 @@ func applyEnvOverrides(cfg *Config) error {
 	if value, ok := lookupEnv("APP_API_TOKEN"); ok {
 		cfg.App.APIToken = value
 	}
+	if value, ok := lookupEnv("APP_API_TOKEN_FILE"); ok {
+		secret, err := readSecretFile(value)
+		if err != nil {
+			return fmt.Errorf("invalid APP_API_TOKEN_FILE: %w", err)
+		}
+		cfg.App.APIToken = secret
+	}
 	if value, ok := lookupEnv("DB_DIALECT"); ok {
 		cfg.DB.Dialect = value
 	}
 	if value, ok := lookupEnv("DB_DSN"); ok {
 		cfg.DB.DSN = value
 	}
+	if value, ok := lookupEnv("DB_DSN_FILE"); ok {
+		secret, err := readSecretFile(value)
+		if err != nil {
+			return fmt.Errorf("invalid DB_DSN_FILE: %w", err)
+		}
+		cfg.DB.DSN = secret
+	}
 	if value, ok := lookupEnv("JWT_SECRET"); ok {
 		cfg.Jwt.Secret = value
+	}
+	if value, ok := lookupEnv("JWT_SECRET_FILE"); ok {
+		secret, err := readSecretFile(value)
+		if err != nil {
+			return fmt.Errorf("invalid JWT_SECRET_FILE: %w", err)
+		}
+		cfg.Jwt.Secret = secret
 	}
 	if value, ok := lookupEnv("JWT_ISSUER"); ok {
 		cfg.Jwt.Issuer = value
@@ -290,6 +311,18 @@ func splitCSV(raw string) []string {
 		out = append(out, part)
 	}
 	return out
+}
+
+func readSecretFile(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", fmt.Errorf("file is empty")
+	}
+	return value, nil
 }
 
 func validateCIDRList(label string, values []string) []string {

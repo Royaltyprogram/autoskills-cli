@@ -89,10 +89,12 @@ If you would rather mount a secret file than inline JSON in env, you can use:
 
 ```bash
 APP_MODE=prod \
-JWT_SECRET=replace-me \
+JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
 AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
 go run .
 ```
+
+Supported secret file envs now include `JWT_SECRET_FILE`, `DB_DSN_FILE`, `APP_API_TOKEN_FILE`, and `AUTH_BOOTSTRAP_USERS_FILE`. File-based values override the plain env form when both are set.
 
 In this MVP every connected repository shares one workspace per organization. `agentopt connect` keeps that shared workspace current, and `pending`, `sync`, `history`, and `impact` always read from the same rollout stream.
 
@@ -165,8 +167,9 @@ Build and run it with a seeded beta account:
 docker build -t agentopt-beta .
 docker run --rm -p 8082:8082 \
   -v "$PWD/.runtime-data:/app/data" \
-  -e JWT_SECRET=replace-me \
+  -e JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
   -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
+  -v "$PWD/secrets/agentopt-jwt-secret:/run/secrets/agentopt-jwt-secret:ro" \
   -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
   agentopt-beta
 ```
@@ -176,9 +179,12 @@ For MySQL-backed deployment, override the DB env at runtime:
 ```bash
 docker run --rm -p 8082:8082 \
   -e DB_DIALECT=mysql \
-  -e DB_DSN='user:pass@tcp(mysql:3306)/agentopt?charset=utf8mb4&parseTime=True&loc=UTC' \
-  -e JWT_SECRET=replace-me \
-  -e AUTH_BOOTSTRAP_USERS_JSON='[...]' \
+  -e DB_DSN_FILE=/run/secrets/agentopt-db-dsn \
+  -e JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
+  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
+  -v "$PWD/secrets/agentopt-db-dsn:/run/secrets/agentopt-db-dsn:ro" \
+  -v "$PWD/secrets/agentopt-jwt-secret:/run/secrets/agentopt-jwt-secret:ro" \
+  -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
   agentopt-beta
 ```
 
