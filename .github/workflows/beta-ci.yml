@@ -144,6 +144,9 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: make beta-cli-bundle
 
+      - name: Verify beta bundle
+        run: make verify-beta-bundle
+
       - name: Upload beta bundle artifact
         uses: actions/upload-artifact@v4
         with:

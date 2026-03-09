@@ -32,9 +32,13 @@ ci-beta:
 	go test ./...
 	$(MAKE) build
 	$(MAKE) beta-cli-bundle
+	$(MAKE) verify-beta-bundle
 
 beta-cli-bundle:
 	./scripts/build_beta_bundle.sh
+
+verify-beta-bundle:
+	./scripts/verify_beta_bundle.sh "$(BUNDLE)"
 
 print-version:
 	@echo $(VERSION)

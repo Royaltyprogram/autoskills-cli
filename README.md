@@ -159,6 +159,12 @@ That command produces:
 - `output/release/agentopt-<version>-<os>-<arch>.tar.gz.sha256`
 - `output/release/agentopt-<version>-<os>-<arch>.json`
 
+And you can validate the latest bundle locally with:
+
+```bash
+make verify-beta-bundle
+```
+
 The bundle itself contains:
 
 - `agentopt`
