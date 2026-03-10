@@ -1,17 +1,39 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"math/rand"
+	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Royaltyprogram/aiops/configs"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+)
+
+const (
+	defaultOpenAIResponsesModel      = "gpt-5.4"
+	defaultResearchSampleSize        = 10
+	defaultResearchRequestTimeout    = 45 * time.Second
+	defaultInstructionHeading        = "## AgentOpt Personal Instruction Pack"
+	openAIInstructionSchemaName      = "agent_instruction_pack"
+	openAIInstructionSchemaFieldName = "instruction_markdown"
 )
 
 type CloudResearchAgent struct {
 	Provider string
 	Model    string
 	Mode     string
+
+	apiKey     string
+	client     openai.Client
+	sampleSize int
+	randSource *rand.Rand
 }
 
 type researchRecommendation struct {
@@ -74,13 +96,45 @@ var personalInstructionPatterns = []instructionPattern{
 	},
 }
 
-func NewCloudResearchAgentPlaceholder(conf *configs.Config) *CloudResearchAgent {
-	_ = conf
-	return &CloudResearchAgent{
-		Provider: "local",
-		Model:    "personal-usage-mvp",
-		Mode:     "instruction-only",
+type openAIInstructionResponse struct {
+	InstructionMarkdown string `json:"instruction_markdown"`
+}
+
+func NewCloudResearchAgent(conf *configs.Config) *CloudResearchAgent {
+	var openAIConf configs.OpenAI
+	if conf != nil {
+		openAIConf = conf.OpenAI
 	}
+	apiKey := strings.TrimSpace(openAIConf.APIKey)
+	model := firstNonEmptyString(strings.TrimSpace(openAIConf.ResponsesModel), defaultOpenAIResponsesModel)
+	provider := "openai"
+	mode := "responses-api"
+	if apiKey == "" {
+		provider = "local"
+		mode = "instruction-fallback"
+		model = "personal-usage-mvp"
+	}
+	clientOptions := []option.RequestOption{}
+	if apiKey != "" {
+		clientOptions = append(clientOptions, option.WithAPIKey(apiKey))
+		clientOptions = append(clientOptions, option.WithHTTPClient(&http.Client{Timeout: defaultResearchRequestTimeout}))
+		if baseURL := strings.TrimSpace(openAIConf.BaseURL); baseURL != "" {
+			clientOptions = append(clientOptions, option.WithBaseURL(baseURL))
+		}
+	}
+	return &CloudResearchAgent{
+		Provider:   provider,
+		Model:      model,
+		Mode:       mode,
+		apiKey:     apiKey,
+		client:     openai.NewClient(clientOptions...),
+		sampleSize: defaultResearchSampleSize,
+		randSource: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
+func NewCloudResearchAgentPlaceholder(conf *configs.Config) *CloudResearchAgent {
+	return NewCloudResearchAgent(conf)
 }
 
 func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*SessionSummary, snapshots []*ConfigSnapshot) []researchRecommendation {
@@ -96,36 +150,35 @@ func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*Sessio
 		totalTokens += session.TokenIn + session.TokenOut
 	}
 	avgTokensPerQuery := safeDiv(float64(totalTokens), float64(maxInt(len(rawQueries), 1)))
-	matches := topInstructionPatterns(matchInstructionPatterns(rawQueries), 3)
-	contentPreview := buildInstructionContent(matches, avgTokensPerQuery)
+	sampledQueries := sampleRawQueries(rawQueries, minInt(a.sampleSize, len(rawQueries)), a.randSource)
+	contentPreview, generationMode := a.buildInstructionPreview(project, sampledQueries, rawQueries, avgTokensPerQuery)
 
 	evidence := []string{
 		fmt.Sprintf("sessions=%d", len(sessions)),
 		fmt.Sprintf("raw_query_count=%d", len(rawQueries)),
+		fmt.Sprintf("sampled_raw_queries=%d", len(sampledQueries)),
 		fmt.Sprintf("avg_tokens_per_query=%.0f", avgTokensPerQuery),
-		"priority_order=instructions>hooks>mcp>skills",
-		"mvp_scope=instruction_only",
-	}
-	for _, match := range matches {
-		evidence = append(evidence, fmt.Sprintf("pattern_%s=%d", match.Pattern.Key, match.Count))
+		"selection=random",
+		"target_file=AGENTS.md",
+		"generation_mode=" + generationMode,
 	}
 
 	return []researchRecommendation{{
 		Kind:            "instruction-custom-rules",
 		Title:           instructionRecommendationTitle(project),
-		Summary:         "Recent raw queries repeat the same setup asks, so the MVP agent recommends adding a reusable instruction block.",
-		Reason:          buildInstructionReason(matches, avgTokensPerQuery),
-		Explanation:     "This MVP only looks at uploaded token usage and raw query history. Web search and non-instruction recommendation types are intentionally deferred.",
+		Summary:         "Recent session queries were sampled and distilled into a reusable instruction block for the local coding agent.",
+		Reason:          buildInstructionReason(sampledQueries, len(sessions)),
+		Explanation:     "The research agent samples up to 10 raw queries, asks OpenAI Responses API for a reusable instruction pack, and leaves the actual file edit to the local Codex agent.",
 		ExpectedBenefit: "Reduce repeated prompt boilerplate and make the first useful answer more consistent.",
 		Risk:            "Low. The plan is a reviewable append to AGENTS.md.",
 		ExpectedImpact:  "Lower setup churn and fewer repeated discovery prompts in later sessions.",
-		Score:           instructionRecommendationScore(matches, avgTokensPerQuery),
+		Score:           instructionRecommendationScore(len(sampledQueries), avgTokensPerQuery),
 		Evidence:        evidence,
 		Steps: []ChangePlanStep{{
 			Type:           "text_append",
 			Action:         "append_block",
 			TargetFile:     "AGENTS.md",
-			Summary:        "Append a custom instruction block distilled from recent raw query patterns.",
+			Summary:        "Append an instruction block synthesized from sampled raw queries.",
 			ContentPreview: contentPreview,
 		}},
 	}}
@@ -150,6 +203,147 @@ func collectRawQueries(sessions []*SessionSummary) []string {
 		}
 	}
 	return out
+}
+
+func (a *CloudResearchAgent) buildInstructionPreview(project *Project, sampledQueries, rawQueries []string, avgTokensPerQuery float64) (string, string) {
+	markdown, err := a.generateInstructionMarkdown(project, sampledQueries)
+	if err == nil && strings.TrimSpace(markdown) != "" {
+		return wrapInstructionMarkdown(markdown), "openai_responses_api"
+	}
+	return buildFallbackInstructionContent(rawQueries, avgTokensPerQuery), "local_fallback"
+}
+
+func (a *CloudResearchAgent) generateInstructionMarkdown(project *Project, sampledQueries []string) (string, error) {
+	if strings.TrimSpace(a.apiKey) == "" {
+		return "", fmt.Errorf("OPENAI_API_KEY is not configured")
+	}
+	if len(sampledQueries) == 0 {
+		return "", fmt.Errorf("no sampled queries available")
+	}
+
+	format := responses.ResponseFormatTextConfigParamOfJSONSchema(openAIInstructionSchemaName, map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			openAIInstructionSchemaFieldName: map[string]any{
+				"type":        "string",
+				"description": "Markdown bullet lines to append under an AGENTS.md heading.",
+			},
+		},
+		"required":             []string{openAIInstructionSchemaFieldName},
+		"additionalProperties": false,
+	})
+	if format.OfJSONSchema != nil {
+		format.OfJSONSchema.Strict = openai.Bool(true)
+		format.OfJSONSchema.Description = openai.String("Markdown bullet lines to append under an AGENTS.md heading.")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultResearchRequestTimeout)
+	defer cancel()
+
+	resp, err := a.client.Responses.New(ctx, responses.ResponseNewParams{
+		Model: openai.ResponsesModel(a.Model),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: openai.String(buildInstructionPrompt(project, sampledQueries)),
+		},
+		Text: responses.ResponseTextConfigParam{
+			Format: format,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	var structured openAIInstructionResponse
+	if err := json.Unmarshal([]byte(resp.OutputText()), &structured); err != nil {
+		return "", fmt.Errorf("decode openai instruction payload: %w", err)
+	}
+	return normalizeInstructionMarkdown(structured.InstructionMarkdown), nil
+}
+
+func buildInstructionPrompt(project *Project, sampledQueries []string) string {
+	lines := []string{
+		"You are a research agent that writes reusable AGENTS.md instructions for a local coding agent.",
+		"Synthesize a concise instruction pack from the sampled raw user queries below.",
+		"Return only JSON matching the requested schema.",
+		"Requirements:",
+		"- The instruction_markdown field must contain 4 to 8 markdown bullet lines.",
+		"- Every line must start with '- '.",
+		"- Keep the instructions reusable and abstract.",
+		"- Do not include a heading, code fences, commentary, or surrounding prose.",
+	}
+	if project != nil && strings.TrimSpace(project.Name) != "" {
+		lines = append(lines, "Project: "+strings.TrimSpace(project.Name))
+	}
+	lines = append(lines, fmt.Sprintf("Sampled raw queries (%d):", len(sampledQueries)))
+	for idx, query := range sampledQueries {
+		lines = append(lines, fmt.Sprintf("sample_query_%d: %s", idx+1, query))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sampleRawQueries(queries []string, limit int, rng *rand.Rand) []string {
+	if limit <= 0 || len(queries) == 0 {
+		return nil
+	}
+	if len(queries) <= limit {
+		return append([]string(nil), queries...)
+	}
+	pool := append([]string(nil), queries...)
+	if rng == nil {
+		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	rng.Shuffle(len(pool), func(i, j int) {
+		pool[i], pool[j] = pool[j], pool[i]
+	})
+	return append([]string(nil), pool[:limit]...)
+}
+
+func wrapInstructionMarkdown(markdown string) string {
+	lines := []string{
+		"",
+		defaultInstructionHeading,
+	}
+	if trimmed := strings.TrimSpace(markdown); trimmed != "" {
+		lines = append(lines, strings.Split(trimmed, "\n")...)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func normalizeInstructionMarkdown(markdown string) string {
+	rawLines := strings.Split(strings.ReplaceAll(markdown, "\r\n", "\n"), "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.TrimPrefix(line, defaultInstructionHeading)
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "- ") {
+			line = "- " + strings.TrimLeft(line, "-* ")
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildFallbackInstructionContent(rawQueries []string, avgTokensPerQuery float64) string {
+	matches := topInstructionPatterns(matchInstructionPatterns(rawQueries), 3)
+	lines := []string{
+		"",
+		defaultInstructionHeading,
+		"- Before editing, restate the goal, affected files, and the success check you will use.",
+	}
+	for _, match := range matches {
+		lines = append(lines, "- "+match.Pattern.Instruction)
+	}
+	if avgTokensPerQuery >= 2500 {
+		lines = append(lines, "- Keep the first response compact and avoid reopening files without new evidence.")
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func matchInstructionPatterns(queries []string) []matchedInstructionPattern {
@@ -195,37 +389,15 @@ func topInstructionPatterns(items []matchedInstructionPattern, limit int) []matc
 	return append([]matchedInstructionPattern(nil), items...)
 }
 
-func buildInstructionContent(matches []matchedInstructionPattern, avgTokensPerQuery float64) string {
-	lines := []string{
-		"",
-		"## AgentOpt Personal Instruction Pack",
-		"- Before editing, restate the goal, affected files, and the success check you will use.",
+func buildInstructionReason(sampledQueries []string, sessionCount int) string {
+	if len(sampledQueries) == 0 {
+		return "No sampled raw queries were available for instruction synthesis."
 	}
-	for _, match := range matches {
-		lines = append(lines, "- "+match.Pattern.Instruction)
-	}
-	if avgTokensPerQuery >= 2500 {
-		lines = append(lines, "- Keep the first response compact and avoid reopening files without new evidence.")
-	}
-	return strings.Join(lines, "\n") + "\n"
+	return fmt.Sprintf("Synthesized from %d randomly sampled raw queries across %d uploaded sessions.", len(sampledQueries), sessionCount)
 }
 
-func buildInstructionReason(matches []matchedInstructionPattern, avgTokensPerQuery float64) string {
-	if len(matches) == 0 {
-		if avgTokensPerQuery >= 2500 {
-			return "Recent sessions spend enough tokens on prompt setup that a shared instruction block should tighten the first pass."
-		}
-		return "Recent raw queries show enough repeated setup work to justify a reusable instruction block."
-	}
-	labels := make([]string, 0, len(matches))
-	for _, match := range matches {
-		labels = append(labels, match.Pattern.Label)
-	}
-	return "Recent raw queries repeatedly ask for " + joinHumanList(labels) + "."
-}
-
-func instructionRecommendationScore(matches []matchedInstructionPattern, avgTokensPerQuery float64) float64 {
-	score := 0.64 + 0.07*float64(len(matches))
+func instructionRecommendationScore(sampleCount int, avgTokensPerQuery float64) float64 {
+	score := 0.68 + 0.01*float64(sampleCount)
 	if avgTokensPerQuery >= 2500 {
 		score += 0.07
 	}
@@ -235,15 +407,18 @@ func instructionRecommendationScore(matches []matchedInstructionPattern, avgToke
 	return round(score)
 }
 
-func joinHumanList(items []string) string {
-	switch len(items) {
-	case 0:
-		return ""
-	case 1:
-		return items[0]
-	case 2:
-		return items[0] + " and " + items[1]
-	default:
-		return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
+func minInt(a, b int) int {
+	if a < b {
+		return a
 	}
+	return b
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

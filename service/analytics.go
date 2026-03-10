@@ -24,7 +24,7 @@ const sharedWorkspaceName = "Shared workspace"
 func NewAnalyticsService(opt Options) *AnalyticsService {
 	return &AnalyticsService{
 		Options:       opt,
-		researchAgent: NewCloudResearchAgentPlaceholder(opt.Config),
+		researchAgent: NewCloudResearchAgent(opt.Config),
 	}
 }
 

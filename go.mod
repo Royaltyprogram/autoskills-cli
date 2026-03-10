@@ -24,6 +24,7 @@ require (
 	github.com/knadh/koanf/v2 v2.3.0
 	github.com/labstack/echo/v5 v5.0.0
 	github.com/mattn/go-sqlite3 v1.14.17
+	github.com/openai/openai-go/v3 v3.26.0
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/reugn/go-quartz v0.15.2
 	github.com/sourcegraph/conc v0.3.0
@@ -59,6 +60,10 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/spf13/cobra v1.7.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/tidwall/gjson v1.18.0 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/zclconf/go-cty v1.14.4 // indirect
 	github.com/zclconf/go-cty-yaml v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
