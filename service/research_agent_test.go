@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,12 +16,6 @@ func TestCloudResearchAgentAnalyzeProjectUsesOpenAIResponses(t *testing.T) {
 	type responsesRequest struct {
 		Model string `json:"model"`
 		Input string `json:"input"`
-		Text  struct {
-			Format struct {
-				Type string `json:"type"`
-				Name string `json:"name"`
-			} `json:"format"`
-		} `json:"text"`
 	}
 
 	var seen responsesRequest
@@ -33,9 +26,8 @@ func TestCloudResearchAgentAnalyzeProjectUsesOpenAIResponses(t *testing.T) {
 
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&seen))
 		require.Equal(t, "gpt-5.4", seen.Model)
-		require.Equal(t, "json_schema", seen.Text.Format.Type)
-		require.Equal(t, openAIInstructionSchemaName, seen.Text.Format.Name)
-		require.Equal(t, 10, strings.Count(seen.Input, "sample_query_"))
+		require.Contains(t, seen.Input, "sample_query_1:")
+		require.Contains(t, seen.Input, "sample_query_10:")
 
 		w.Header().Set("Content-Type", "application/json")
 		_, err := w.Write([]byte(`{
@@ -45,7 +37,7 @@ func TestCloudResearchAgentAnalyzeProjectUsesOpenAIResponses(t *testing.T) {
       "content": [
         {
           "type": "output_text",
-          "text": "{\"finding_markdown\":\"- The user repeatedly has to ask for explicit verification, which suggests testing discipline is not being applied by default.\\n- Discovery and control-flow recap consume enough turns that the workflow likely starts without enough repo context.\\n- The sampled sessions show enough manual steering that default patch scope and diagnosis habits are still too weak.\"}"
+          "text": "- The user repeatedly has to ask for explicit verification, which suggests testing discipline is not being applied by default.\n- Discovery and control-flow recap consume enough turns that the workflow likely starts without enough repo context.\n- The sampled sessions show enough manual steering that default patch scope and diagnosis habits are still too weak."
         }
       ]
     }
@@ -139,6 +131,34 @@ func TestBuildInstructionPromptLoadsMarkdownTemplate(t *testing.T) {
 	require.Contains(t, prompt, "## Sampled Raw Queries (2)")
 	require.Contains(t, prompt, "sample_query_1: Inspect the analytics route.")
 	require.Contains(t, prompt, "sample_query_2: List the exact verification steps.")
+}
+
+func TestNormalizeQueriesForResearchPromptStripsBoilerplate(t *testing.T) {
+	queries := normalizeQueriesForResearchPrompt([]string{
+		`# AGENTS.md instructions for /tmp/demo
+
+<INSTRUCTIONS>
+Only follow safe steps.
+</INSTRUCTIONS>
+
+# Context from my IDE setup:
+
+## Open tabs:
+- foo.go
+
+## My request for Codex:
+Inspect the analytics route and summarize the current control flow.`,
+		`<environment_context>
+  <cwd>/tmp/demo</cwd>
+</environment_context>
+
+List the exact tests to run after the patch.`,
+	})
+
+	require.Equal(t, []string{
+		"Inspect the analytics route and summarize the current control flow.",
+		"List the exact tests to run after the patch.",
+	}, queries)
 }
 
 func TestSampleRawQueriesRespectsLimit(t *testing.T) {

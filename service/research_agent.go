@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -17,12 +16,10 @@ import (
 )
 
 const (
-	defaultOpenAIResponsesModel      = "gpt-5.4"
-	defaultResearchSampleSize        = 10
-	defaultResearchRequestTimeout    = 45 * time.Second
-	defaultInstructionHeading        = "## AgentOpt Research Findings"
-	openAIInstructionSchemaName      = "agent_research_findings"
-	openAIInstructionSchemaFieldName = "finding_markdown"
+	defaultOpenAIResponsesModel   = "gpt-5.4"
+	defaultResearchSampleSize     = 10
+	defaultResearchRequestTimeout = 45 * time.Second
+	defaultInstructionHeading     = "## AgentOpt Research Findings"
 )
 
 type CloudResearchAgent struct {
@@ -129,10 +126,6 @@ var personalInstructionPatterns = []instructionPattern{
 	},
 }
 
-type openAIInstructionResponse struct {
-	FindingMarkdown string `json:"finding_markdown"`
-}
-
 func NewCloudResearchAgent(conf *configs.Config) *CloudResearchAgent {
 	var openAIConf configs.OpenAI
 	if conf != nil {
@@ -174,6 +167,7 @@ func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*Sessio
 	_ = snapshots
 
 	rawQueries := collectRawQueries(sessions)
+	rawQueries = normalizeQueriesForResearchPrompt(rawQueries)
 	if len(rawQueries) == 0 {
 		return nil
 	}
@@ -253,22 +247,6 @@ func (a *CloudResearchAgent) generateInstructionMarkdown(project *Project, sampl
 		return "", fmt.Errorf("no sampled queries available")
 	}
 
-	format := responses.ResponseFormatTextConfigParamOfJSONSchema(openAIInstructionSchemaName, map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			openAIInstructionSchemaFieldName: map[string]any{
-				"type":        "string",
-				"description": "Markdown bullet lines that describe workflow inefficiencies and missing defaults.",
-			},
-		},
-		"required":             []string{openAIInstructionSchemaFieldName},
-		"additionalProperties": false,
-	})
-	if format.OfJSONSchema != nil {
-		format.OfJSONSchema.Strict = openai.Bool(true)
-		format.OfJSONSchema.Description = openai.String("Markdown bullet lines that describe workflow inefficiencies and missing defaults.")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), defaultResearchRequestTimeout)
 	defer cancel()
 
@@ -282,19 +260,11 @@ func (a *CloudResearchAgent) generateInstructionMarkdown(project *Project, sampl
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: openai.String(prompt),
 		},
-		Text: responses.ResponseTextConfigParam{
-			Format: format,
-		},
 	})
 	if err != nil {
 		return "", err
 	}
-
-	var structured openAIInstructionResponse
-	if err := json.Unmarshal([]byte(resp.OutputText()), &structured); err != nil {
-		return "", fmt.Errorf("decode openai instruction payload: %w", err)
-	}
-	return normalizeInstructionMarkdown(structured.FindingMarkdown), nil
+	return normalizeInstructionMarkdown(resp.OutputText()), nil
 }
 
 func buildInstructionPrompt(project *Project, sampledQueries []string, usageSummary researchUsageSummary) (string, error) {
@@ -370,6 +340,89 @@ func buildFallbackInstructionContent(rawQueries []string, usageSummary researchU
 		lines = append(lines, "- Tool-call errors are recurring, which suggests execution steps are being attempted without enough preflight or constraint awareness.")
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func normalizeQueriesForResearchPrompt(queries []string) []string {
+	seen := make(map[string]struct{}, len(queries))
+	out := make([]string, 0, len(queries))
+	for _, query := range queries {
+		normalized := normalizeResearchPromptQuery(query)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out
+}
+
+func normalizeResearchPromptQuery(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for _, marker := range []string{"## My request for Codex:", "## My request for Codex", "My request for Codex:"} {
+		if strings.Contains(raw, marker) {
+			raw = raw[strings.Index(raw, marker)+len(marker):]
+			break
+		}
+	}
+	raw = stripTaggedBlock(raw, "<environment_context>", "</environment_context>")
+	raw = stripTaggedBlock(raw, "<INSTRUCTIONS>", "</INSTRUCTIONS>")
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+
+	lines := strings.Split(raw, "\n")
+	cleaned := make([]string, 0, len(lines))
+	skipOpenTabs := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "# AGENTS.md instructions"):
+			continue
+		case strings.EqualFold(line, "# Context from my IDE setup:"),
+			strings.EqualFold(line, "# Context from my IDE setup"):
+			continue
+		case strings.EqualFold(line, "## Open tabs:"),
+			strings.EqualFold(line, "## Open tabs"):
+			skipOpenTabs = true
+			continue
+		case strings.HasPrefix(line, "## My request for Codex"):
+			skipOpenTabs = false
+			continue
+		case skipOpenTabs:
+			if strings.HasPrefix(line, "## ") {
+				skipOpenTabs = false
+			} else {
+				continue
+			}
+		}
+		if strings.EqualFold(line, "<image>") || strings.EqualFold(line, "</image>") {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+func stripTaggedBlock(raw, openTag, closeTag string) string {
+	for {
+		start := strings.Index(raw, openTag)
+		if start < 0 {
+			return raw
+		}
+		end := strings.Index(raw[start+len(openTag):], closeTag)
+		if end < 0 {
+			return strings.TrimSpace(raw[:start])
+		}
+		end += start + len(openTag) + len(closeTag)
+		raw = raw[:start] + raw[end:]
+	}
 }
 
 func matchInstructionPatterns(queries []string) []matchedInstructionPattern {
