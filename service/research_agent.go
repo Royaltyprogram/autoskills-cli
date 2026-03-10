@@ -240,10 +240,15 @@ func (a *CloudResearchAgent) generateInstructionMarkdown(project *Project, sampl
 	ctx, cancel := context.WithTimeout(context.Background(), defaultResearchRequestTimeout)
 	defer cancel()
 
+	prompt, err := buildInstructionPrompt(project, sampledQueries)
+	if err != nil {
+		return "", err
+	}
+
 	resp, err := a.client.Responses.New(ctx, responses.ResponseNewParams{
 		Model: openai.ResponsesModel(a.Model),
 		Input: responses.ResponseNewParamsInputUnion{
-			OfString: openai.String(buildInstructionPrompt(project, sampledQueries)),
+			OfString: openai.String(prompt),
 		},
 		Text: responses.ResponseTextConfigParam{
 			Format: format,
@@ -260,25 +265,8 @@ func (a *CloudResearchAgent) generateInstructionMarkdown(project *Project, sampl
 	return normalizeInstructionMarkdown(structured.InstructionMarkdown), nil
 }
 
-func buildInstructionPrompt(project *Project, sampledQueries []string) string {
-	lines := []string{
-		"You are a research agent that writes reusable AGENTS.md instructions for a local coding agent.",
-		"Synthesize a concise instruction pack from the sampled raw user queries below.",
-		"Return only JSON matching the requested schema.",
-		"Requirements:",
-		"- The instruction_markdown field must contain 4 to 8 markdown bullet lines.",
-		"- Every line must start with '- '.",
-		"- Keep the instructions reusable and abstract.",
-		"- Do not include a heading, code fences, commentary, or surrounding prose.",
-	}
-	if project != nil && strings.TrimSpace(project.Name) != "" {
-		lines = append(lines, "Project: "+strings.TrimSpace(project.Name))
-	}
-	lines = append(lines, fmt.Sprintf("Sampled raw queries (%d):", len(sampledQueries)))
-	for idx, query := range sampledQueries {
-		lines = append(lines, fmt.Sprintf("sample_query_%d: %s", idx+1, query))
-	}
-	return strings.Join(lines, "\n")
+func buildInstructionPrompt(project *Project, sampledQueries []string) (string, error) {
+	return renderResearchAgentInstructionPrompt(project, sampledQueries)
 }
 
 func sampleRawQueries(queries []string, limit int, rng *rand.Rand) []string {

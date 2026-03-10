@@ -92,6 +92,22 @@ func TestCloudResearchAgentAnalyzeProjectUsesOpenAIResponses(t *testing.T) {
 	require.Contains(t, recs[0].Steps[0].ContentPreview, "- State the likely root cause before proposing a fix.")
 }
 
+func TestBuildInstructionPromptLoadsMarkdownTemplate(t *testing.T) {
+	prompt, err := buildInstructionPrompt(&Project{Name: "demo-workspace"}, []string{
+		"Inspect the analytics route.",
+		"List the exact verification steps.",
+	})
+
+	require.NoError(t, err)
+	require.Contains(t, prompt, "writes reusable `AGENTS.md` instructions")
+	require.Contains(t, prompt, "## Requirements")
+	require.Contains(t, prompt, "## Project")
+	require.Contains(t, prompt, "demo-workspace")
+	require.Contains(t, prompt, "## Sampled Raw Queries (2)")
+	require.Contains(t, prompt, "sample_query_1: Inspect the analytics route.")
+	require.Contains(t, prompt, "sample_query_2: List the exact verification steps.")
+}
+
 func TestSampleRawQueriesRespectsLimit(t *testing.T) {
 	rng := deterministicRand()
 	queries := []string{"q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"}
