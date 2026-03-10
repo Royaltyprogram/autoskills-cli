@@ -33,11 +33,11 @@ func TestLandingRouteServesLandingPage(t *testing.T) {
 	echo.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "Approve with confidence. Measure what changed.")
+	require.Contains(t, rec.Body.String(), "We analyze your AI coding data.")
 	require.Contains(t, rec.Body.String(), "Sign in to dashboard")
 	require.Contains(t, rec.Body.String(), `id="loginForm"`)
-	require.Contains(t, rec.Body.String(), "Run `agentopt login` and paste the token")
-	require.Contains(t, rec.Body.String(), "closed beta")
+	require.Contains(t, rec.Body.String(), "Sign in with your closed beta credentials.")
+	require.Contains(t, rec.Body.String(), "Closed Beta")
 	require.NotContains(t, rec.Body.String(), "demo@example.com")
 }
 
@@ -69,8 +69,12 @@ func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `data-action="copy-command"`)
 	require.Contains(t, rec.Body.String(), "Issued CLI tokens")
 	require.Contains(t, rec.Body.String(), "Create CLI token")
+	require.Contains(t, rec.Body.String(), "curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh")
+	require.Contains(t, rec.Body.String(), "agentopt login --server")
 	require.Contains(t, rec.Body.String(), `data-action="issue-cli-token"`)
 	require.Contains(t, rec.Body.String(), "Overview")
+	require.Contains(t, rec.Body.String(), "Trends")
+	require.Contains(t, rec.Body.String(), "Rollouts")
 	require.Contains(t, rec.Body.String(), "CLI Access")
 	require.Contains(t, rec.Body.String(), `data-action="refresh-dashboard"`)
 	require.NotContains(t, rec.Body.String(), "Approve with confidence. Measure what changed.")

@@ -33,13 +33,13 @@
 
       <div class="wizard-step" data-wizard-step="1">
         <div class="wizard-title">Install the CLI</div>
-        <div class="wizard-desc">Unpack the beta bundle on the machine you want to connect.</div>
+        <div class="wizard-desc">Install the released CLI on the machine you want to connect. The release build does not require Go, and the installer provisions Node.js automatically when needed.</div>
         <div class="command-block">
           <div class="command-block-head">
-            <span class="command-label">Unpack beta bundle</span>
+            <span class="command-label">Install command</span>
             <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="wizInstallCmd" data-copy-label="install command">Copy</button>
           </div>
-          <div class="command-shell" id="wizInstallCmd">tar -xzf agentopt-&lt;version&gt;-&lt;os&gt;-&lt;arch&gt;.tar.gz && cd agentopt-&lt;version&gt;-&lt;os&gt;-&lt;arch&gt;</div>
+          <div class="command-shell" id="wizInstallCmd">curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh</div>
         </div>
         <div class="wizard-actions">
           <button class="secondary-button" type="button" data-action="wizard-back">Back</button>
@@ -65,7 +65,7 @@
             <span class="command-label">Login command</span>
             <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="wizLoginCmd" data-copy-label="login command">Copy</button>
           </div>
-          <div class="command-shell" id="wizLoginCmd">./agentopt login --server http://127.0.0.1:8082</div>
+          <div class="command-shell" id="wizLoginCmd">agentopt login --server http://127.0.0.1:8082</div>
         </div>
         <div class="wizard-actions">
           <button class="secondary-button" type="button" data-action="wizard-back">Back</button>
@@ -81,7 +81,7 @@
             <span class="command-label">Connect command</span>
             <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="wizConnectCmd" data-copy-label="connect command">Copy</button>
           </div>
-          <div class="command-shell" id="wizConnectCmd">./agentopt connect --repo-path .</div>
+          <div class="command-shell" id="wizConnectCmd">agentopt connect --repo-path .</div>
         </div>
         <div class="wizard-actions">
           <button class="secondary-button" type="button" data-action="wizard-back">Back</button>
@@ -115,7 +115,7 @@
 
       <div class="page-header">
         <h1 id="sessionHeading">Review AI usage and approve recommended changes for your workspace.</h1>
-        <p id="sessionSummary">Upload sessions from the CLI to see your AI usage history. Review recommendations and approve or decline changes before they are applied locally.</p>
+        <p id="sessionSummary">Upload sessions from the CLI to see your AI usage history, captured models, and recent assistant replies. Review recommendations and approve or decline changes before they are applied locally.</p>
       </div>
 
       <div class="signals">
@@ -147,27 +147,281 @@
 
       <nav class="dashboard-nav" aria-label="Dashboard views">
         <button class="tab-button is-active" type="button" data-action="switch-tab" data-tab="overview">Overview</button>
+        <button class="tab-button" type="button" data-action="switch-tab" data-tab="trends">Trends</button>
+        <button class="tab-button" type="button" data-action="switch-tab" data-tab="rollouts">Rollouts</button>
+        <button class="tab-button" type="button" data-action="switch-tab" data-tab="sessions">Sessions</button>
         <button class="tab-button" type="button" data-action="switch-tab" data-tab="cli">CLI Access</button>
       </nav>
 
       <!-- ── Overview ── -->
 
       <section class="tab-panel is-active" data-tab-panel="overview">
-        <div class="overview-grid">
-          <div class="section">
-            <div class="section-header">
-              <div class="section-kicker">Action required</div>
-              <div class="section-title">Suggested changes</div>
-            </div>
-            <div class="list" id="actionItemList"></div>
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Action required</div>
+            <div class="section-title">Suggested changes</div>
           </div>
-          <div class="section">
-            <div class="section-header">
-              <div class="section-kicker">AI usage history</div>
-              <div class="section-title">Recent sessions</div>
-            </div>
-            <div class="list" id="sessionSummaryList"></div>
+          <div class="list" id="actionItemList"></div>
+        </div>
+      </section>
+
+      <!-- ── Trends ── -->
+
+      <section class="tab-panel" data-tab-panel="trends" hidden>
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Usage trend</div>
+            <div class="section-title">Daily token flow</div>
+            <div class="section-desc" id="usageTrendSummary">Daily token flow will appear after sessions are uploaded from the CLI.</div>
           </div>
+          <div class="trend-badges" id="trendCoverageStrip"></div>
+          <div class="chart-surface">
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-swatch legend-swatch-input"></span>Input tokens</span>
+              <span class="legend-item"><span class="legend-swatch legend-swatch-output"></span>Output tokens</span>
+              <span class="legend-item"><span class="legend-swatch legend-swatch-activity"></span>Rollout activity</span>
+            </div>
+            <div class="usage-chart" id="usageTrendChart"></div>
+          </div>
+        </div>
+
+        <div class="section collapsible" id="trendsCoverageSection">
+          <div class="section-header section-toggle" data-action="toggle-section" data-target="trendsCoverageSection" role="button" tabindex="0">
+            <div class="section-kicker">Signal coverage</div>
+            <div class="section-title">Models, providers & data gaps <span class="toggle-chevron"></span></div>
+            <div class="section-desc">Which models and providers are captured, and where data gaps still exist.</div>
+          </div>
+          <div class="section-body">
+            <div class="insight-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Model coverage</div>
+                  <div class="section-title">Captured models</div>
+                  <div class="section-desc" id="modelCoverageSummary">Model capture coverage appears after the collector uploads model context.</div>
+                </div>
+                <div class="model-bars" id="modelCoverageList"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Provider mix</div>
+                  <div class="section-title">Captured providers</div>
+                  <div class="section-desc" id="providerCoverageSummary">Provider coverage appears after the collector uploads session provider context.</div>
+                </div>
+                <div class="model-bars" id="providerCoverageList"></div>
+              </div>
+            </div>
+
+            <div class="collapsible-nested" id="coverageActionsSection" hidden>
+              <div class="section-header compact">
+                <div class="section-kicker">Data coverage</div>
+                <div class="section-title">Fill missing model and latency signals</div>
+                <div class="section-desc" id="coverageActionSummary">Run a local collect once to backfill recent sessions, then enable autoupload to keep these signals current.</div>
+              </div>
+              <div class="command-block">
+                <div class="command-block-head">
+                  <span class="command-label">Backfill recent sessions</span>
+                  <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="coverageBackfillCmd" data-copy-label="backfill command">Copy</button>
+                </div>
+                <div class="command-shell" id="coverageBackfillCmd">agentopt collect --recent 30 --snapshot-mode skip</div>
+              </div>
+              <div class="command-block">
+                <div class="command-block-head">
+                  <span class="command-label">Keep coverage fresh</span>
+                  <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="coverageAutouploadCmd" data-copy-label="autoupload command">Copy</button>
+                </div>
+                <div class="command-shell" id="coverageAutouploadCmd">agentopt autoupload enable --recent 5 --snapshot-mode changed</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section collapsible is-collapsed" id="trendsResponsivenessSection">
+          <div class="section-header section-toggle" data-action="toggle-section" data-target="trendsResponsivenessSection" role="button" tabindex="0">
+            <div class="section-kicker">Responsiveness</div>
+            <div class="section-title">Latency & session pressure <span class="toggle-chevron"></span></div>
+            <div class="section-desc">First response latency and the most token-heavy recent sessions.</div>
+          </div>
+          <div class="section-body">
+            <div class="insight-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">First reply</div>
+                  <div class="section-title">Response latency</div>
+                  <div class="section-desc" id="latencySummary">First response latency appears after the collector records the first prompt and first assistant reply timestamps.</div>
+                </div>
+                <div class="latency-list" id="latencyList"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Session pressure</div>
+                  <div class="section-title">Highest-cost sessions</div>
+                </div>
+                <div class="list compact-list" id="heavySessionList"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section collapsible is-collapsed" id="trendsToolSection">
+          <div class="section-header section-toggle" data-action="toggle-section" data-target="trendsToolSection" role="button" tabindex="0">
+            <div class="section-kicker">Deep dive</div>
+            <div class="section-title">Token breakdown & tool performance <span class="toggle-chevron"></span></div>
+            <div class="section-desc">Cached tokens, reasoning signals, function-call patterns, and session timing.</div>
+          </div>
+          <div class="section-body">
+            <div class="insight-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Token anatomy</div>
+                  <div class="section-title">Cached and reasoning signals</div>
+                  <div class="section-desc" id="tokenDetailSummary">Cached input and reasoning output details appear after the collector uploads raw token breakdowns.</div>
+                </div>
+                <div class="trend-badges rollout-badges" id="tokenDetailList"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Tool activity</div>
+                  <div class="section-title">Function calls and session span</div>
+                  <div class="section-desc" id="toolExecutionSummary">Function call counts, tool failures, and session duration appear after local sessions are re-collected with the expanded collector.</div>
+                </div>
+                <div class="trend-badges rollout-badges" id="toolExecutionList"></div>
+                <div class="model-bars" id="toolMixList"></div>
+              </div>
+            </div>
+
+            <div class="insight-grid collapsible-nested-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Time composition</div>
+                  <div class="section-title">Tool time inside session span</div>
+                  <div class="section-desc" id="timeCompositionSummary">Tool wall time will be compared against captured session span after expanded session summaries are uploaded from the CLI.</div>
+                </div>
+                <div class="time-balance" id="timeCompositionList"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Tool hotspots</div>
+                  <div class="section-title">Slow and noisy tools</div>
+                  <div class="section-desc" id="toolHotspotSummary">Tools will be ranked by runtime, error rate, and usage share once local sessions include named function calls.</div>
+                </div>
+                <div class="hotspot-list" id="toolHotspotList"></div>
+              </div>
+            </div>
+
+            <div class="insight-grid collapsible-nested-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Tool cadence</div>
+                  <div class="section-title">Daily function-call flow</div>
+                  <div class="section-desc" id="toolTrendSummary">Daily tool activity appears after the collector uploads function-call and tool-output events.</div>
+                </div>
+                <div class="latency-list" id="toolTrendList"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Session span</div>
+                  <div class="section-title">Average duration by day</div>
+                  <div class="section-desc" id="durationTrendSummary">Session span appears after the collector uploads first and last event timestamps for local sessions.</div>
+                </div>
+                <div class="latency-list" id="durationTrendList"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Rollouts ── -->
+
+      <section class="tab-panel" data-tab-panel="rollouts" hidden>
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Rollout flow</div>
+            <div class="section-title">Suggestion to rollout path</div>
+            <div class="section-desc">Track how many suggestions are waiting, approved, applied, or rolled back.</div>
+          </div>
+          <div class="funnel-grid" id="rolloutFunnel"></div>
+        </div>
+
+        <div class="section collapsible" id="rolloutTempoSection">
+          <div class="section-header section-toggle" data-action="toggle-section" data-target="rolloutTempoSection" role="button" tabindex="0">
+            <div class="section-kicker">Rollout tempo</div>
+            <div class="section-title">Approval cadence & recent timeline <span class="toggle-chevron"></span></div>
+            <div class="section-desc">How quickly recommendations move from request to review to local apply, and the most recent change plan states.</div>
+          </div>
+          <div class="section-body">
+            <div class="insight-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Cadence</div>
+                  <div class="section-title">Approval and sync timing</div>
+                </div>
+                <div class="trend-badges rollout-badges" id="rolloutPulseSummary"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Recent path</div>
+                  <div class="section-title">Latest rollout timeline</div>
+                </div>
+                <div class="rollout-lanes" id="rolloutPulseTimeline"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section collapsible is-collapsed" id="rolloutImpactSection">
+          <div class="section-header section-toggle" data-action="toggle-section" data-target="rolloutImpactSection" role="button" tabindex="0">
+            <div class="section-kicker">Before / after</div>
+            <div class="section-title">Change impact <span class="toggle-chevron"></span></div>
+            <div class="section-desc">Compare token usage before and after applied changes, with approval and sync timing.</div>
+          </div>
+          <div class="section-body">
+            <div class="list" id="impactList"></div>
+          </div>
+        </div>
+
+        <div class="section collapsible is-collapsed" id="rolloutHistorySection">
+          <div class="section-header section-toggle" data-action="toggle-section" data-target="rolloutHistorySection" role="button" tabindex="0">
+            <div class="section-kicker">History</div>
+            <div class="section-title">Config snapshots & activity <span class="toggle-chevron"></span></div>
+            <div class="section-desc">Settings fingerprints, profile captures, and a condensed event timeline.</div>
+          </div>
+          <div class="section-body">
+            <div class="insight-grid">
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Config history</div>
+                  <div class="section-title">Recent snapshots</div>
+                </div>
+                <div class="list compact-list" id="snapshotList"></div>
+              </div>
+
+              <div class="insight-card">
+                <div class="section-header compact">
+                  <div class="section-kicker">Activity</div>
+                  <div class="section-title">Recent rollout events</div>
+                </div>
+                <div class="list compact-list" id="activityTimeline"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Sessions ── -->
+
+      <section class="tab-panel" data-tab-panel="sessions" hidden>
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">AI usage history</div>
+            <div class="section-title">Recent sessions</div>
+          </div>
+          <div class="list" id="sessionSummaryList"></div>
         </div>
       </section>
 
@@ -203,6 +457,18 @@
 
     </div>
   </main>
+
+  <!-- ─────────────────────── Full-text modal ─────────────────────── -->
+
+  <div class="full-text-overlay" id="fullTextOverlay" hidden>
+    <div class="full-text-modal">
+      <div class="full-text-header">
+        <div class="full-text-title" id="fullTextTitle">Full text</div>
+        <button class="full-text-close" type="button" data-action="close-full-text" aria-label="Close">&times;</button>
+      </div>
+      <div class="full-text-body" id="fullTextBody"></div>
+    </div>
+  </div>
 
   <script src="/assets/dashboard.js"></script>
 

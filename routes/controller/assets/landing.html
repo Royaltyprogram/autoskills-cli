@@ -4,7 +4,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentOpt Login</title>
+  <title>AgentOpt — AI Workspace Operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --canvas-top: #f3ece1;
@@ -17,405 +20,741 @@
       --muted: #5a6973;
       --accent: #a75231;
       --accent-deep: #7d3a1f;
+      --accent-light: rgba(167, 82, 49, 0.08);
       --support: #1e6870;
-      --shadow: 0 18px 42px rgba(20, 33, 42, 0.08);
-      --radius-xl: 28px;
-      --radius-lg: 20px;
-      --radius-md: 16px;
-      --radius-sm: 12px;
+      --support-light: rgba(30, 104, 112, 0.08);
+      --shadow-sm: 0 2px 8px rgba(20, 33, 42, 0.06);
+      --shadow-md: 0 8px 24px rgba(20, 33, 42, 0.08);
+      --shadow-lg: 0 18px 42px rgba(20, 33, 42, 0.10);
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      color-scheme: light;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; color-scheme: light; }
 
     body {
-      margin: 0;
-      min-height: 100vh;
       color: var(--ink);
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      font-family: 'Inter', -apple-system, sans-serif;
       font-size: 16px;
-      line-height: 1.5;
-      background:
-        radial-gradient(circle at top left, rgba(167, 82, 49, 0.18), transparent 26%),
-        radial-gradient(circle at bottom right, rgba(30, 104, 112, 0.14), transparent 28%),
-        linear-gradient(160deg, var(--canvas-top) 0%, #f7f4ee 38%, var(--canvas-bottom) 100%);
+      line-height: 1.6;
+      background: linear-gradient(168deg, var(--canvas-top) 0%, #f7f4ee 40%, var(--canvas-bottom) 100%);
+      overflow-x: hidden;
     }
 
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background:
-        linear-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
-      background-size: 36px 36px;
-      opacity: 0.22;
-    }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 
-    h1,
-    h2,
-    p {
-      margin: 0;
+    /* ── NAV ── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      background: rgba(243, 236, 225, 0.72);
+      border-bottom: 1px solid var(--line);
     }
+    .nav-inner {
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+      height: 64px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+    .nav-logo {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--support));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 14px;
+    }
+    .nav-wordmark { font-family: 'DM Serif Display', serif; font-size: 20px; letter-spacing: -0.02em; }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a { text-decoration: none; color: var(--muted); font-size: 14px; font-weight: 500; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--ink); }
+    .nav-cta {
+      padding: 8px 20px; border-radius: 10px; background: var(--ink);
+      color: #fff !important; font-weight: 600 !important; transition: opacity 0.2s, transform 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
 
-    .page-shell {
+    /* ── HERO ── */
+    .hero { padding: 80px 0 0; text-align: center; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 16px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--surface);
+      font-size: 13px; font-weight: 600; color: var(--support); margin-bottom: 28px;
+    }
+    .hero-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--support); animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .hero h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(40px, 5.5vw, 68px);
+      line-height: 1.06; letter-spacing: -0.025em;
+      max-width: 820px; margin: 0 auto 24px;
+    }
+    .hero h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, var(--accent), var(--support));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .hero-sub {
+      max-width: 600px; margin: 0 auto 40px;
+      font-size: 18px; line-height: 1.7; color: var(--muted);
+    }
+    .hero-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 28px; border-radius: 14px;
+      font-size: 15px; font-weight: 600; text-decoration: none; border: none;
+      cursor: pointer; transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s; font-family: inherit;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), #c56b45); color: #fff; }
+    .btn-ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); }
+
+    /* ── TOOL LOGOS ── */
+    .tool-strip {
+      display: flex; align-items: center; justify-content: center;
+      gap: 12px; flex-wrap: wrap; padding: 12px 0 0;
+      font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+    .tool-strip span { opacity: 0.5; }
+    .tool-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--surface);
+      font-size: 13px; font-weight: 600; color: var(--ink);
+    }
+    .tool-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot--codex { background: #10a37f; }
+    .dot--claude { background: #d97706; }
+    .dot--opencode { background: #6366f1; }
+
+    /* ── HERO CHART ── */
+    .hero-visual {
+      margin: 48px auto 0; max-width: 920px;
+      border-radius: 20px; border: 1px solid var(--line);
+      background: var(--surface); box-shadow: var(--shadow-lg);
+      overflow: hidden; position: relative;
+    }
+    .hero-visual-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 20px; border-bottom: 1px solid var(--line);
+    }
+    .hv-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .hv-dot:nth-child(1) { background: #f87171; }
+    .hv-dot:nth-child(2) { background: #fbbf24; }
+    .hv-dot:nth-child(3) { background: #34d399; }
+    .hv-title { margin-left: 12px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+    .hero-visual-body { padding: 28px 28px 8px; display: grid; grid-template-columns: 1fr 280px; gap: 28px; }
+
+    .chart-panel h3 { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+    .chart-panel .chart-sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+
+    .mini-stats {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      padding: 0 0 20px;
+    }
+    .mini-stat {
+      padding: 14px; border-radius: 12px;
+      border: 1px solid var(--line); background: var(--surface-soft);
+    }
+    .mini-stat-val {
+      font-family: 'DM Serif Display', serif;
+      font-size: 26px; line-height: 1.1; margin-bottom: 2px;
+    }
+    .mini-stat-val--accent { color: var(--accent); }
+    .mini-stat-val--support { color: var(--support); }
+    .mini-stat-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    .mini-stat-delta { font-size: 11px; font-weight: 700; margin-top: 4px; }
+    .mini-stat-delta--up { color: #16a34a; }
+    .mini-stat-delta--down { color: var(--accent); }
+
+    .sidebar-panel h3 { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 12px; }
+    .source-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .source-row:last-child { border-bottom: none; }
+    .source-name { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+    .source-bar-wrap { width: 80px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+    .source-bar { height: 100%; border-radius: 3px; }
+    .source-bar--codex { width: 82%; background: #10a37f; }
+    .source-bar--claude { width: 64%; background: #d97706; }
+    .source-bar--opencode { width: 41%; background: #6366f1; }
+    .source-pct { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 32px; text-align: right; }
+
+    .reco-list { display: grid; gap: 8px; margin-top: 16px; }
+    .reco-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 10px 12px; border-radius: 10px;
+      border: 1px solid var(--line); background: var(--surface-soft);
+      font-size: 12px; line-height: 1.5; color: var(--ink);
+    }
+    .reco-badge {
+      flex-shrink: 0; padding: 2px 7px; border-radius: 5px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .reco-badge--auto { background: rgba(30, 104, 112, 0.12); color: var(--support); }
+    .reco-badge--review { background: rgba(167, 82, 49, 0.12); color: var(--accent); }
+
+    /* ── SECTION ── */
+    .section { padding: 80px 0; }
+    .section-header { text-align: center; margin-bottom: 56px; }
+    .section-kicker {
+      display: inline-block; font-size: 12px; letter-spacing: 0.16em;
+      text-transform: uppercase; font-weight: 700; color: var(--accent-deep); margin-bottom: 12px;
+    }
+    .section-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(28px, 4vw, 40px);
+      line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 12px;
+    }
+    .section-desc { max-width: 540px; margin: 0 auto; color: var(--muted); font-size: 16px; line-height: 1.7; }
+
+    .divider { padding: 0; }
+    .divider hr { border: none; height: 1px; background: var(--line); }
+
+    /* ── PIPELINE ── */
+    .pipeline {
+      display: grid; grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0; align-items: stretch;
+    }
+    .pipe-stage {
+      padding: 32px 24px;
+      border-radius: 20px; border: 1px solid var(--line);
+      background: var(--surface); box-shadow: var(--shadow-sm);
+      display: flex; flex-direction: column; align-items: center; text-align: center;
       position: relative;
-      width: min(1180px, calc(100% - 32px));
-      margin: 24px auto 40px;
-      display: grid;
-      gap: 16px;
     }
-
-    .hero,
-    .workflow-grid {
-      display: grid;
-      gap: 16px;
+    .pipe-arrow {
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 4px; color: var(--line-strong);
     }
-
-    .hero {
-      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.9fr);
-      align-items: stretch;
+    .pipe-arrow svg { flex-shrink: 0; }
+    .pipe-icon {
+      width: 52px; height: 52px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px; font-size: 22px;
     }
-
-    .hero-copy,
-    .login-panel,
-    .workflow-card {
-      position: relative;
-      overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-xl);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(12px);
+    .pipe-icon--collect { background: linear-gradient(135deg, rgba(16,163,127,0.12), rgba(99,102,241,0.12)); color: var(--support); }
+    .pipe-icon--analyze { background: linear-gradient(135deg, var(--accent-light), var(--support-light)); color: var(--accent); }
+    .pipe-icon--apply { background: var(--support-light); color: var(--support); }
+    .pipe-stage h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+    .pipe-stage p { font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 240px; }
+    .pipe-tag {
+      margin-top: auto; padding-top: 14px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
     }
+    .pipe-tag--auto { color: var(--support); }
 
-    .hero-copy {
-      padding: 36px;
-      display: grid;
-      gap: 18px;
-      min-height: 360px;
-      align-content: start;
-      background:
-        radial-gradient(circle at top right, rgba(255, 255, 255, 0.82), transparent 42%),
-        linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(247, 242, 234, 0.94));
+    /* ── ANALYTICS SHOWCASE ── */
+    .analytics-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 20px;
     }
-
-    .hero-copy::after {
-      content: "";
-      position: absolute;
-      right: -42px;
-      bottom: -56px;
-      width: 190px;
-      height: 190px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, rgba(167, 82, 49, 0.18), rgba(30, 104, 112, 0.06));
+    .analytics-card {
+      padding: 28px; border-radius: 20px;
+      border: 1px solid var(--line); background: var(--surface);
+      box-shadow: var(--shadow-sm); overflow: hidden;
     }
+    .analytics-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .analytics-card .a-sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
 
-    .hero-copy h1,
-    .workflow-card h2 {
-      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-      font-weight: 600;
+    .bar-chart { display: flex; align-items: flex-end; gap: 10px; height: 140px; padding-top: 8px; }
+    .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+    .bar-pair { display: flex; gap: 3px; align-items: flex-end; width: 100%; justify-content: center; }
+    .bar {
+      width: 14px; border-radius: 4px 4px 0 0;
+      transition: height 1s ease;
     }
-
-    .hero-copy h1 {
-      max-width: 11ch;
-      font-size: clamp(40px, 5vw, 68px);
-      line-height: 0.98;
+    .bar--before { background: rgba(20, 33, 42, 0.14); }
+    .bar--after { background: var(--support); }
+    .bar-label { font-size: 10px; color: var(--muted); font-weight: 600; }
+    .bar-legend {
+      display: flex; gap: 16px; margin-top: 14px; padding-top: 12px;
+      border-top: 1px solid var(--line);
     }
+    .bar-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-weight: 600; }
+    .bar-legend-dot { width: 8px; height: 8px; border-radius: 2px; }
 
-    .hero-copy p,
-    .section-copy,
-    .status,
-    .workflow-card p,
-    .credential-note {
-      color: var(--muted);
+    .donut-wrap { display: flex; align-items: center; gap: 24px; }
+    .donut-labels { display: grid; gap: 10px; }
+    .donut-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+    .donut-label .dl-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .donut-label .dl-pct { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+    /* ── LOGIN SECTION ── */
+    .login-section {
+      padding: 80px 0 100px;
+      display: grid; grid-template-columns: 1fr 420px;
+      gap: 56px; align-items: center;
     }
-
-    .hero-copy p,
-    .workflow-card p {
-      max-width: 58ch;
-      font-size: 16px;
-      line-height: 1.7;
+    .login-copy h2 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(28px, 4vw, 40px);
+      line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 16px;
     }
-
-    .eyebrow,
-    .section-kicker,
-    .field-label {
-      font-size: 11px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--accent-deep);
-    }
-
-    .hero-note-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 4px;
-    }
-
-    .hero-note,
-    .credential-note {
-      display: inline-flex;
-      align-items: center;
-      padding: 10px 14px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.88);
-      font-size: 13px;
-      font-weight: 600;
+    .login-copy > p { color: var(--muted); font-size: 16px; line-height: 1.7; margin-bottom: 28px; max-width: 480px; }
+    .login-features { list-style: none; display: grid; gap: 14px; }
+    .login-features li { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--ink); font-weight: 500; }
+    .login-features li::before {
+      content: ''; flex-shrink: 0; width: 24px; height: 24px; border-radius: 8px;
+      background: var(--support-light)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%231e6870' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11.5 3.5 5.5 10 2.5 7'/%3E%3C/svg%3E")
+        no-repeat center;
     }
 
     .login-panel {
-      padding: 24px;
-      display: grid;
-      gap: 16px;
-      align-content: start;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(242, 247, 244, 0.96));
+      padding: 32px; border-radius: 24px;
+      border: 1px solid var(--line); background: var(--surface);
+      box-shadow: var(--shadow-lg); display: grid; gap: 20px;
     }
-
-    .section-copy {
-      font-size: 14px;
-      line-height: 1.65;
+    .login-panel-header { display: flex; align-items: center; justify-content: space-between; }
+    .login-panel-title { font-size: 18px; font-weight: 700; }
+    .login-panel-badge {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--support);
+      padding: 4px 10px; border-radius: 6px; background: var(--support-light);
     }
-
-    .field-grid {
-      display: grid;
-      gap: 12px;
+    .field-grid { display: grid; gap: 14px; }
+    .field { display: grid; gap: 6px; }
+    .field-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+    input[type="email"], input[type="password"] {
+      width: 100%; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--line-strong); background: #fff;
+      font: inherit; font-size: 15px; color: var(--ink);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
+    input::placeholder { color: rgba(90, 105, 115, 0.55); }
+    input:focus { outline: none; border-color: var(--support); box-shadow: 0 0 0 3px rgba(30, 104, 112, 0.12); }
 
-    .field {
-      display: grid;
-      gap: 8px;
-    }
-
-    input,
-    button,
-    a {
-      border-radius: 16px;
-      font: inherit;
-    }
-
-    input {
-      width: 100%;
-      padding: 13px 14px;
-      border: 1px solid var(--line-strong);
-      background: rgba(255, 255, 255, 0.96);
-      color: var(--ink);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-    }
-
-    input::placeholder {
-      color: rgba(90, 105, 115, 0.7);
-    }
-
-    input:focus,
-    button:focus-visible,
-    a:focus-visible {
-      outline: none;
-      border-color: rgba(30, 104, 112, 0.36);
-      box-shadow: 0 0 0 3px rgba(30, 104, 112, 0.12);
-    }
-
-    button,
-    .secondary-link {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      border: 1px solid transparent;
-      cursor: pointer;
-      padding: 13px 16px;
-      font-weight: 700;
-      text-decoration: none;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
-    }
-
-    button:hover,
-    .secondary-link:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 12px 24px rgba(20, 33, 42, 0.10);
-    }
-
-    button:disabled {
-      cursor: wait;
-      opacity: 0.7;
-      transform: none;
-      box-shadow: none;
-    }
-
-    .primary-button {
+    .form-actions { display: grid; gap: 10px; }
+    .login-btn {
+      width: 100%; padding: 14px 16px; border: none; border-radius: 14px;
       background: linear-gradient(135deg, var(--accent), #c56b45);
-      color: #fff;
+      color: #fff; font: inherit; font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
     }
-
+    .login-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+    .login-btn:disabled { cursor: wait; opacity: 0.65; transform: none; box-shadow: none; }
     .secondary-link {
-      border-color: var(--line-strong);
-      background: rgba(255, 255, 255, 0.92);
-      color: var(--ink);
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; padding: 12px 16px; border-radius: 14px;
+      border: 1px solid var(--line-strong); background: #fff;
+      color: var(--ink); font: inherit; font-size: 14px; font-weight: 600;
+      text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;
     }
-
-    .form-actions {
-      display: grid;
-      gap: 10px;
-    }
-
-    .credential-block {
-      display: grid;
-      gap: 10px;
-      padding: 16px;
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(30, 104, 112, 0.12);
-      background: rgba(246, 249, 248, 0.96);
-    }
-
-    .credential-note {
-      width: fit-content;
-      color: var(--support);
-    }
-
+    .secondary-link:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
     .status {
-      min-height: 22px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(246, 248, 246, 0.96);
-      font-size: 14px;
-      line-height: 1.5;
+      min-height: 20px; padding: 10px 14px; border-radius: 12px;
+      border: 1px solid var(--line); background: var(--surface-soft);
+      font-size: 13px; line-height: 1.5; color: var(--muted);
     }
-
     .status[data-tone="error"] {
       border-color: rgba(162, 61, 51, 0.22);
-      background: rgba(255, 246, 245, 0.96);
-      color: #a23d33;
+      background: rgba(255, 246, 245, 0.96); color: #a23d33;
     }
 
-    .workflow-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* ── FOOTER ── */
+    .footer { border-top: 1px solid var(--line); background: rgba(243, 236, 225, 0.4); }
+    .footer-inner {
+      max-width: 1120px; margin: 0 auto; padding: 32px 24px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+    }
+    .footer-copy { font-size: 13px; color: var(--muted); }
+    .footer-links { display: flex; gap: 24px; list-style: none; }
+    .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; font-weight: 500; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--ink); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 960px) {
+      .hero-visual-body { grid-template-columns: 1fr; }
+      .pipeline { grid-template-columns: 1fr; gap: 12px; }
+      .pipe-arrow { transform: rotate(90deg); padding: 4px 0; }
+      .analytics-row { grid-template-columns: 1fr; }
+      .login-section { grid-template-columns: 1fr; gap: 40px; }
+    }
+    @media (max-width: 640px) {
+      .hero { padding: 48px 0 0; }
+      .nav-links .nav-link-text { display: none; }
+      .section { padding: 56px 0; }
+      .login-section { padding: 56px 0 72px; }
+      .login-panel { padding: 24px; }
+      .mini-stats { grid-template-columns: 1fr; }
     }
 
-    .workflow-card {
-      padding: 22px;
-      display: grid;
-      gap: 10px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 246, 0.94));
-    }
+    /* ── CHART ANIMATIONS ── */
+    @keyframes grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    .bar { transform-origin: bottom; animation: grow 1.2s ease-out both; }
+    .bar-group:nth-child(2) .bar { animation-delay: 0.08s; }
+    .bar-group:nth-child(3) .bar { animation-delay: 0.16s; }
+    .bar-group:nth-child(4) .bar { animation-delay: 0.24s; }
+    .bar-group:nth-child(5) .bar { animation-delay: 0.32s; }
+    .bar-group:nth-child(6) .bar { animation-delay: 0.40s; }
+    .bar-group:nth-child(7) .bar { animation-delay: 0.48s; }
 
-    .workflow-step {
-      width: 34px;
-      height: 34px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 999px;
-      background: rgba(167, 82, 49, 0.12);
-      color: var(--accent-deep);
-      font-weight: 700;
-    }
-
-    .workflow-card h2 {
-      font-size: 24px;
-      line-height: 1.15;
-    }
-
-    @media (max-width: 1024px) {
-      .hero,
-      .workflow-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 720px) {
-      .page-shell {
-        width: min(100%, calc(100% - 18px));
-        margin: 12px auto 20px;
-      }
-
-      .hero-copy,
-      .login-panel,
-      .workflow-card {
-        padding: 18px;
-        border-radius: 24px;
-      }
-
-      .hero-copy h1 {
-        max-width: none;
-      }
-    }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .pipe-stage { animation: fadeUp 0.6s ease-out both; }
+    .pipe-stage:nth-child(3) { animation-delay: 0.15s; }
+    .pipe-stage:nth-child(5) { animation-delay: 0.3s; }
   </style>
 </head>
 
 <body>
-  <main class="page-shell">
-    <section class="hero">
-      <article class="hero-copy">
-        <div class="eyebrow">AI Workspace Operations</div>
-        <h1>Approve with confidence. Measure what changed.</h1>
-        <p>Sign in on the web, issue a CLI token, and let each local install authenticate itself before it uploads signals or applies an approved rollout.</p>
-        <div class="hero-note-row">
-          <span class="hero-note">Web login first</span>
-          <span class="hero-note">CLI token issued after login</span>
-          <span class="hero-note">Local apply only after approval</span>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="/">
+        <div class="nav-logo">A</div>
+        <span class="nav-wordmark">AgentOpt</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#analytics" class="nav-link-text">Analytics</a></li>
+        <li><a href="#how-it-works" class="nav-link-text">How It Works</a></li>
+        <li><a href="#login" class="nav-cta">Sign In</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- ── HERO ── -->
+  <section class="hero wrap">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      Closed Beta
+    </div>
+    <h1>We analyze your AI coding data. <em>You get optimized automatically.</em></h1>
+    <p class="hero-sub">
+      AgentOpt ingests every session, token, and config from Codex, Claude Code, and OpenCode —
+      then delivers customized optimizations that adopt themselves in the background.
+    </p>
+    <div class="hero-actions">
+      <a href="#login" class="btn btn-primary">Get Started</a>
+      <a href="#how-it-works" class="btn btn-ghost">See How It Works</a>
+    </div>
+    <div class="tool-strip">
+      <span>Integrates with</span>
+      <div class="tool-pill"><span class="dot dot--codex"></span>Codex</div>
+      <div class="tool-pill"><span class="dot dot--claude"></span>Claude Code</div>
+      <div class="tool-pill"><span class="dot dot--opencode"></span>OpenCode</div>
+    </div>
+
+    <!-- MOCK DASHBOARD -->
+    <div class="hero-visual">
+      <div class="hero-visual-bar">
+        <span class="hv-dot"></span><span class="hv-dot"></span><span class="hv-dot"></span>
+        <span class="hv-title">AgentOpt Analytics — Live Workspace</span>
+      </div>
+      <div class="hero-visual-body">
+        <div class="chart-panel">
+          <h3>Token usage trend</h3>
+          <p class="chart-sub">Across all connected tools — last 7 days</p>
+          <svg viewBox="0 0 520 150" fill="none" style="width:100%; height:auto; display:block;">
+            <defs>
+              <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#1e6870" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="#1e6870" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="var(--accent)"/>
+                <stop offset="100%" stop-color="var(--support)"/>
+              </linearGradient>
+            </defs>
+            <!-- grid -->
+            <line x1="0" y1="37" x2="520" y2="37" stroke="var(--line)" stroke-dasharray="4 4"/>
+            <line x1="0" y1="75" x2="520" y2="75" stroke="var(--line)" stroke-dasharray="4 4"/>
+            <line x1="0" y1="112" x2="520" y2="112" stroke="var(--line)" stroke-dasharray="4 4"/>
+            <!-- area -->
+            <path d="M0 130 Q30 120 74 105 T148 85 T222 68 T296 72 T370 48 T444 30 T520 18 V150 H0Z" fill="url(#areaGrad)"/>
+            <!-- line -->
+            <path d="M0 130 Q30 120 74 105 T148 85 T222 68 T296 72 T370 48 T444 30 T520 18"
+              stroke="url(#lineGrad)" stroke-width="2.5" fill="none"
+              stroke-dasharray="800" stroke-dashoffset="800"
+              style="animation: draw 2s ease-out 0.3s forwards;"/>
+            <!-- dots -->
+            <circle cx="74" cy="105" r="4" fill="var(--accent)" opacity="0.8"/>
+            <circle cx="222" cy="68" r="4" fill="var(--accent)" opacity="0.8"/>
+            <circle cx="370" cy="48" r="4" fill="var(--support)" opacity="0.8"/>
+            <circle cx="520" cy="18" r="4" fill="var(--support)"/>
+            <!-- labels -->
+            <text x="0" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Mon</text>
+            <text x="148" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Wed</text>
+            <text x="296" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Fri</text>
+            <text x="475" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Today</text>
+          </svg>
+
+          <div class="mini-stats">
+            <div class="mini-stat">
+              <div class="mini-stat-val mini-stat-val--support">142k</div>
+              <div class="mini-stat-label">Tokens analyzed</div>
+              <div class="mini-stat-delta mini-stat-delta--up">+23% vs last week</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-val mini-stat-val--accent">18%</div>
+              <div class="mini-stat-label">Tokens saved</div>
+              <div class="mini-stat-delta mini-stat-delta--down">after optimization</div>
+            </div>
+          </div>
         </div>
-      </article>
 
-      <form id="loginForm" class="login-panel">
-        <div>
-          <div class="section-kicker">Workspace login</div>
-          <p class="section-copy">Use your closed beta web account to open the dashboard. CLI tokens are generated after login, so the browser and local agent stay on separate credentials.</p>
+        <div class="sidebar-panel">
+          <h3>Data sources</h3>
+          <div class="source-row">
+            <span class="source-name"><span class="dot dot--codex"></span>Codex</span>
+            <span class="source-bar-wrap"><span class="source-bar source-bar--codex"></span></span>
+            <span class="source-pct">42%</span>
+          </div>
+          <div class="source-row">
+            <span class="source-name"><span class="dot dot--claude"></span>Claude Code</span>
+            <span class="source-bar-wrap"><span class="source-bar source-bar--claude"></span></span>
+            <span class="source-pct">34%</span>
+          </div>
+          <div class="source-row">
+            <span class="source-name"><span class="dot dot--opencode"></span>OpenCode</span>
+            <span class="source-bar-wrap"><span class="source-bar source-bar--opencode"></span></span>
+            <span class="source-pct">24%</span>
+          </div>
+
+          <div class="reco-list">
+            <h3>Auto-generated recommendations</h3>
+            <div class="reco-item">
+              <span class="reco-badge reco-badge--auto">Auto</span>
+              <span>Update AGENTS.md with low-verbosity instruction set</span>
+            </div>
+            <div class="reco-item">
+              <span class="reco-badge reco-badge--review">Review</span>
+              <span>Switch default model routing to reduce token overhead by 12%</span>
+            </div>
+            <div class="reco-item">
+              <span class="reco-badge reco-badge--auto">Auto</span>
+              <span>Merge custom rules from Claude Code session patterns</span>
+            </div>
+          </div>
         </div>
+      </div>
+    </div>
+  </section>
 
-        <div class="field-grid">
-          <label class="field">
-            <span class="field-label">Email</span>
-            <input id="email" type="email" autocomplete="username" placeholder="you@company.com">
-          </label>
-          <label class="field">
-            <span class="field-label">Password</span>
-            <input id="password" type="password" autocomplete="current-password" placeholder="Enter your beta password">
-          </label>
+  <!-- ── HOW IT WORKS ── -->
+  <section class="section wrap" id="how-it-works">
+    <div class="section-header">
+      <div class="section-kicker">How It Works</div>
+      <h2 class="section-title">From raw usage data to optimized config — hands-free</h2>
+      <p class="section-desc">
+        AgentOpt runs a continuous loop: collect real data, analyze patterns,
+        and auto-adopt safe changes in the background.
+      </p>
+    </div>
+    <div class="pipeline">
+      <div class="pipe-stage">
+        <div class="pipe-icon pipe-icon--collect">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </div>
-
-        <div class="credential-block">
-          <span class="credential-note">Closed beta access</span>
-          <p class="section-copy">Sign-in credentials are issued per beta participant. Ask the operator for access if you have not been onboarded yet.</p>
+        <h3>Collect</h3>
+        <p>Sessions, tokens, and configs from Codex, Claude Code, and OpenCode stream in continuously via the local agent.</p>
+        <div class="pipe-tag pipe-tag--auto">Background</div>
+      </div>
+      <div class="pipe-arrow">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-icon pipe-icon--analyze">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>
         </div>
-
-        <div class="form-actions">
-          <button id="loginButton" class="primary-button" type="submit">Sign in to dashboard</button>
-          <a class="secondary-link" href="/dashboard">Open existing dashboard session</a>
+        <h3>Analyze</h3>
+        <p>The research agent cross-references usage patterns to find token waste, instruction gaps, and config drift across tools.</p>
+        <div class="pipe-tag pipe-tag--auto">Automatic</div>
+      </div>
+      <div class="pipe-arrow">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-icon pipe-icon--apply">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </div>
+        <h3>Auto-Adopt</h3>
+        <p>Low-risk optimizations apply themselves in the background. High-impact plans surface for one-click review on the dashboard.</p>
+        <div class="pipe-tag pipe-tag--auto">Hands-free</div>
+      </div>
+    </div>
+  </section>
 
-        <div class="status" id="status" data-tone="info" aria-live="polite">Sign in to open the dashboard and issue a CLI token.</div>
-      </form>
-    </section>
+  <div class="wrap divider"><hr></div>
 
-    <section class="workflow-grid">
-      <article class="workflow-card">
-        <span class="workflow-step">1</span>
-        <div class="section-kicker">Web login</div>
-        <h2>Open the dashboard with a real user session</h2>
-        <p>The browser signs in first, so the dashboard can load organization context without exposing the CLI token on the public landing page.</p>
-      </article>
-      <article class="workflow-card">
-        <span class="workflow-step">2</span>
-        <div class="section-kicker">Issue token</div>
-        <h2>Generate a CLI token from inside the dashboard</h2>
-        <p>CLI tokens are time-limited and shown once. The dashboard keeps the issuance step separate from the sign-in screen.</p>
-      </article>
-      <article class="workflow-card">
-        <span class="workflow-step">3</span>
-        <div class="section-kicker">Connect CLI</div>
-        <h2>Run `agentopt login` and paste the token</h2>
-        <p>The local CLI authenticates with the issued token, registers the device, then uploads snapshots, sessions, and approved rollout results.</p>
-      </article>
-    </section>
-  </main>
+  <!-- ── ANALYTICS SHOWCASE ── -->
+  <section class="section wrap" id="analytics">
+    <div class="section-header">
+      <div class="section-kicker">Deep Analytics</div>
+      <h2 class="section-title">See exactly where your tokens go</h2>
+      <p class="section-desc">
+        Real usage data from every AI coding session — visualized, compared, and actionable.
+      </p>
+    </div>
+
+    <div class="analytics-row">
+      <!-- BAR CHART -->
+      <div class="analytics-card">
+        <h3>Token cost — before vs. after optimization</h3>
+        <p class="a-sub">Monthly comparison across connected workspaces</p>
+        <div class="bar-chart">
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:90px"></div>
+              <div class="bar bar--after" style="height:62px"></div>
+            </div>
+            <span class="bar-label">Jan</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:105px"></div>
+              <div class="bar bar--after" style="height:68px"></div>
+            </div>
+            <span class="bar-label">Feb</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:82px"></div>
+              <div class="bar bar--after" style="height:55px"></div>
+            </div>
+            <span class="bar-label">Mar</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:118px"></div>
+              <div class="bar bar--after" style="height:72px"></div>
+            </div>
+            <span class="bar-label">Apr</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:95px"></div>
+              <div class="bar bar--after" style="height:58px"></div>
+            </div>
+            <span class="bar-label">May</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:125px"></div>
+              <div class="bar bar--after" style="height:70px"></div>
+            </div>
+            <span class="bar-label">Jun</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:110px"></div>
+              <div class="bar bar--after" style="height:60px"></div>
+            </div>
+            <span class="bar-label">Jul</span>
+          </div>
+        </div>
+        <div class="bar-legend">
+          <div class="bar-legend-item"><span class="bar-legend-dot" style="background:rgba(20,33,42,0.14)"></span>Before</div>
+          <div class="bar-legend-item"><span class="bar-legend-dot" style="background:var(--support)"></span>After AgentOpt</div>
+        </div>
+      </div>
+
+      <!-- DONUT CHART -->
+      <div class="analytics-card">
+        <h3>Session distribution by tool</h3>
+        <p class="a-sub">Real-time breakdown from connected devices</p>
+        <div class="donut-wrap">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle cx="80" cy="80" r="60" fill="none" stroke="var(--line)" stroke-width="22"/>
+            <!-- Codex 42% = 0.42*377 ≈ 158 -->
+            <circle cx="80" cy="80" r="60" fill="none"
+              stroke="#10a37f" stroke-width="22"
+              stroke-dasharray="158 219"
+              stroke-dashoffset="0"
+              transform="rotate(-90 80 80)"
+              style="animation: draw 1.5s ease-out 0.2s both; stroke-dashoffset: 377;"
+            />
+            <!-- Claude 34% = 128 -->
+            <circle cx="80" cy="80" r="60" fill="none"
+              stroke="#d97706" stroke-width="22"
+              stroke-dasharray="128 249"
+              stroke-dashoffset="-158"
+              transform="rotate(-90 80 80)"
+              style="animation: draw 1.5s ease-out 0.4s both; stroke-dashoffset: 377;"
+            />
+            <!-- OpenCode 24% = 91 -->
+            <circle cx="80" cy="80" r="60" fill="none"
+              stroke="#6366f1" stroke-width="22"
+              stroke-dasharray="91 286"
+              stroke-dashoffset="-286"
+              transform="rotate(-90 80 80)"
+              style="animation: draw 1.5s ease-out 0.6s both; stroke-dashoffset: 377;"
+            />
+            <text x="80" y="76" text-anchor="middle" font-family="DM Serif Display, serif" font-size="22" fill="var(--ink)">3</text>
+            <text x="80" y="94" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="var(--muted)" font-weight="600">TOOLS</text>
+          </svg>
+          <div class="donut-labels">
+            <div class="donut-label">
+              <span class="dl-dot" style="background:#10a37f"></span>
+              Codex
+              <span class="dl-pct">42%</span>
+            </div>
+            <div class="donut-label">
+              <span class="dl-dot" style="background:#d97706"></span>
+              Claude Code
+              <span class="dl-pct">34%</span>
+            </div>
+            <div class="donut-label">
+              <span class="dl-dot" style="background:#6366f1"></span>
+              OpenCode
+              <span class="dl-pct">24%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap divider"><hr></div>
+
+  <!-- ── LOGIN ── -->
+  <section class="login-section wrap" id="login">
+    <div class="login-copy">
+      <h2>Start optimizing your AI workspace today</h2>
+      <p>Sign in with your closed beta credentials. The agent starts collecting and optimizing in the background the moment you connect your first device.</p>
+      <ul class="login-features">
+        <li>Analyzes Codex, Claude Code, and OpenCode sessions</li>
+        <li>Auto-adopts low-risk config improvements</li>
+        <li>One-click rollback for any change</li>
+        <li>Full audit trail on every optimization</li>
+      </ul>
+    </div>
+
+    <form id="loginForm" class="login-panel">
+      <div class="login-panel-header">
+        <span class="login-panel-title">Sign in</span>
+        <span class="login-panel-badge">Beta</span>
+      </div>
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">Email</span>
+          <input id="email" type="email" autocomplete="username" placeholder="you@company.com">
+        </label>
+        <label class="field">
+          <span class="field-label">Password</span>
+          <input id="password" type="password" autocomplete="current-password" placeholder="Enter your beta password">
+        </label>
+      </div>
+      <div class="form-actions">
+        <button id="loginButton" class="login-btn" type="submit">Sign in to dashboard</button>
+      </div>
+      <div class="status" id="status" data-tone="info" aria-live="polite">
+        Sign in to open the dashboard and issue a CLI token.
+      </div>
+    </form>
+  </section>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span class="footer-copy">AgentOpt &middot; AI Workspace Operations</span>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Royaltyprogram/aiops" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="/healthz">Status</a></li>
+      </ul>
+    </div>
+  </footer>
 
   <script>
     const STORAGE_KEYS = {

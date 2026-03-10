@@ -21,4 +21,6 @@ func (s *APISuite) TestDashboardPage_OK() {
 	require.Contains(s.T(), string(body), "Review AI usage and approve recommended changes for your workspace.")
 	require.Contains(s.T(), string(body), "Suggested changes")
 	require.Contains(s.T(), string(body), "Recent sessions")
+	require.Contains(s.T(), string(body), "Trends")
+	require.Contains(s.T(), string(body), "Rollouts")
 }
