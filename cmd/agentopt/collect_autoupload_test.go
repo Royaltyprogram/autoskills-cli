@@ -229,3 +229,28 @@ exit 0
 	require.Contains(t, string(logData), "list")
 	require.Contains(t, string(logData), "unload")
 }
+
+func TestResolveAutouploadBaseCommandPrefersInstalledAgentopt(t *testing.T) {
+	root, err := os.MkdirTemp(".", ".agentopt-bin-*")
+	require.NoError(t, err)
+	root, err = filepath.Abs(root)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(root)
+	})
+
+	binDir := filepath.Join(root, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	agentoptPath := filepath.Join(binDir, "agentopt")
+	require.NoError(t, os.WriteFile(agentoptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+originalPath)
+
+	command, err := resolveAutouploadBaseCommand()
+	require.NoError(t, err)
+	require.Equal(t, agentoptPath, command.Program)
+	require.Empty(t, command.Args)
+	require.Empty(t, command.Workdir)
+}

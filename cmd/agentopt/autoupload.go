@@ -400,6 +400,9 @@ func resolveAutouploadBaseCommand() (autouploadBaseCommand, error) {
 	if err == nil && shouldUseStableExecutable(executable) {
 		return autouploadBaseCommand{Program: executable}, nil
 	}
+	if installed, ok := findInstalledAgentopt(); ok {
+		return autouploadBaseCommand{Program: installed}, nil
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -414,6 +417,26 @@ func resolveAutouploadBaseCommand() (autouploadBaseCommand, error) {
 		}, nil
 	}
 	return autouploadBaseCommand{}, errors.New("unable to infer a stable agentopt command for autoupload; run from the repo root or use a built agentopt binary")
+}
+
+func findInstalledAgentopt() (string, bool) {
+	if resolved, err := exec.LookPath("agentopt"); err == nil && shouldUseStableExecutable(resolved) {
+		return filepath.Clean(resolved), true
+	}
+
+	var candidates []string
+	if binDir := strings.TrimSpace(os.Getenv("AGENTOPT_BIN_DIR")); binDir != "" {
+		candidates = append(candidates, filepath.Join(binDir, "agentopt"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".local", "bin", "agentopt"))
+	}
+	for _, candidate := range candidates {
+		if shouldUseStableExecutable(candidate) && fileExists(candidate) {
+			return filepath.Clean(candidate), true
+		}
+	}
+	return "", false
 }
 
 func detectRepoRoot(start string) (string, bool) {
