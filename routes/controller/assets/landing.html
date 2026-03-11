@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentOpt — AI Agent That Tunes Your Coding Agent</title>
+  <title>AgentOpt — AI Workspace Operations</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -23,12 +23,6 @@
       --accent-light: rgba(167, 82, 49, 0.08);
       --support: #1e6870;
       --support-light: rgba(30, 104, 112, 0.08);
-      --good: #1d7648;
-      --good-light: rgba(29, 118, 72, 0.10);
-      --warn: #8e621b;
-      --warn-light: rgba(142, 98, 27, 0.10);
-      --danger: #a23d33;
-      --danger-light: rgba(162, 61, 51, 0.10);
       --shadow-sm: 0 2px 8px rgba(20, 33, 42, 0.06);
       --shadow-md: 0 8px 24px rgba(20, 33, 42, 0.08);
       --shadow-lg: 0 18px 42px rgba(20, 33, 42, 0.10);
@@ -63,7 +57,9 @@
     .nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
     .nav-logo {
       width: 32px; height: 32px; border-radius: 8px;
-      object-fit: contain;
+      background: linear-gradient(135deg, var(--accent), var(--support));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 14px;
     }
     .nav-wordmark { font-family: 'DM Serif Display', serif; font-size: 20px; letter-spacing: -0.02em; }
     .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
@@ -88,8 +84,8 @@
 
     .hero h1 {
       font-family: 'DM Serif Display', serif;
-      font-size: clamp(38px, 5vw, 64px);
-      line-height: 1.08; letter-spacing: -0.025em;
+      font-size: clamp(40px, 5.5vw, 68px);
+      line-height: 1.06; letter-spacing: -0.025em;
       max-width: 820px; margin: 0 auto 24px;
     }
     .hero h1 em {
@@ -98,10 +94,9 @@
       -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     }
     .hero-sub {
-      max-width: 640px; margin: 0 auto 40px;
+      max-width: 600px; margin: 0 auto 40px;
       font-size: 18px; line-height: 1.7; color: var(--muted);
     }
-    .hero-sub strong { color: var(--ink); font-weight: 600; }
     .hero-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 
     .btn {
@@ -132,9 +127,9 @@
     .dot--claude { background: #d97706; }
     .dot--opencode { background: #6366f1; }
 
-    /* ── MOCK SUGGESTION CARD ── */
+    /* ── HERO CHART ── */
     .hero-visual {
-      margin: 48px auto 0; max-width: 780px;
+      margin: 48px auto 0; max-width: 920px;
       border-radius: 20px; border: 1px solid var(--line);
       background: var(--surface); box-shadow: var(--shadow-lg);
       overflow: hidden; position: relative;
@@ -148,94 +143,57 @@
     .hv-dot:nth-child(2) { background: #fbbf24; }
     .hv-dot:nth-child(3) { background: #34d399; }
     .hv-title { margin-left: 12px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
-    .hero-visual-body { padding: 28px; }
+    .hero-visual-body { padding: 28px 28px 8px; display: grid; grid-template-columns: 1fr 280px; gap: 28px; }
 
-    .mock-agent-status {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 16px; border-radius: 10px;
-      background: var(--support-light); font-size: 13px; font-weight: 600; color: var(--support);
-      margin-bottom: 20px;
-    }
-    .mock-agent-status .status-dot {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--support);
-      animation: pulse 2s ease-in-out infinite;
-    }
+    .chart-panel h3 { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+    .chart-panel .chart-sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
 
-    .mock-suggestion {
-      border: 1px solid var(--line); border-radius: 14px;
-      padding: 20px; margin-bottom: 16px;
-    }
-    .mock-suggestion-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    .mock-suggestion-title { font-size: 15px; font-weight: 700; }
-    .mock-pill {
-      padding: 4px 10px; border-radius: 999px;
-      font-size: 11px; font-weight: 700; white-space: nowrap;
-    }
-    .mock-pill--risk { background: var(--good-light); color: var(--good); }
-    .mock-pill--measuring { background: var(--warn-light); color: var(--warn); }
-    .mock-pill--improved { background: var(--good-light); color: var(--good); }
-    .mock-pill--rolledback { background: var(--danger-light); color: var(--danger); }
-
-    .mock-label {
-      font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
-    }
-    .mock-text { font-size: 13px; color: var(--ink); line-height: 1.55; }
-    .mock-text--muted { color: var(--muted); }
-
-    .mock-diff {
-      margin-top: 12px; padding: 12px 14px; border-radius: 10px;
-      background: #18232d; font-family: 'SFMono-Regular', 'Menlo', monospace;
-      font-size: 12px; line-height: 1.6; overflow-x: auto;
-    }
-    .mock-diff .line-add { color: #4ade80; }
-    .mock-diff .line-ctx { color: rgba(244, 246, 244, 0.5); }
-
-    .mock-impact {
+    .mini-stats {
       display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-      margin-top: 14px;
+      padding: 0 0 20px;
     }
-    .mock-impact-card {
-      padding: 12px; border-radius: 10px;
+    .mini-stat {
+      padding: 14px; border-radius: 12px;
       border: 1px solid var(--line); background: var(--surface-soft);
     }
-    .mock-impact-label {
-      font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+    .mini-stat-val {
+      font-family: 'DM Serif Display', serif;
+      font-size: 26px; line-height: 1.1; margin-bottom: 2px;
     }
-    .mock-impact-value { font-size: 20px; font-weight: 700; }
-    .mock-impact-value--good { color: var(--good); }
-    .mock-impact-value--accent { color: var(--accent); }
-    .mock-impact-delta { font-size: 11px; font-weight: 600; margin-top: 2px; }
-    .mock-impact-delta--good { color: var(--good); }
+    .mini-stat-val--accent { color: var(--accent); }
+    .mini-stat-val--support { color: var(--support); }
+    .mini-stat-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    .mini-stat-delta { font-size: 11px; font-weight: 700; margin-top: 4px; }
+    .mini-stat-delta--up { color: #16a34a; }
+    .mini-stat-delta--down { color: var(--accent); }
 
-    .mock-actions {
-      display: flex; gap: 8px; margin-top: 14px;
-    }
-    .mock-btn {
-      padding: 8px 20px; border-radius: 10px; border: none;
-      font-size: 13px; font-weight: 700; cursor: default;
-    }
-    .mock-btn--approve { background: linear-gradient(135deg, var(--accent), #c56b45); color: #fff; }
-    .mock-btn--decline { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); }
-
-    .mock-history {
-      display: grid; gap: 8px;
-    }
-    .mock-history-item {
+    .sidebar-panel h3 { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 12px; }
+    .source-row {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 14px; border-radius: 10px;
+      padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .source-row:last-child { border-bottom: none; }
+    .source-name { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+    .source-bar-wrap { width: 80px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+    .source-bar { height: 100%; border-radius: 3px; }
+    .source-bar--codex { width: 82%; background: #10a37f; }
+    .source-bar--claude { width: 64%; background: #d97706; }
+    .source-bar--opencode { width: 41%; background: #6366f1; }
+    .source-pct { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 32px; text-align: right; }
+
+    .reco-list { display: grid; gap: 8px; margin-top: 16px; }
+    .reco-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 10px 12px; border-radius: 10px;
       border: 1px solid var(--line); background: var(--surface-soft);
-      font-size: 13px;
+      font-size: 12px; line-height: 1.5; color: var(--ink);
     }
-    .mock-history-left {
-      display: flex; align-items: center; gap: 10px;
+    .reco-badge {
+      flex-shrink: 0; padding: 2px 7px; border-radius: 5px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     }
-    .mock-history-title { font-weight: 600; }
-    .mock-history-meta { font-size: 12px; color: var(--muted); }
+    .reco-badge--auto { background: rgba(30, 104, 112, 0.12); color: var(--support); }
+    .reco-badge--review { background: rgba(167, 82, 49, 0.12); color: var(--accent); }
 
     /* ── SECTION ── */
     .section { padding: 80px 0; }
@@ -254,106 +212,74 @@
     .divider { padding: 0; }
     .divider hr { border: none; height: 1px; background: var(--line); }
 
-    /* ── OPTIMIZATION LOOP (timeline) ── */
-    .loop-container { max-width: 640px; margin: 0 auto; }
-
-    .loop-timeline {
-      display: grid; gap: 0; position: relative;
-      padding-left: 28px;
+    /* ── PIPELINE ── */
+    .pipeline {
+      display: grid; grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0; align-items: stretch;
     }
-    .loop-timeline::before {
-      content: ''; position: absolute; left: 15px; top: 20px; bottom: 20px;
-      width: 2px; background: var(--line-strong); border-radius: 1px;
-    }
-
-    .loop-step {
-      display: grid; grid-template-columns: 36px 1fr; gap: 14px;
-      align-items: start; padding: 14px 0; position: relative;
-    }
-    .loop-step-num {
-      width: 32px; height: 32px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 800; color: #fff;
-      position: relative; z-index: 1; flex-shrink: 0;
-    }
-    .loop-step-num--auto { background: var(--support); }
-    .loop-step-num--user { background: var(--accent); }
-    .loop-step-num--agent { background: var(--good); }
-    .loop-step-num--danger { background: var(--danger); }
-
-    .loop-step-body { padding-top: 4px; }
-    .loop-step-body h3 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
-    .loop-step-body p { font-size: 13px; color: var(--muted); line-height: 1.5; }
-
-    .loop-feedback {
-      margin-top: 12px; padding: 14px 20px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, rgba(162, 61, 51, 0.06), rgba(30, 104, 112, 0.06));
-      border: 1px dashed rgba(20, 33, 42, 0.12);
-      text-align: center;
-    }
-    .loop-feedback-text { font-size: 14px; color: var(--muted); line-height: 1.55; }
-    .loop-feedback-text strong { color: var(--ink); }
-
-    /* ── WHAT IT TUNES (inline row) ── */
-    .config-row {
-      display: flex; align-items: center; justify-content: center;
-      gap: 40px; flex-wrap: wrap;
-    }
-    .config-item {
-      display: flex; align-items: center; gap: 10px;
-    }
-    .config-item-icon {
-      width: 36px; height: 36px; border-radius: 10px;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-    }
-    .config-item-text h3 { font-size: 14px; font-weight: 700; line-height: 1.2; }
-    .config-item-text p { font-size: 12px; color: var(--muted); line-height: 1.3; }
-
-    /* ── BEFORE / AFTER ── */
-    .ba-container { max-width: 780px; margin: 0 auto; }
-    .ba-card {
+    .pipe-stage {
+      padding: 32px 24px;
       border-radius: 20px; border: 1px solid var(--line);
       background: var(--surface); box-shadow: var(--shadow-sm);
-      overflow: hidden;
-    }
-    .ba-header {
-      padding: 20px 24px; border-bottom: 1px solid var(--line);
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .ba-header-title { font-size: 15px; font-weight: 700; }
-    .ba-body { padding: 24px; }
-
-    .ba-timeline {
-      display: grid; gap: 20px;
+      display: flex; flex-direction: column; align-items: center; text-align: center;
       position: relative;
     }
-    .ba-step {
-      display: grid; grid-template-columns: 40px 1fr;
-      gap: 16px; align-items: start;
-    }
-    .ba-step-marker {
-      width: 40px; height: 40px; border-radius: 12px;
+    .pipe-arrow {
       display: flex; align-items: center; justify-content: center;
-      font-size: 14px; font-weight: 800; color: #fff;
+      padding: 0 4px; color: var(--line-strong);
     }
-    .ba-step-marker--before { background: var(--line-strong); color: var(--muted); }
-    .ba-step-marker--suggest { background: linear-gradient(135deg, var(--accent), #c56b45); }
-    .ba-step-marker--after { background: linear-gradient(135deg, var(--support), #4ea0a8); }
+    .pipe-arrow svg { flex-shrink: 0; }
+    .pipe-icon {
+      width: 52px; height: 52px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px; font-size: 22px;
+    }
+    .pipe-icon--collect { background: linear-gradient(135deg, rgba(16,163,127,0.12), rgba(99,102,241,0.12)); color: var(--support); }
+    .pipe-icon--analyze { background: linear-gradient(135deg, var(--accent-light), var(--support-light)); color: var(--accent); }
+    .pipe-icon--apply { background: var(--support-light); color: var(--support); }
+    .pipe-stage h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+    .pipe-stage p { font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 240px; }
+    .pipe-tag {
+      margin-top: auto; padding-top: 14px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .pipe-tag--auto { color: var(--support); }
 
-    .ba-step-content h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-    .ba-step-content p { font-size: 13px; color: var(--muted); line-height: 1.55; }
-    .ba-step-content .highlight { color: var(--good); font-weight: 600; }
+    /* ── ANALYTICS SHOWCASE ── */
+    .analytics-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .analytics-card {
+      padding: 28px; border-radius: 20px;
+      border: 1px solid var(--line); background: var(--surface);
+      box-shadow: var(--shadow-sm); overflow: hidden;
+    }
+    .analytics-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .analytics-card .a-sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
 
-    .ba-metrics {
-      display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 12px; margin-top: 20px; padding-top: 20px;
+    .bar-chart { display: flex; align-items: flex-end; gap: 10px; height: 140px; padding-top: 8px; }
+    .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+    .bar-pair { display: flex; gap: 3px; align-items: flex-end; width: 100%; justify-content: center; }
+    .bar {
+      width: 14px; border-radius: 4px 4px 0 0;
+      transition: height 1s ease;
+    }
+    .bar--before { background: rgba(20, 33, 42, 0.14); }
+    .bar--after { background: var(--support); }
+    .bar-label { font-size: 10px; color: var(--muted); font-weight: 600; }
+    .bar-legend {
+      display: flex; gap: 16px; margin-top: 14px; padding-top: 12px;
       border-top: 1px solid var(--line);
     }
-    .ba-metric { text-align: center; }
-    .ba-metric-value { font-size: 22px; font-weight: 700; color: var(--good); }
-    .ba-metric-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .bar-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-weight: 600; }
+    .bar-legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+    .donut-wrap { display: flex; align-items: center; gap: 24px; }
+    .donut-labels { display: grid; gap: 10px; }
+    .donut-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+    .donut-label .dl-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .donut-label .dl-pct { margin-left: auto; font-size: 12px; color: var(--muted); }
 
     /* ── LOGIN SECTION ── */
     .login-section {
@@ -409,6 +335,14 @@
     }
     .login-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
     .login-btn:disabled { cursor: wait; opacity: 0.65; transform: none; box-shadow: none; }
+    .secondary-link {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; padding: 12px 16px; border-radius: 14px;
+      border: 1px solid var(--line-strong); background: #fff;
+      color: var(--ink); font: inherit; font-size: 14px; font-weight: 600;
+      text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .secondary-link:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
     .status {
       min-height: 20px; padding: 10px 14px; border-radius: 12px;
       border: 1px solid var(--line); background: var(--surface-soft);
@@ -432,28 +366,36 @@
 
     /* ── RESPONSIVE ── */
     @media (max-width: 960px) {
-      .ba-metrics { grid-template-columns: 1fr; }
+      .hero-visual-body { grid-template-columns: 1fr; }
+      .pipeline { grid-template-columns: 1fr; gap: 12px; }
+      .pipe-arrow { transform: rotate(90deg); padding: 4px 0; }
+      .analytics-row { grid-template-columns: 1fr; }
       .login-section { grid-template-columns: 1fr; gap: 40px; }
-      .config-row { gap: 24px; }
     }
     @media (max-width: 640px) {
       .hero { padding: 48px 0 0; }
       .nav-links .nav-link-text { display: none; }
       .section { padding: 56px 0; }
-      .config-row { flex-direction: column; align-items: flex-start; gap: 16px; padding-left: 24px; }
       .login-section { padding: 56px 0 72px; }
       .login-panel { padding: 24px; }
-      .mock-impact { grid-template-columns: 1fr; }
+      .mini-stats { grid-template-columns: 1fr; }
     }
 
-    /* ── ANIMATIONS ── */
+    /* ── CHART ANIMATIONS ── */
+    @keyframes grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    .bar { transform-origin: bottom; animation: grow 1.2s ease-out both; }
+    .bar-group:nth-child(2) .bar { animation-delay: 0.08s; }
+    .bar-group:nth-child(3) .bar { animation-delay: 0.16s; }
+    .bar-group:nth-child(4) .bar { animation-delay: 0.24s; }
+    .bar-group:nth-child(5) .bar { animation-delay: 0.32s; }
+    .bar-group:nth-child(6) .bar { animation-delay: 0.40s; }
+    .bar-group:nth-child(7) .bar { animation-delay: 0.48s; }
+
+    @keyframes draw { to { stroke-dashoffset: 0; } }
     @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-    .loop-step { animation: fadeUp 0.5s ease-out both; }
-    .loop-step:nth-child(2) { animation-delay: 0.08s; }
-    .loop-step:nth-child(3) { animation-delay: 0.16s; }
-    .loop-step:nth-child(4) { animation-delay: 0.24s; }
-    .loop-step:nth-child(5) { animation-delay: 0.32s; }
-    .loop-step:nth-child(6) { animation-delay: 0.40s; }
+    .pipe-stage { animation: fadeUp 0.6s ease-out both; }
+    .pipe-stage:nth-child(3) { animation-delay: 0.15s; }
+    .pipe-stage:nth-child(5) { animation-delay: 0.3s; }
   </style>
 </head>
 
@@ -462,12 +404,12 @@
   <nav class="nav">
     <div class="nav-inner">
       <a class="nav-brand" href="/">
-        <img src="/assets/logo.svg" alt="AgentOpt" class="nav-logo">
+        <div class="nav-logo">A</div>
         <span class="nav-wordmark">AgentOpt</span>
       </a>
       <ul class="nav-links">
+        <li><a href="#analytics" class="nav-link-text">Analytics</a></li>
         <li><a href="#how-it-works" class="nav-link-text">How It Works</a></li>
-        <li><a href="#configures" class="nav-link-text">What It Tunes</a></li>
         <li><a href="#login" class="nav-cta">Sign In</a></li>
       </ul>
     </div>
@@ -479,243 +421,285 @@
       <span class="hero-badge-dot"></span>
       Closed Beta
     </div>
-    <h1>An AI agent that <em>tunes your coding agent</em> for you.</h1>
+    <h1>We analyze your AI coding data. <em>You get optimized automatically.</em></h1>
     <p class="hero-sub">
-      Suggests better <strong>instructions</strong>, <strong>skills</strong>, and <strong>MCP configs</strong> based on your real usage.
-      One change at a time. Auto-rollback if it doesn't help.
+      AgentOpt ingests every session, token, and config from Codex, Claude Code, and OpenCode —
+      then delivers customized optimizations that adopt themselves in the background.
     </p>
     <div class="hero-actions">
       <a href="#login" class="btn btn-primary">Get Started</a>
       <a href="#how-it-works" class="btn btn-ghost">See How It Works</a>
     </div>
     <div class="tool-strip">
-      <span>Works with</span>
+      <span>Integrates with</span>
       <div class="tool-pill"><span class="dot dot--codex"></span>Codex</div>
       <div class="tool-pill"><span class="dot dot--claude"></span>Claude Code</div>
       <div class="tool-pill"><span class="dot dot--opencode"></span>OpenCode</div>
     </div>
 
-    <!-- MOCK: Shows the actual product experience -->
+    <!-- MOCK DASHBOARD -->
     <div class="hero-visual">
       <div class="hero-visual-bar">
         <span class="hv-dot"></span><span class="hv-dot"></span><span class="hv-dot"></span>
-        <span class="hv-title">AgentOpt Dashboard</span>
+        <span class="hv-title">AgentOpt Analytics — Live Workspace</span>
       </div>
       <div class="hero-visual-body">
-        <div class="mock-agent-status">
-          <span class="status-dot"></span>
-          Analyzed 30 sessions &mdash; 1 suggestion ready
+        <div class="chart-panel">
+          <h3>Token usage trend</h3>
+          <p class="chart-sub">Across all connected tools — last 7 days</p>
+          <svg viewBox="0 0 520 150" fill="none" style="width:100%; height:auto; display:block;">
+            <defs>
+              <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#1e6870" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="#1e6870" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="var(--accent)"/>
+                <stop offset="100%" stop-color="var(--support)"/>
+              </linearGradient>
+            </defs>
+            <!-- grid -->
+            <line x1="0" y1="37" x2="520" y2="37" stroke="var(--line)" stroke-dasharray="4 4"/>
+            <line x1="0" y1="75" x2="520" y2="75" stroke="var(--line)" stroke-dasharray="4 4"/>
+            <line x1="0" y1="112" x2="520" y2="112" stroke="var(--line)" stroke-dasharray="4 4"/>
+            <!-- area -->
+            <path d="M0 130 Q30 120 74 105 T148 85 T222 68 T296 72 T370 48 T444 30 T520 18 V150 H0Z" fill="url(#areaGrad)"/>
+            <!-- line -->
+            <path d="M0 130 Q30 120 74 105 T148 85 T222 68 T296 72 T370 48 T444 30 T520 18"
+              stroke="url(#lineGrad)" stroke-width="2.5" fill="none"
+              stroke-dasharray="800" stroke-dashoffset="800"
+              style="animation: draw 2s ease-out 0.3s forwards;"/>
+            <!-- dots -->
+            <circle cx="74" cy="105" r="4" fill="var(--accent)" opacity="0.8"/>
+            <circle cx="222" cy="68" r="4" fill="var(--accent)" opacity="0.8"/>
+            <circle cx="370" cy="48" r="4" fill="var(--support)" opacity="0.8"/>
+            <circle cx="520" cy="18" r="4" fill="var(--support)"/>
+            <!-- labels -->
+            <text x="0" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Mon</text>
+            <text x="148" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Wed</text>
+            <text x="296" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Fri</text>
+            <text x="475" y="148" font-size="10" fill="var(--muted)" font-family="Inter, sans-serif">Today</text>
+          </svg>
+
+          <div class="mini-stats">
+            <div class="mini-stat">
+              <div class="mini-stat-val mini-stat-val--support">142k</div>
+              <div class="mini-stat-label">Tokens analyzed</div>
+              <div class="mini-stat-delta mini-stat-delta--up">+23% vs last week</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-val mini-stat-val--accent">18%</div>
+              <div class="mini-stat-label">Tokens saved</div>
+              <div class="mini-stat-delta mini-stat-delta--down">after optimization</div>
+            </div>
+          </div>
         </div>
 
-        <div class="mock-suggestion">
-          <div class="mock-suggestion-header">
-            <span class="mock-suggestion-title">Add shared instruction block</span>
-            <span class="mock-pill mock-pill--risk">Low risk</span>
+        <div class="sidebar-panel">
+          <h3>Data sources</h3>
+          <div class="source-row">
+            <span class="source-name"><span class="dot dot--codex"></span>Codex</span>
+            <span class="source-bar-wrap"><span class="source-bar source-bar--codex"></span></span>
+            <span class="source-pct">42%</span>
           </div>
-          <div class="mock-diff">
-            <span class="line-ctx">  # AGENTS.md</span><br>
-            <span class="line-add">+ Always check existing tests before writing new ones.</span><br>
-            <span class="line-add">+ Run `git status` before any commit operation.</span>
+          <div class="source-row">
+            <span class="source-name"><span class="dot dot--claude"></span>Claude Code</span>
+            <span class="source-bar-wrap"><span class="source-bar source-bar--claude"></span></span>
+            <span class="source-pct">34%</span>
           </div>
-          <div class="mock-impact">
-            <div class="mock-impact-card">
-              <div class="mock-impact-label">Expected</div>
-              <div class="mock-impact-value mock-impact-value--good">-18%</div>
-              <div class="mock-impact-delta mock-impact-delta--good">token waste</div>
-            </div>
-            <div class="mock-impact-card">
-              <div class="mock-impact-label">Safety</div>
-              <div class="mock-impact-value mock-impact-value--accent">Low risk</div>
-              <div class="mock-impact-delta">Easy to rollback</div>
-            </div>
+          <div class="source-row">
+            <span class="source-name"><span class="dot dot--opencode"></span>OpenCode</span>
+            <span class="source-bar-wrap"><span class="source-bar source-bar--opencode"></span></span>
+            <span class="source-pct">24%</span>
           </div>
-          <div class="mock-actions">
-            <div class="mock-btn mock-btn--approve">Approve</div>
-            <div class="mock-btn mock-btn--decline">Decline</div>
-          </div>
-        </div>
 
-        <div class="mock-history">
-          <div class="mock-history-item">
-            <div class="mock-history-left">
-              <span class="mock-pill mock-pill--improved">Improved</span>
-              <span class="mock-history-title">Reduce verbosity</span>
+          <div class="reco-list">
+            <h3>Auto-generated recommendations</h3>
+            <div class="reco-item">
+              <span class="reco-badge reco-badge--auto">Auto</span>
+              <span>Update AGENTS.md with low-verbosity instruction set</span>
             </div>
-            <span class="mock-history-meta">-23% tokens</span>
-          </div>
-          <div class="mock-history-item">
-            <div class="mock-history-left">
-              <span class="mock-pill mock-pill--rolledback">Rolled back</span>
-              <span class="mock-history-title">Switch MCP tool</span>
+            <div class="reco-item">
+              <span class="reco-badge reco-badge--review">Review</span>
+              <span>Switch default model routing to reduce token overhead by 12%</span>
             </div>
-            <span class="mock-history-meta">auto-reverted</span>
+            <div class="reco-item">
+              <span class="reco-badge reco-badge--auto">Auto</span>
+              <span>Merge custom rules from Claude Code session patterns</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ── HOW IT WORKS (The Loop) ── -->
+  <!-- ── HOW IT WORKS ── -->
   <section class="section wrap" id="how-it-works">
     <div class="section-header">
       <div class="section-kicker">How It Works</div>
-      <h2 class="section-title">A continuous optimization loop</h2>
+      <h2 class="section-title">From raw usage data to optimized config — hands-free</h2>
+      <p class="section-desc">
+        AgentOpt runs a continuous loop: collect real data, analyze patterns,
+        and auto-adopt safe changes in the background.
+      </p>
     </div>
-
-    <div class="loop-container">
-      <div class="loop-timeline">
-        <div class="loop-step">
-          <div class="loop-step-num loop-step-num--auto">1</div>
-          <div class="loop-step-body">
-            <h3>Observe</h3>
-            <p>Watches queries, tokens, tool calls across sessions.</p>
-          </div>
+    <div class="pipeline">
+      <div class="pipe-stage">
+        <div class="pipe-icon pipe-icon--collect">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </div>
-        <div class="loop-step">
-          <div class="loop-step-num loop-step-num--auto">2</div>
-          <div class="loop-step-body">
-            <h3>Research</h3>
-            <p>LLM finds patterns and researches better configs.</p>
-          </div>
-        </div>
-        <div class="loop-step">
-          <div class="loop-step-num loop-step-num--auto">3</div>
-          <div class="loop-step-body">
-            <h3>Suggest</h3>
-            <p>One change at a time. Shows exactly what and why.</p>
-          </div>
-        </div>
-        <div class="loop-step">
-          <div class="loop-step-num loop-step-num--user">4</div>
-          <div class="loop-step-body">
-            <h3>You Approve</h3>
-            <p>See the exact change. One click to approve or decline.</p>
-          </div>
-        </div>
-        <div class="loop-step">
-          <div class="loop-step-num loop-step-num--agent">5</div>
-          <div class="loop-step-body">
-            <h3>Measure</h3>
-            <p>Tracks metrics after each change to see if it helped.</p>
-          </div>
-        </div>
-        <div class="loop-step">
-          <div class="loop-step-num loop-step-num--danger">6</div>
-          <div class="loop-step-body">
-            <h3>Auto-Rollback</h3>
-            <p>If metrics decline, reverts automatically.</p>
-          </div>
-        </div>
+        <h3>Collect</h3>
+        <p>Sessions, tokens, and configs from Codex, Claude Code, and OpenCode stream in continuously via the local agent.</p>
+        <div class="pipe-tag pipe-tag--auto">Background</div>
       </div>
-
-      <div class="loop-feedback">
-        <p class="loop-feedback-text">
-          <strong>The loop repeats.</strong> The agent keeps observing and surfaces the next opportunity.
-        </p>
+      <div class="pipe-arrow">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-icon pipe-icon--analyze">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>
+        </div>
+        <h3>Analyze</h3>
+        <p>The research agent cross-references usage patterns to find token waste, instruction gaps, and config drift across tools.</p>
+        <div class="pipe-tag pipe-tag--auto">Automatic</div>
+      </div>
+      <div class="pipe-arrow">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-icon pipe-icon--apply">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <h3>Auto-Adopt</h3>
+        <p>Low-risk optimizations apply themselves in the background. High-impact plans surface for one-click review on the dashboard.</p>
+        <div class="pipe-tag pipe-tag--auto">Hands-free</div>
       </div>
     </div>
   </section>
 
   <div class="wrap divider"><hr></div>
 
-  <!-- ── WHAT IT CONFIGURES ── -->
-  <section class="section wrap" id="configures">
+  <!-- ── ANALYTICS SHOWCASE ── -->
+  <section class="section wrap" id="analytics">
     <div class="section-header">
-      <div class="section-kicker">What It Tunes</div>
-      <h2 class="section-title">The configs you've been tuning by hand</h2>
+      <div class="section-kicker">Deep Analytics</div>
+      <h2 class="section-title">See exactly where your tokens go</h2>
+      <p class="section-desc">
+        Real usage data from every AI coding session — visualized, compared, and actionable.
+      </p>
     </div>
 
-    <div class="config-row">
-      <div class="config-item">
-        <div class="config-item-icon" style="background: var(--support-light); color: var(--support);">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1H5a2 2 0 00-2 2v14l3.5-2.5L10 17l3.5-2.5L17 17V3a2 2 0 00-2-2z"/></svg>
-        </div>
-        <div class="config-item-text">
-          <h3>Instructions</h3>
-          <p>AGENTS.md, .cursorrules</p>
-        </div>
-      </div>
-      <div class="config-item">
-        <div class="config-item-icon" style="background: var(--accent-light); color: var(--accent);">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1L1 6l9 4.5L19 6 10-1z"/><path d="M1 14l9 4.5L19 14"/><path d="M1 10l9 4.5L19 10"/></svg>
-        </div>
-        <div class="config-item-text">
-          <h3>Skills</h3>
-          <p>Prompt patterns</p>
-        </div>
-      </div>
-      <div class="config-item">
-        <div class="config-item-icon" style="background: var(--good-light); color: var(--good);">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="16" height="12" rx="2"/><path d="M6 18h6M9 14v4"/></svg>
-        </div>
-        <div class="config-item-text">
-          <h3>MCP Servers</h3>
-          <p>Tool integrations</p>
-        </div>
-      </div>
-      <div class="config-item">
-        <div class="config-item-icon" style="background: var(--warn-light); color: var(--warn);">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="2.5"/><path d="M14.5 11.5a1.3 1.3 0 00.25 1.4 1.6 1.6 0 01-2.25 2.25 1.3 1.3 0 00-1.4-.25 1.3 1.3 0 00-.8 1.2V16.5a1.6 1.6 0 01-3.2 0v-.07a1.3 1.3 0 00-.85-1.2 1.3 1.3 0 00-1.4.25A1.6 1.6 0 012.6 13.2a1.3 1.3 0 00.25-1.4 1.3 1.3 0 00-1.2-.8H1.5a1.6 1.6 0 010-3.2h.07a1.3 1.3 0 001.2-.85 1.3 1.3 0 00-.25-1.4A1.6 1.6 0 014.77 3.3a1.3 1.3 0 001.4.25A1.3 1.3 0 007 2.35V1.5a1.6 1.6 0 013.2 0v.07a1.3 1.3 0 00.8 1.2 1.3 1.3 0 001.4-.25 1.6 1.6 0 012.25 2.25 1.3 1.3 0 00-.25 1.4 1.3 1.3 0 001.2.8h.9a1.6 1.6 0 010 3.2h-.07a1.3 1.3 0 00-1.18.81z"/></svg>
-        </div>
-        <div class="config-item-text">
-          <h3>Models</h3>
-          <p>Cost vs. quality</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <div class="wrap divider"><hr></div>
-
-  <!-- ── BEFORE & AFTER ── -->
-  <section class="section wrap" id="before-after">
-    <div class="section-header">
-      <div class="section-kicker">Real Impact</div>
-      <h2 class="section-title">Every change is measured</h2>
-    </div>
-
-    <div class="ba-container">
-      <div class="ba-card">
-        <div class="ba-header">
-          <span class="ba-header-title">Example: Add test-checking instruction</span>
-          <span class="mock-pill mock-pill--improved">Improved</span>
-        </div>
-        <div class="ba-body">
-          <div class="ba-timeline">
-            <div class="ba-step">
-              <div class="ba-step-marker ba-step-marker--before">1</div>
-              <div class="ba-step-content">
-                <h4>Before</h4>
-                <p>Agent keeps re-checking tests &mdash; ~3,200 tokens wasted per session.</p>
-              </div>
+    <div class="analytics-row">
+      <!-- BAR CHART -->
+      <div class="analytics-card">
+        <h3>Token cost — before vs. after optimization</h3>
+        <p class="a-sub">Monthly comparison across connected workspaces</p>
+        <div class="bar-chart">
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:90px"></div>
+              <div class="bar bar--after" style="height:62px"></div>
             </div>
-            <div class="ba-step">
-              <div class="ba-step-marker ba-step-marker--suggest">2</div>
-              <div class="ba-step-content">
-                <h4>AgentOpt suggests</h4>
-                <p>"Always check existing tests before writing new ones."</p>
-              </div>
-            </div>
-            <div class="ba-step">
-              <div class="ba-step-marker ba-step-marker--after">3</div>
-              <div class="ba-step-content">
-                <h4>After (5 days)</h4>
-                <p><span class="highlight">-37% redundant queries</span>, <span class="highlight">-22% tokens</span></p>
-              </div>
-            </div>
+            <span class="bar-label">Jan</span>
           </div>
-          <div class="ba-metrics">
-            <div class="ba-metric">
-              <div class="ba-metric-value">-22%</div>
-              <div class="ba-metric-label">Tokens per session</div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:105px"></div>
+              <div class="bar bar--after" style="height:68px"></div>
             </div>
-            <div class="ba-metric">
-              <div class="ba-metric-value">-37%</div>
-              <div class="ba-metric-label">Redundant queries</div>
+            <span class="bar-label">Feb</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:82px"></div>
+              <div class="bar bar--after" style="height:55px"></div>
             </div>
-            <div class="ba-metric">
-              <div class="ba-metric-value">0%</div>
-              <div class="ba-metric-label">Rollback rate</div>
+            <span class="bar-label">Mar</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:118px"></div>
+              <div class="bar bar--after" style="height:72px"></div>
+            </div>
+            <span class="bar-label">Apr</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:95px"></div>
+              <div class="bar bar--after" style="height:58px"></div>
+            </div>
+            <span class="bar-label">May</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:125px"></div>
+              <div class="bar bar--after" style="height:70px"></div>
+            </div>
+            <span class="bar-label">Jun</span>
+          </div>
+          <div class="bar-group">
+            <div class="bar-pair">
+              <div class="bar bar--before" style="height:110px"></div>
+              <div class="bar bar--after" style="height:60px"></div>
+            </div>
+            <span class="bar-label">Jul</span>
+          </div>
+        </div>
+        <div class="bar-legend">
+          <div class="bar-legend-item"><span class="bar-legend-dot" style="background:rgba(20,33,42,0.14)"></span>Before</div>
+          <div class="bar-legend-item"><span class="bar-legend-dot" style="background:var(--support)"></span>After AgentOpt</div>
+        </div>
+      </div>
+
+      <!-- DONUT CHART -->
+      <div class="analytics-card">
+        <h3>Session distribution by tool</h3>
+        <p class="a-sub">Real-time breakdown from connected devices</p>
+        <div class="donut-wrap">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle cx="80" cy="80" r="60" fill="none" stroke="var(--line)" stroke-width="22"/>
+            <!-- Codex 42% = 0.42*377 ≈ 158 -->
+            <circle cx="80" cy="80" r="60" fill="none"
+              stroke="#10a37f" stroke-width="22"
+              stroke-dasharray="158 219"
+              stroke-dashoffset="0"
+              transform="rotate(-90 80 80)"
+              style="animation: draw 1.5s ease-out 0.2s both; stroke-dashoffset: 377;"
+            />
+            <!-- Claude 34% = 128 -->
+            <circle cx="80" cy="80" r="60" fill="none"
+              stroke="#d97706" stroke-width="22"
+              stroke-dasharray="128 249"
+              stroke-dashoffset="-158"
+              transform="rotate(-90 80 80)"
+              style="animation: draw 1.5s ease-out 0.4s both; stroke-dashoffset: 377;"
+            />
+            <!-- OpenCode 24% = 91 -->
+            <circle cx="80" cy="80" r="60" fill="none"
+              stroke="#6366f1" stroke-width="22"
+              stroke-dasharray="91 286"
+              stroke-dashoffset="-286"
+              transform="rotate(-90 80 80)"
+              style="animation: draw 1.5s ease-out 0.6s both; stroke-dashoffset: 377;"
+            />
+            <text x="80" y="76" text-anchor="middle" font-family="DM Serif Display, serif" font-size="22" fill="var(--ink)">3</text>
+            <text x="80" y="94" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="var(--muted)" font-weight="600">TOOLS</text>
+          </svg>
+          <div class="donut-labels">
+            <div class="donut-label">
+              <span class="dl-dot" style="background:#10a37f"></span>
+              Codex
+              <span class="dl-pct">42%</span>
+            </div>
+            <div class="donut-label">
+              <span class="dl-dot" style="background:#d97706"></span>
+              Claude Code
+              <span class="dl-pct">34%</span>
+            </div>
+            <div class="donut-label">
+              <span class="dl-dot" style="background:#6366f1"></span>
+              OpenCode
+              <span class="dl-pct">24%</span>
             </div>
           </div>
         </div>
@@ -728,12 +712,13 @@
   <!-- ── LOGIN ── -->
   <section class="login-section wrap" id="login">
     <div class="login-copy">
-      <h2>Let the agent tune your workspace</h2>
-      <p>Sign in to connect your coding agents. The optimization loop starts automatically.</p>
+      <h2>Start optimizing your AI workspace today</h2>
+      <p>Sign in with your closed beta credentials. The agent starts collecting and optimizing in the background the moment you connect your first device.</p>
       <ul class="login-features">
-        <li>One suggestion at a time, always reviewable</li>
-        <li>Before-and-after metrics on every change</li>
-        <li>Auto-rollback if it doesn't help</li>
+        <li>Analyzes Codex, Claude Code, and OpenCode sessions</li>
+        <li>Auto-adopts low-risk config improvements</li>
+        <li>One-click rollback for any change</li>
+        <li>Full audit trail on every optimization</li>
       </ul>
     </div>
 
@@ -756,14 +741,14 @@
         <button id="loginButton" class="login-btn" type="submit">Sign in to dashboard</button>
       </div>
       <div class="status" id="status" data-tone="info" aria-live="polite">
-        Enter your beta credentials.
+        Sign in to open the dashboard and issue a CLI token.
       </div>
     </form>
   </section>
 
   <footer class="footer">
     <div class="footer-inner">
-      <span class="footer-copy">AgentOpt &middot; AI Agent That Tunes Your Coding Agent</span>
+      <span class="footer-copy">AgentOpt &middot; AI Workspace Operations</span>
       <ul class="footer-links">
         <li><a href="https://github.com/Royaltyprogram/aiops" target="_blank" rel="noopener">GitHub</a></li>
         <li><a href="/healthz">Status</a></li>
@@ -799,6 +784,7 @@
         }
         window.localStorage.setItem(key, value);
       } catch (error) {
+        // Storage is optional in restrictive browsers.
       }
     }
 
@@ -841,6 +827,7 @@
           window.sessionStorage.removeItem("agentopt_redirect_notice");
         }
       } catch (error) {
+        // Ignore sessionStorage failures.
       }
     }
 
