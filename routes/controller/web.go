@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-//go:embed assets/dashboard.html assets/landing.html assets/dashboard.css assets/dashboard.js
+//go:embed assets/dashboard.html assets/landing.html assets/dashboard.css assets/dashboard.js assets/logo.svg
 var uiFS embed.FS
 
 type DashboardRoute struct {
