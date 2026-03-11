@@ -160,6 +160,25 @@ func executeLocalApply(st state, applyID string, previews []response.PatchPrevie
 	}, nil
 }
 
+func executeLocalRollback(applyID string) (localApplyResult, error) {
+	backup, err := loadApplyBackup(applyID)
+	if err != nil {
+		return localApplyResult{}, err
+	}
+
+	files := normalizeApplyBackupFiles(backup)
+	if err := rollbackAppliedSteps(files); err != nil {
+		return localApplyResult{}, err
+	}
+
+	return localApplyResult{
+		FilePath:        rollbackAppliedFile(files),
+		FilePaths:       backupFilePaths(files),
+		AppliedSettings: rollbackAppliedSettings(files),
+		AppliedText:     rollbackAppliedText(files),
+	}, nil
+}
+
 func cloneAnyMap(input map[string]any) map[string]any {
 	if len(input) == 0 {
 		return map[string]any{}
@@ -599,6 +618,14 @@ func rollbackAppliedFile(files []applyFileBackup) string {
 		paths = append(paths, file.FilePath)
 	}
 	return appliedFileSummary(paths)
+}
+
+func backupFilePaths(files []applyFileBackup) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.FilePath)
+	}
+	return paths
 }
 
 func rollbackAppliedSettings(files []applyFileBackup) map[string]any {

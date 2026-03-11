@@ -21,6 +21,14 @@ type AnalyticsService struct {
 
 const sharedWorkspaceName = "Shared workspace"
 
+const (
+	minimumPostApplySessionsForDecision = 2
+	rollbackTokensPerQueryRegression    = 0.15
+	rollbackLatencyRegression           = 0.25
+	rollbackLatencyMinIncreaseMS        = 500
+	rollbackToolErrorRegression         = 0.5
+)
+
 func NewAnalyticsService(opt Options) *AnalyticsService {
 	return &AnalyticsService{
 		Options:       opt,
@@ -651,7 +659,17 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 		project.LastIngestedAt = &recordedAt
 	}
 
-	recommendations := s.refreshRecommendationsLocked(project)
+	var recommendations []*Recommendation
+	if activeExperiment := s.findActiveExperimentLocked(project.ID); activeExperiment != nil {
+		s.evaluateExperimentsLocked(project, recordedAt)
+		if s.findActiveExperimentLocked(project.ID) != nil {
+			recommendations = s.currentRecommendationsLocked(project.ID)
+		} else {
+			recommendations = s.refreshRecommendationsLocked(project)
+		}
+	} else {
+		recommendations = s.refreshRecommendationsLocked(project)
+	}
 	ids := make([]string, 0, len(recommendations))
 	for _, item := range recommendations {
 		ids = append(ids, item.ID)
@@ -778,19 +796,20 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 	}
 
 	var (
-		totalSessions        int
-		totalInputTokens     int
-		totalOutputTokens    int
-		totalTokens          int
-		totalQueries         int
-		totalActiveRecs      int
-		totalApplyOps        int
-		totalSuccessfulApply int
-		totalFailedApply     int
-		totalRollbacks       int
-		totalPendingReview   int
-		totalApprovedQueue   int
-		lastIngestedAt       *time.Time
+		totalSessions          int
+		totalInputTokens       int
+		totalOutputTokens      int
+		totalTokens            int
+		totalQueries           int
+		totalActiveRecs        int
+		totalActiveExperiments int
+		totalApplyOps          int
+		totalSuccessfulApply   int
+		totalFailedApply       int
+		totalRollbacks         int
+		totalPendingReview     int
+		totalApprovedQueue     int
+		lastIngestedAt         *time.Time
 	)
 
 	for _, projectID := range projectIDs {
@@ -823,7 +842,7 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		if op.Status == "applied" {
 			totalSuccessfulApply++
 		}
-		if op.Status == "failed" {
+		if op.Status == "failed" || op.Status == "rollback_failed" {
 			totalFailedApply++
 		}
 		if op.Status == "awaiting_review" {
@@ -836,6 +855,19 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 			totalRollbacks++
 		}
 	}
+	for _, experiment := range s.AnalyticsStore.experiments {
+		if experiment == nil {
+			continue
+		}
+		project := s.AnalyticsStore.projects[experiment.ProjectID]
+		if project == nil || project.OrgID != req.OrgID {
+			continue
+		}
+		switch experiment.Status {
+		case "awaiting_review", "queued_for_apply", "measuring", "rollback_requested":
+			totalActiveExperiments++
+		}
+	}
 
 	rollbackRate := safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1)))
 
@@ -845,6 +877,7 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		TotalProjects:             len(projectIDs),
 		TotalSessions:             totalSessions,
 		ActiveRecommendations:     totalActiveRecs,
+		ActiveExperimentCount:     totalActiveExperiments,
 		PendingReviewCount:        totalPendingReview,
 		ApprovedQueueCount:        totalApprovedQueue,
 		SuccessfulRolloutCount:    totalSuccessfulApply,
@@ -1201,6 +1234,11 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 	if scope == "" {
 		scope = "user"
 	}
+	if activeExperiment := s.findActiveExperimentLocked(rec.ProjectID); activeExperiment != nil {
+		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr(
+			fmt.Sprintf("active experiment %s must be resolved before creating another plan", activeExperiment.ID),
+		))
+	}
 
 	now := time.Now().UTC()
 	patchPreview := buildPatchPreview(rec)
@@ -1219,6 +1257,22 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 		PatchPreview:     patchPreview,
 		RequestedAt:      now,
 	}
+	experiment := &Experiment{
+		ID:               s.AnalyticsStore.nextID("exp"),
+		ProjectID:        rec.ProjectID,
+		RecommendationID: req.RecommendationID,
+		ApplyID:          op.ID,
+		RequestedBy:      req.RequestedBy,
+		Scope:            scope,
+		TargetMetric:     "tokens_per_query",
+		Status:           "awaiting_review",
+		Decision:         "pending",
+		DecisionReason:   "waiting for approval",
+		BaselineSessions: len(s.AnalyticsStore.sessionSummaries[rec.ProjectID]),
+		BaselineQueries:  summarizeSessions(s.AnalyticsStore.sessionSummaries[rec.ProjectID]).QueryCount,
+		CreatedAt:        now,
+	}
+	op.ExperimentID = experiment.ID
 	if policyMode == "auto_approved" {
 		op.Status = "approved_for_local_apply"
 		op.ApprovalStatus = "approved"
@@ -1226,7 +1280,12 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 		op.ReviewedBy = "policy-engine"
 		op.ReviewNote = policyReason
 		op.ReviewedAt = &now
+		experiment.Status = "queued_for_apply"
+		experiment.Decision = "approved"
+		experiment.DecisionReason = policyReason
+		experiment.ApprovedAt = &now
 	}
+	s.AnalyticsStore.experiments[experiment.ID] = experiment
 	s.AnalyticsStore.applyOperations[op.ID] = op
 	auditType := "change_plan.requested"
 	auditMessage := "change plan created and waiting for review"
@@ -1241,6 +1300,7 @@ func (s *AnalyticsService) CreateApplyPlan(ctx context.Context, req *request.App
 
 	return &response.ApplyPlanResp{
 		ApplyID:        op.ID,
+		ExperimentID:   experiment.ID,
 		Recommendation: toRecommendationResp(rec),
 		Status:         op.Status,
 		PolicyMode:     op.PolicyMode,
@@ -1292,6 +1352,36 @@ func (s *AnalyticsService) ListChangePlans(ctx context.Context, req *request.Cha
 	return &response.ApplyHistoryResp{Items: items}, nil
 }
 
+func (s *AnalyticsService) ListExperiments(ctx context.Context, req *request.ExperimentListReq) (*response.ExperimentListResp, error) {
+	s.AnalyticsStore.mu.RLock()
+	defer s.AnalyticsStore.mu.RUnlock()
+
+	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeProject(ctx, project); err != nil {
+		return nil, err
+	}
+	req.ProjectID = project.ID
+
+	items := make([]response.ExperimentSummaryResp, 0)
+	for _, experiment := range s.AnalyticsStore.experiments {
+		if experiment == nil || experiment.ProjectID != req.ProjectID {
+			continue
+		}
+		items = append(items, s.toExperimentSummaryLocked(experiment))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ExperimentID > items[j].ExperimentID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+
+	return &response.ExperimentListResp{Items: items}, nil
+}
+
 func (s *AnalyticsService) ReviewChangePlan(ctx context.Context, req *request.ReviewChangePlanReq) (*response.ChangePlanReviewResp, error) {
 	s.AnalyticsStore.mu.Lock()
 	defer s.AnalyticsStore.mu.Unlock()
@@ -1327,11 +1417,13 @@ func (s *AnalyticsService) ReviewChangePlan(ctx context.Context, req *request.Re
 		op.Decision = "approved"
 		op.ApprovalStatus = "approved"
 		op.Status = "approved_for_local_apply"
+		s.markExperimentApprovedLocked(op.ExperimentID, now, "approved during review")
 		s.appendAuditLocked(project.OrgID, op.ProjectID, "change_plan.approved", "change plan approved for local apply")
 	default:
 		op.Decision = "rejected"
 		op.ApprovalStatus = "rejected"
 		op.Status = "rejected"
+		s.markExperimentResolvedLocked(op.ExperimentID, "rejected", "rejected", firstNonEmpty(req.ReviewNote, "rejected during review"), now)
 		s.appendAuditLocked(project.OrgID, op.ProjectID, "change_plan.rejected", "change plan rejected during review")
 	}
 
@@ -1398,7 +1490,16 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 
 	items := make([]response.PendingApplyItem, 0)
 	for _, op := range s.AnalyticsStore.applyOperations {
-		if op.ProjectID != req.ProjectID || op.Status != "approved_for_local_apply" {
+		if op.ProjectID != req.ProjectID {
+			continue
+		}
+		action := ""
+		switch op.Status {
+		case "approved_for_local_apply":
+			action = "apply"
+		case "rollback_requested":
+			action = "rollback"
+		default:
 			continue
 		}
 		switch op.Scope {
@@ -1414,7 +1515,9 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 		}
 		items = append(items, response.PendingApplyItem{
 			ApplyID:          op.ID,
+			ExperimentID:     op.ExperimentID,
 			RecommendationID: op.RecommendationID,
+			Action:           action,
 			Status:           op.Status,
 			PolicyMode:       op.PolicyMode,
 			PolicyReason:     op.PolicyReason,
@@ -1422,6 +1525,7 @@ func (s *AnalyticsService) PendingApplies(ctx context.Context, req *request.Pend
 			Scope:            op.Scope,
 			RequestedBy:      op.RequestedBy,
 			RequestedAt:      op.RequestedAt,
+			Note:             op.Note,
 			PatchPreview:     toPatchPreviewResp(op.PatchPreview),
 		})
 	}
@@ -1461,6 +1565,7 @@ func (s *AnalyticsService) ImpactSummary(ctx context.Context, req *request.Impac
 
 		items = append(items, response.ImpactSummaryItem{
 			ApplyID:                         op.ID,
+			ExperimentID:                    op.ExperimentID,
 			RecommendationID:                op.RecommendationID,
 			Status:                          op.Status,
 			AppliedAt:                       op.AppliedAt,
@@ -1558,7 +1663,7 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	}
 
 	now := time.Now().UTC()
-	op.AppliedAt = &now
+	op.LastReportedAt = &now
 	op.AppliedFile = req.AppliedFile
 	op.AppliedSettings = cloneAnyMap(req.AppliedSettings)
 	op.AppliedText = req.AppliedText
@@ -1566,11 +1671,25 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	op.RolledBack = req.RolledBack
 	switch {
 	case req.RolledBack:
+		if op.RolledBackAt == nil {
+			op.RolledBackAt = &now
+		}
 		op.Status = "rollback_confirmed"
+		s.markExperimentResolvedLocked(op.ExperimentID, "rolled_back", "rollback", firstNonEmpty(req.Note, "rollback confirmed"), now)
 	case req.Success:
+		if op.AppliedAt == nil {
+			op.AppliedAt = &now
+		}
 		op.Status = "applied"
+		s.markExperimentMeasuringLocked(op.ExperimentID, *op.AppliedAt, firstNonEmpty(req.Note, "waiting for post-apply sessions"))
 	default:
-		op.Status = "failed"
+		if op.Status == "rollback_requested" {
+			op.Status = "rollback_failed"
+			s.markExperimentResolvedLocked(op.ExperimentID, "rollback_failed", "rollback_failed", firstNonEmpty(req.Note, "local rollback failed"), now)
+		} else {
+			op.Status = "failed"
+			s.markExperimentResolvedLocked(op.ExperimentID, "failed", "failed", firstNonEmpty(req.Note, "local apply failed"), now)
+		}
 	}
 	if op.ApprovalStatus == "" {
 		op.ApprovalStatus = "approved"
@@ -1582,11 +1701,105 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	}
 
 	return &response.ApplyResultResp{
-		ApplyID:    op.ID,
-		Status:     op.Status,
-		AppliedAt:  now,
-		RolledBack: op.RolledBack,
+		ApplyID:      op.ID,
+		ExperimentID: op.ExperimentID,
+		Status:       op.Status,
+		AppliedAt:    derefTime(op.AppliedAt, now),
+		RolledBack:   op.RolledBack,
 	}, nil
+}
+
+func (s *AnalyticsService) currentRecommendationsLocked(projectID string) []*Recommendation {
+	ids := s.AnalyticsStore.projectRecommendations[projectID]
+	items := make([]*Recommendation, 0, len(ids))
+	for _, id := range ids {
+		rec, ok := s.AnalyticsStore.recommendations[id]
+		if !ok || rec == nil {
+			continue
+		}
+		items = append(items, rec)
+	}
+	return items
+}
+
+func (s *AnalyticsService) evaluateExperimentsLocked(project *Project, observedAt time.Time) {
+	if project == nil {
+		return
+	}
+	sessions := s.AnalyticsStore.sessionSummaries[project.ID]
+	for _, experiment := range s.AnalyticsStore.experiments {
+		if experiment == nil || experiment.ProjectID != project.ID || experiment.Status != "measuring" {
+			continue
+		}
+		op := s.AnalyticsStore.applyOperations[experiment.ApplyID]
+		if op == nil || op.AppliedAt == nil {
+			continue
+		}
+		before, after := splitSessionsByApplyTime(sessions, *op.AppliedAt)
+		beforeStats := summarizeSessions(before)
+		afterStats := summarizeSessions(after)
+
+		nextStatus, decision, reason := evaluateExperimentOutcome(beforeStats, afterStats, len(after))
+		experiment.Decision = decision
+		experiment.DecisionReason = reason
+
+		switch nextStatus {
+		case "measuring":
+			continue
+		case "completed":
+			s.markExperimentResolvedLocked(experiment.ID, "completed", "keep", reason, observedAt)
+			s.appendAuditLocked(project.OrgID, project.ID, "experiment.completed", reason)
+		case "rollback_requested":
+			s.markExperimentRollbackRequestedLocked(experiment.ID, reason)
+			op.Status = "rollback_requested"
+			op.Note = reason
+			s.appendAuditLocked(project.OrgID, project.ID, "rollback.requested", reason)
+		}
+	}
+}
+
+func evaluateExperimentOutcome(before, after sessionSummaryStats, afterCount int) (string, string, string) {
+	if afterCount < minimumPostApplySessionsForDecision {
+		return "measuring", "observe", fmt.Sprintf(
+			"waiting for %d post-apply sessions (%d collected)",
+			minimumPostApplySessionsForDecision,
+			afterCount,
+		)
+	}
+	if before.QueryCount == 0 {
+		return "completed", "keep", "baseline query count is unavailable; keeping the change after the measurement window"
+	}
+
+	tokenRegression := relativeChange(after.AvgTokensPerQuery, before.AvgTokensPerQuery)
+	latencyRegression := relativeChange(after.AvgFirstResponseLatencyMS, before.AvgFirstResponseLatencyMS)
+	latencyDelta := after.AvgFirstResponseLatencyMS - before.AvgFirstResponseLatencyMS
+	toolErrorRegression := after.AvgToolErrorsPerSession - before.AvgToolErrorsPerSession
+
+	switch {
+	case tokenRegression >= rollbackTokensPerQueryRegression:
+		return "rollback_requested", "rollback", fmt.Sprintf(
+			"tokens per query regressed by %.0f%% after %d post-apply sessions",
+			tokenRegression*100,
+			afterCount,
+		)
+	case latencyRegression >= rollbackLatencyRegression && latencyDelta >= rollbackLatencyMinIncreaseMS:
+		return "rollback_requested", "rollback", fmt.Sprintf(
+			"first-response latency regressed by %.0f%% after %d post-apply sessions",
+			latencyRegression*100,
+			afterCount,
+		)
+	case toolErrorRegression >= rollbackToolErrorRegression && after.AvgToolErrorsPerSession >= 1:
+		return "rollback_requested", "rollback", fmt.Sprintf(
+			"tool errors per session increased from %.2f to %.2f after rollout",
+			before.AvgToolErrorsPerSession,
+			after.AvgToolErrorsPerSession,
+		)
+	default:
+		return "completed", "keep", fmt.Sprintf(
+			"measurement window completed with %d post-apply sessions and no severe regressions",
+			afterCount,
+		)
+	}
 }
 
 func (s *AnalyticsService) refreshRecommendationsLocked(project *Project) []*Recommendation {
@@ -1781,6 +1994,7 @@ func toChangePlanResp(items []ChangePlanStep) []response.ChangePlanStepResp {
 func toApplyHistoryItem(op *ApplyOperation) response.ApplyHistoryItem {
 	return response.ApplyHistoryItem{
 		ApplyID:          op.ID,
+		ExperimentID:     op.ExperimentID,
 		RecommendationID: op.RecommendationID,
 		Status:           op.Status,
 		PolicyMode:       op.PolicyMode,
@@ -1794,12 +2008,124 @@ func toApplyHistoryItem(op *ApplyOperation) response.ApplyHistoryItem {
 		RequestedAt:      op.RequestedAt,
 		ReviewedAt:       op.ReviewedAt,
 		AppliedAt:        op.AppliedAt,
+		LastReportedAt:   op.LastReportedAt,
+		RolledBackAt:     op.RolledBackAt,
 		AppliedFile:      op.AppliedFile,
 		AppliedSettings:  cloneAnyMap(op.AppliedSettings),
 		AppliedText:      op.AppliedText,
 		PatchPreview:     toPatchPreviewResp(op.PatchPreview),
 		RolledBack:       op.RolledBack,
 	}
+}
+
+func (s *AnalyticsService) findActiveExperimentLocked(projectID string) *Experiment {
+	var active *Experiment
+	for _, experiment := range s.AnalyticsStore.experiments {
+		if experiment == nil || experiment.ProjectID != projectID {
+			continue
+		}
+		switch experiment.Status {
+		case "awaiting_review", "queued_for_apply", "measuring", "rollback_requested":
+		default:
+			continue
+		}
+		if active == nil || experiment.CreatedAt.After(active.CreatedAt) {
+			active = experiment
+		}
+	}
+	return active
+}
+
+func (s *AnalyticsService) toExperimentSummaryLocked(experiment *Experiment) response.ExperimentSummaryResp {
+	postApplySessions := 0
+	postApplyQueries := 0
+	var lastObservedAt *time.Time
+
+	sessions := s.AnalyticsStore.sessionSummaries[experiment.ProjectID]
+	for _, session := range sessions {
+		if session == nil {
+			continue
+		}
+		if lastObservedAt == nil || session.Timestamp.After(*lastObservedAt) {
+			ts := session.Timestamp
+			lastObservedAt = &ts
+		}
+	}
+	if experiment.AppliedAt != nil {
+		_, after := splitSessionsByApplyTime(sessions, *experiment.AppliedAt)
+		postApplySessions = len(after)
+		postApplyQueries = summarizeSessions(after).QueryCount
+	}
+
+	return response.ExperimentSummaryResp{
+		ExperimentID:      experiment.ID,
+		ProjectID:         experiment.ProjectID,
+		RecommendationID:  experiment.RecommendationID,
+		ApplyID:           experiment.ApplyID,
+		Status:            experiment.Status,
+		Decision:          experiment.Decision,
+		DecisionReason:    experiment.DecisionReason,
+		TargetMetric:      experiment.TargetMetric,
+		RequestedBy:       experiment.RequestedBy,
+		Scope:             experiment.Scope,
+		BaselineSessions:  experiment.BaselineSessions,
+		BaselineQueries:   experiment.BaselineQueries,
+		PostApplySessions: postApplySessions,
+		PostApplyQueries:  postApplyQueries,
+		CreatedAt:         experiment.CreatedAt,
+		ApprovedAt:        experiment.ApprovedAt,
+		AppliedAt:         experiment.AppliedAt,
+		LastObservedAt:    lastObservedAt,
+		ResolvedAt:        experiment.ResolvedAt,
+	}
+}
+
+func (s *AnalyticsService) markExperimentApprovedLocked(experimentID string, approvedAt time.Time, reason string) {
+	experiment, ok := s.AnalyticsStore.experiments[experimentID]
+	if !ok || experiment == nil {
+		return
+	}
+	experiment.Status = "queued_for_apply"
+	experiment.Decision = "approved"
+	experiment.DecisionReason = firstNonEmpty(reason, "approved")
+	experiment.ApprovedAt = &approvedAt
+	experiment.ResolvedAt = nil
+}
+
+func (s *AnalyticsService) markExperimentMeasuringLocked(experimentID string, appliedAt time.Time, reason string) {
+	experiment, ok := s.AnalyticsStore.experiments[experimentID]
+	if !ok || experiment == nil {
+		return
+	}
+	experiment.Status = "measuring"
+	experiment.Decision = "observe"
+	experiment.DecisionReason = firstNonEmpty(reason, "waiting for post-apply sessions")
+	if experiment.AppliedAt == nil {
+		experiment.AppliedAt = &appliedAt
+	}
+	experiment.ResolvedAt = nil
+}
+
+func (s *AnalyticsService) markExperimentRollbackRequestedLocked(experimentID, reason string) {
+	experiment, ok := s.AnalyticsStore.experiments[experimentID]
+	if !ok || experiment == nil {
+		return
+	}
+	experiment.Status = "rollback_requested"
+	experiment.Decision = "rollback"
+	experiment.DecisionReason = firstNonEmpty(reason, "rollback requested")
+	experiment.ResolvedAt = nil
+}
+
+func (s *AnalyticsService) markExperimentResolvedLocked(experimentID, status, decision, reason string, resolvedAt time.Time) {
+	experiment, ok := s.AnalyticsStore.experiments[experimentID]
+	if !ok || experiment == nil {
+		return
+	}
+	experiment.Status = status
+	experiment.Decision = decision
+	experiment.DecisionReason = firstNonEmpty(reason, experiment.DecisionReason)
+	experiment.ResolvedAt = &resolvedAt
 }
 
 func countDevicesByOrg(devices map[string]*Agent, orgID string) int {
@@ -1873,6 +2199,23 @@ func safeDiv(a, b float64) float64 {
 	return round(a / b)
 }
 
+func derefTime(value *time.Time, fallback time.Time) time.Time {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func relativeChange(after, before float64) float64 {
+	if before == 0 {
+		if after == 0 {
+			return 0
+		}
+		return 1
+	}
+	return round((after - before) / before)
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -1911,6 +2254,9 @@ type sessionSummaryStats struct {
 	AvgInputTokensPerSession  float64
 	AvgOutputTokensPerSession float64
 	AvgTokensPerSession       float64
+	AvgFirstResponseLatencyMS float64
+	AvgSessionDurationMS      float64
+	AvgToolErrorsPerSession   float64
 }
 
 func summarizeSessions(sessions []*SessionSummary) sessionSummaryStats {
@@ -1922,11 +2268,25 @@ func summarizeSessions(sessions []*SessionSummary) sessionSummaryStats {
 	totalOutputTokens := 0
 	totalTokens := 0
 	totalQueries := 0
+	totalLatencyMS := 0
+	latencyCount := 0
+	totalDurationMS := 0
+	durationCount := 0
+	totalToolErrors := 0
 	for _, session := range sessions {
 		totalInputTokens += session.TokenIn
 		totalOutputTokens += session.TokenOut
 		totalTokens += session.TokenIn + session.TokenOut
 		totalQueries += queryCountForSession(session)
+		totalToolErrors += session.ToolErrorCount
+		if session.FirstResponseLatencyMS > 0 {
+			totalLatencyMS += session.FirstResponseLatencyMS
+			latencyCount++
+		}
+		if session.SessionDurationMS > 0 {
+			totalDurationMS += session.SessionDurationMS
+			durationCount++
+		}
 	}
 
 	return sessionSummaryStats{
@@ -1937,6 +2297,9 @@ func summarizeSessions(sessions []*SessionSummary) sessionSummaryStats {
 		AvgInputTokensPerSession:  safeDiv(float64(totalInputTokens), float64(len(sessions))),
 		AvgOutputTokensPerSession: safeDiv(float64(totalOutputTokens), float64(len(sessions))),
 		AvgTokensPerSession:       safeDiv(float64(totalTokens), float64(len(sessions))),
+		AvgFirstResponseLatencyMS: safeDiv(float64(totalLatencyMS), float64(maxInt(latencyCount, 1))),
+		AvgSessionDurationMS:      safeDiv(float64(totalDurationMS), float64(maxInt(durationCount, 1))),
+		AvgToolErrorsPerSession:   safeDiv(float64(totalToolErrors), float64(len(sessions))),
 	}
 }
 

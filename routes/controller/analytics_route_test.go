@@ -134,6 +134,14 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 		RequestedBy:      "user-route",
 	})
 	require.Equal(t, "awaiting_review", applyResp.Status)
+	require.NotEmpty(t, applyResp.ExperimentID)
+
+	experimentResp := getJSON[response.ExperimentListResp](t, echo, conf.App.APIToken, "/api/v1/experiments", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.Len(t, experimentResp.Items, 1)
+	require.Equal(t, applyResp.ExperimentID, experimentResp.Items[0].ExperimentID)
+	require.Equal(t, "awaiting_review", experimentResp.Items[0].Status)
 
 	reviewResp := postJSON[response.ChangePlanReviewResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/change-plans/review", request.ReviewChangePlanReq{
 		ApplyID:    applyResp.ApplyID,
@@ -148,6 +156,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	})
 	require.Len(t, pendingResp.Items, 1)
 	require.Equal(t, applyResp.ApplyID, pendingResp.Items[0].ApplyID)
+	require.Equal(t, applyResp.ExperimentID, pendingResp.Items[0].ExperimentID)
 
 	applyResult := postJSON[response.ApplyResultResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
 		ApplyID:     applyResp.ApplyID,
@@ -158,6 +167,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	})
 	require.Equal(t, "applied", applyResult.Status)
 	require.False(t, applyResult.RolledBack)
+	require.Equal(t, applyResp.ExperimentID, applyResult.ExperimentID)
 
 	pendingAfterApply := getJSON[response.PendingApplyResp](t, echo, conf.App.APIToken, "/api/v1/applies/pending", url.Values{
 		"project_id": []string{projectResp.ProjectID},
@@ -171,6 +181,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.NotEmpty(t, applyHistory.Items)
 	require.Equal(t, "applied", applyHistory.Items[0].Status)
 	require.Equal(t, "AGENTS.md", applyHistory.Items[0].AppliedFile)
+	require.Equal(t, applyResp.ExperimentID, applyHistory.Items[0].ExperimentID)
 
 	postApplySession := postJSON[response.SessionIngestResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
 		ProjectID: projectResp.ProjectID,
@@ -190,6 +201,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	})
 	require.NotEmpty(t, impactResp.Items)
 	require.Equal(t, applyResp.ApplyID, impactResp.Items[0].ApplyID)
+	require.Equal(t, applyResp.ExperimentID, impactResp.Items[0].ExperimentID)
 	require.Greater(t, impactResp.Items[0].SessionsAfter, 0)
 
 	rollbackResp := postJSON[response.ApplyResultResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
@@ -208,6 +220,14 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.NotEmpty(t, applyHistoryAfterRollback.Items)
 	require.Equal(t, "rollback_confirmed", applyHistoryAfterRollback.Items[0].Status)
 	require.True(t, applyHistoryAfterRollback.Items[0].RolledBack)
+	require.NotNil(t, applyHistoryAfterRollback.Items[0].RolledBackAt)
+
+	experimentAfterRollback := getJSON[response.ExperimentListResp](t, echo, conf.App.APIToken, "/api/v1/experiments", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.Len(t, experimentAfterRollback.Items, 1)
+	require.Equal(t, "rolled_back", experimentAfterRollback.Items[0].Status)
+	require.Equal(t, "rollback", experimentAfterRollback.Items[0].Decision)
 
 	overviewResp := getJSON[response.DashboardOverviewResp](t, echo, conf.App.APIToken, "/api/v1/dashboard/overview", url.Values{
 		"org_id": []string{"org-route"},
@@ -218,6 +238,7 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.Greater(t, overviewResp.TotalInputTokens, 0)
 	require.Greater(t, overviewResp.TotalOutputTokens, 0)
 	require.Greater(t, overviewResp.TotalTokens, 0)
+	require.Zero(t, overviewResp.ActiveExperimentCount)
 	require.NotEmpty(t, overviewResp.ActionSummary)
 	require.NotEmpty(t, overviewResp.OutcomeSummary)
 

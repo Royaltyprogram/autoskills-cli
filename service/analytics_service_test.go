@@ -122,6 +122,18 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	oldAppliedAt := now.Add(-30 * time.Minute)
+	oldResolvedAt := now.Add(-20 * time.Minute)
+	store.mu.Lock()
+	store.applyOperations[planOld.ApplyID].AppliedAt = &oldAppliedAt
+	store.applyOperations[planOld.ApplyID].Status = "applied"
+	store.experiments[planOld.ExperimentID].AppliedAt = &oldAppliedAt
+	store.experiments[planOld.ExperimentID].Status = "completed"
+	store.experiments[planOld.ExperimentID].Decision = "keep"
+	store.experiments[planOld.ExperimentID].DecisionReason = "completed for ordering test"
+	store.experiments[planOld.ExperimentID].ResolvedAt = &oldResolvedAt
+	store.mu.Unlock()
+
 	time.Sleep(10 * time.Millisecond)
 
 	planNew, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
@@ -139,8 +151,20 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-z", UserID: "user-1"})
 	require.NoError(t, err)
-	require.Len(t, pending.Items, 2)
+	require.Len(t, pending.Items, 1)
 	require.Equal(t, planNew.ApplyID, pending.Items[0].ApplyID)
+
+	newAppliedAt := now.Add(-10 * time.Minute)
+	newResolvedAt := now.Add(-6 * time.Minute)
+	store.mu.Lock()
+	store.applyOperations[planNew.ApplyID].AppliedAt = &newAppliedAt
+	store.applyOperations[planNew.ApplyID].Status = "applied"
+	store.experiments[planNew.ExperimentID].AppliedAt = &newAppliedAt
+	store.experiments[planNew.ExperimentID].Status = "completed"
+	store.experiments[planNew.ExperimentID].Decision = "keep"
+	store.experiments[planNew.ExperimentID].DecisionReason = "completed for ordering test"
+	store.experiments[planNew.ExperimentID].ResolvedAt = &newResolvedAt
+	store.mu.Unlock()
 
 	projectScopedPlan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
 		RecommendationID: recommendations.Items[0].ID,
@@ -157,18 +181,8 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	projectVisible, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-z", UserID: "user-1"})
 	require.NoError(t, err)
-	require.Len(t, projectVisible.Items, 3)
+	require.Len(t, projectVisible.Items, 1)
 	require.Equal(t, projectScopedPlan.ApplyID, projectVisible.Items[0].ApplyID)
-
-	oldAppliedAt := now.Add(-30 * time.Minute)
-	newAppliedAt := now.Add(-10 * time.Minute)
-
-	store.mu.Lock()
-	store.applyOperations[planOld.ApplyID].AppliedAt = &oldAppliedAt
-	store.applyOperations[planOld.ApplyID].Status = "applied"
-	store.applyOperations[planNew.ApplyID].AppliedAt = &newAppliedAt
-	store.applyOperations[planNew.ApplyID].Status = "applied"
-	store.mu.Unlock()
 
 	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
 		ProjectID:             "project-z",
@@ -582,6 +596,205 @@ func TestCreateApplyPlanRequiresReviewForInstructionAppend(t *testing.T) {
 	require.Empty(t, plan.ReviewedBy)
 }
 
+func TestCreateApplyPlanBlocksWhenActiveExperimentExists(t *testing.T) {
+	ctx := context.Background()
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+
+	store, err := NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	svc := NewAnalyticsService(Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+
+	agentResp, err := svc.RegisterAgent(ctx, &request.RegisterAgentReq{
+		OrgID:      "org-active",
+		UserID:     "user-active",
+		DeviceName: "macbook",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.RegisterProject(ctx, &request.RegisterProjectReq{
+		OrgID:       "org-active",
+		AgentID:     agentResp.AgentID,
+		ProjectID:   "project-active",
+		Name:        "active",
+		RepoHash:    "active-hash",
+		DefaultTool: "codex",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID: "project-active",
+		SessionID: "session-active",
+		Tool:      "codex",
+		TokenIn:   700,
+		TokenOut:  180,
+		RawQueries: []string{
+			"Inspect the current apply flow before editing.",
+			"List the exact verification steps after the patch.",
+		},
+		Timestamp: time.Now().UTC().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+
+	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-active"})
+	require.NoError(t, err)
+	require.Len(t, recommendations.Items, 1)
+
+	firstPlan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
+		RecommendationID: recommendations.Items[0].ID,
+		RequestedBy:      "user-active",
+		Scope:            "project",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, firstPlan.ExperimentID)
+
+	_, err = svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
+		RecommendationID: recommendations.Items[0].ID,
+		RequestedBy:      "user-active",
+		Scope:            "project",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "active experiment")
+}
+
+func TestUploadSessionSummaryRequestsRollbackAfterSevereRegression(t *testing.T) {
+	ctx := context.Background()
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+
+	store, err := NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	svc := NewAnalyticsService(Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+
+	agentResp, err := svc.RegisterAgent(ctx, &request.RegisterAgentReq{
+		OrgID:      "org-rollback",
+		UserID:     "user-rollback",
+		DeviceName: "macbook",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.RegisterProject(ctx, &request.RegisterProjectReq{
+		OrgID:       "org-rollback",
+		AgentID:     agentResp.AgentID,
+		ProjectID:   "project-rollback",
+		Name:        "rollback",
+		RepoHash:    "rollback-hash",
+		DefaultTool: "codex",
+	})
+	require.NoError(t, err)
+
+	baselineAt := time.Now().UTC().Add(-2 * time.Hour)
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID:              "project-rollback",
+		SessionID:              "session-rollback-before",
+		Tool:                   "codex",
+		TokenIn:                400,
+		TokenOut:               100,
+		FirstResponseLatencyMS: 900,
+		RawQueries: []string{
+			"Inspect the current rollout flow before proposing changes.",
+			"List the exact verification steps after the edit.",
+		},
+		Timestamp: baselineAt,
+	})
+	require.NoError(t, err)
+
+	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-rollback"})
+	require.NoError(t, err)
+	require.Len(t, recommendations.Items, 1)
+
+	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
+		RecommendationID: recommendations.Items[0].ID,
+		RequestedBy:      "user-rollback",
+		Scope:            "project",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
+		ApplyID:    plan.ApplyID,
+		Decision:   "approve",
+		ReviewedBy: "user-rollback",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ReportApplyResult(ctx, &request.ApplyResultReq{
+		ApplyID:     plan.ApplyID,
+		Success:     true,
+		Note:        "applied for rollback regression test",
+		AppliedFile: "AGENTS.md",
+		AppliedText: "AgentOpt guidance",
+	})
+	require.NoError(t, err)
+
+	postOne := time.Now().UTC().Add(time.Second)
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID:              "project-rollback",
+		SessionID:              "session-rollback-after-1",
+		Tool:                   "codex",
+		TokenIn:                2400,
+		TokenOut:               600,
+		FirstResponseLatencyMS: 3200,
+		ToolErrorCount:         1,
+		RawQueries: []string{
+			"Summarize the workflow changes after the rollout.",
+			"Suggest the next patch after checking the changed config.",
+		},
+		Timestamp: postOne,
+	})
+	require.NoError(t, err)
+
+	experiments, err := svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-rollback"})
+	require.NoError(t, err)
+	require.Len(t, experiments.Items, 1)
+	require.Equal(t, "measuring", experiments.Items[0].Status)
+	require.Equal(t, 1, experiments.Items[0].PostApplySessions)
+
+	postTwo := postOne.Add(time.Second)
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID:              "project-rollback",
+		SessionID:              "session-rollback-after-2",
+		Tool:                   "codex",
+		TokenIn:                2600,
+		TokenOut:               700,
+		FirstResponseLatencyMS: 3600,
+		ToolErrorCount:         1,
+		RawQueries: []string{
+			"Inspect the larger tool trace after the rollout.",
+			"Explain why the new settings made the workflow slower.",
+		},
+		Timestamp: postTwo,
+	})
+	require.NoError(t, err)
+
+	experiments, err = svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-rollback"})
+	require.NoError(t, err)
+	require.Len(t, experiments.Items, 1)
+	require.Equal(t, "rollback_requested", experiments.Items[0].Status)
+	require.Equal(t, "rollback", experiments.Items[0].Decision)
+	require.Equal(t, 2, experiments.Items[0].PostApplySessions)
+	require.Contains(t, experiments.Items[0].DecisionReason, "tokens per query regressed")
+
+	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-rollback", UserID: "user-rollback"})
+	require.NoError(t, err)
+	require.Len(t, pending.Items, 1)
+	require.Equal(t, "rollback", pending.Items[0].Action)
+	require.Equal(t, "rollback_requested", pending.Items[0].Status)
+	require.Equal(t, plan.ExperimentID, pending.Items[0].ExperimentID)
+	require.Contains(t, pending.Items[0].Note, "tokens per query regressed")
+
+	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-rollback"})
+	require.NoError(t, err)
+	require.Equal(t, 1, overview.ActiveExperimentCount)
+}
+
 func TestUploadSessionSummaryReplacesExistingSessionByID(t *testing.T) {
 	ctx := context.Background()
 	conf := &configs.Config{}
@@ -728,6 +941,15 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "awaiting_review", plan.Status)
+	require.NotEmpty(t, plan.ExperimentID)
+
+	experiments, err := svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Len(t, experiments.Items, 1)
+	require.Equal(t, plan.ExperimentID, experiments.Items[0].ExperimentID)
+	require.Equal(t, "awaiting_review", experiments.Items[0].Status)
+	require.Equal(t, 1, experiments.Items[0].BaselineSessions)
+	require.Equal(t, 3, experiments.Items[0].BaselineQueries)
 
 	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
 		ApplyID:    plan.ApplyID,
@@ -735,6 +957,12 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 		ReviewedBy: "user-exec",
 	})
 	require.NoError(t, err)
+
+	experiments, err = svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Equal(t, "queued_for_apply", experiments.Items[0].Status)
+	require.Equal(t, "approved", experiments.Items[0].Decision)
+	require.NotNil(t, experiments.Items[0].ApprovedAt)
 
 	applyResult, err := svc.ReportApplyResult(ctx, &request.ApplyResultReq{
 		ApplyID:     plan.ApplyID,
@@ -746,6 +974,13 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "applied", applyResult.Status)
 	require.False(t, applyResult.RolledBack)
+
+	experiments, err = svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Equal(t, "measuring", experiments.Items[0].Status)
+	require.Equal(t, "observe", experiments.Items[0].Decision)
+	require.NotNil(t, experiments.Items[0].AppliedAt)
+	firstAppliedAt := *experiments.Items[0].AppliedAt
 
 	pending, err := svc.PendingApplies(ctx, &request.PendingApplyReq{ProjectID: "project-exec", UserID: "user-exec"})
 	require.NoError(t, err)
@@ -775,9 +1010,15 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, impact.Items, 1)
 	require.Equal(t, plan.ApplyID, impact.Items[0].ApplyID)
+	require.Equal(t, plan.ExperimentID, impact.Items[0].ExperimentID)
 	require.Greater(t, impact.Items[0].SessionsAfter, 0)
 	require.Equal(t, 33.33, impact.Items[0].InputTokensPerQueryDelta)
 	require.Equal(t, 16.67, impact.Items[0].OutputTokensPerQueryDelta)
+
+	experiments, err = svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Equal(t, 1, experiments.Items[0].PostApplySessions)
+	require.Equal(t, 2, experiments.Items[0].PostApplyQueries)
 
 	rollbackResult, err := svc.ReportApplyResult(ctx, &request.ApplyResultReq{
 		ApplyID:     plan.ApplyID,
@@ -795,6 +1036,17 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.Len(t, historyAfterRollback.Items, 1)
 	require.Equal(t, "rollback_confirmed", historyAfterRollback.Items[0].Status)
 	require.True(t, historyAfterRollback.Items[0].RolledBack)
+	require.Equal(t, plan.ExperimentID, historyAfterRollback.Items[0].ExperimentID)
+	require.Equal(t, firstAppliedAt, *historyAfterRollback.Items[0].AppliedAt)
+	require.NotNil(t, historyAfterRollback.Items[0].RolledBackAt)
+
+	experiments, err = svc.ListExperiments(ctx, &request.ExperimentListReq{ProjectID: "project-exec"})
+	require.NoError(t, err)
+	require.Equal(t, "rolled_back", experiments.Items[0].Status)
+	require.Equal(t, "rollback", experiments.Items[0].Decision)
+	require.NotNil(t, experiments.Items[0].ResolvedAt)
+	require.NotNil(t, experiments.Items[0].AppliedAt)
+	require.Equal(t, firstAppliedAt, *experiments.Items[0].AppliedAt)
 
 	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-exec"})
 	require.NoError(t, err)
@@ -806,6 +1058,7 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	require.Greater(t, overview.TotalTokens, 0)
 	require.Equal(t, 0, overview.SuccessfulRolloutCount)
 	require.Equal(t, 0, overview.FailedExecutionCount)
+	require.Equal(t, 0, overview.ActiveExperimentCount)
 	require.NotEmpty(t, overview.ActionSummary)
 	require.NotEmpty(t, overview.OutcomeSummary)
 }

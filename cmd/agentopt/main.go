@@ -107,6 +107,8 @@ func run(args []string) error {
 		return runWorkspace(args[1:])
 	case "history":
 		return runHistory(args[1:])
+	case "experiments":
+		return runExperiments(args[1:])
 	case "pending":
 		return runPending(args[1:])
 	case "impact":
@@ -151,6 +153,7 @@ func printUsage() {
   status            print org overview and shared workspace recommendations
   workspace         show the shared workspace connected to the current org
   history           list apply history for the shared workspace
+  experiments       list experiment lifecycle records for the shared workspace
   pending           list pending apply jobs visible to the current user and shared workspace
   impact            list recommendation impact summaries for the shared workspace
   audit             list recent audit events for the current org and shared workspace
@@ -511,6 +514,25 @@ func runHistory(args []string) error {
 	return prettyPrint(workspaceScopedItems(st, resp.Items))
 }
 
+func runExperiments(args []string) error {
+	fs := flag.NewFlagSet("experiments", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, err := loadWorkspaceState()
+	if err != nil {
+		return err
+	}
+	client := newAPIClient(st.ServerURL, st.APIToken)
+
+	var resp response.ExperimentListResp
+	if err := client.doJSON(http.MethodGet, "/api/v1/experiments?project_id="+url.QueryEscape(st.workspaceID()), nil, &resp); err != nil {
+		return err
+	}
+	return prettyPrint(workspaceScopedItems(st, resp.Items))
+}
+
 func runPending(args []string) error {
 	fs := flag.NewFlagSet("pending", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
@@ -630,6 +652,41 @@ func runSyncOnce(st state, client *apiClient, targetConfig, reasoningEffort stri
 	results := make([]response.ApplyResultResp, 0, len(pending.Items))
 	failedApplyIDs := make([]string, 0)
 	for _, item := range pending.Items {
+		if item.Action == "rollback" || item.Status == "rollback_requested" {
+			localResult, err := executeLocalRollback(item.ApplyID)
+			if err != nil {
+				result, reportErr := reportApplyResult(client, request.ApplyResultReq{
+					ApplyID: item.ApplyID,
+					Success: false,
+					Note:    fmt.Sprintf("local rollback failed during sync: %v", err),
+				})
+				if reportErr != nil {
+					return fmt.Errorf("rollback %s failed locally: %v; failed to report result: %w", item.ApplyID, err, reportErr)
+				}
+				results = append(results, result)
+				failedApplyIDs = append(failedApplyIDs, item.ApplyID)
+				continue
+			}
+
+			result, err := reportApplyResult(client, request.ApplyResultReq{
+				ApplyID:         item.ApplyID,
+				Success:         true,
+				Note:            "rolled back by agentopt sync",
+				AppliedFile:     localResult.FilePath,
+				AppliedSettings: localResult.AppliedSettings,
+				AppliedText:     localResult.AppliedText,
+				RolledBack:      true,
+			})
+			if err != nil {
+				return err
+			}
+			if err := deleteApplyBackup(item.ApplyID); err != nil {
+				return err
+			}
+			results = append(results, result)
+			continue
+		}
+
 		localResult, err := executeLocalApply(st, item.ApplyID, item.PatchPreview, targetConfig, reasoningEffort)
 		if err != nil {
 			result, reportErr := reportApplyResult(client, request.ApplyResultReq{
@@ -908,54 +965,25 @@ func runRollback(args []string) error {
 	if err != nil {
 		return err
 	}
-	backup, err := loadApplyBackup(*applyID)
+	localResult, err := executeLocalRollback(*applyID)
 	if err != nil {
 		return err
-	}
-
-	files := normalizeApplyBackupFiles(backup)
-	for i := len(files) - 1; i >= 0; i-- {
-		file := files[i]
-		if file.OriginalExists {
-			if err := os.MkdirAll(filepath.Dir(file.FilePath), 0o755); err != nil {
-				return err
-			}
-			switch file.FileKind {
-			case "text_append", "text_replace":
-				if err := os.WriteFile(file.FilePath, []byte(file.OriginalText), 0o644); err != nil {
-					return err
-				}
-			default:
-				data, err := json.MarshalIndent(file.OriginalJSON, "", "  ")
-				if err != nil {
-					return err
-				}
-				data = append(data, '\n')
-				if err := os.WriteFile(file.FilePath, data, 0o644); err != nil {
-					return err
-				}
-			}
-		} else {
-			if err := os.Remove(file.FilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
 	}
 
 	client := newAPIClient(st.ServerURL, st.APIToken)
 	var result response.ApplyResultResp
 	if err := client.doJSON(http.MethodPost, "/api/v1/applies/result", request.ApplyResultReq{
-		ApplyID:         backup.ApplyID,
+		ApplyID:         *applyID,
 		Success:         true,
 		Note:            *note,
-		AppliedFile:     rollbackAppliedFile(files),
-		AppliedSettings: rollbackAppliedSettings(files),
-		AppliedText:     rollbackAppliedText(files),
+		AppliedFile:     localResult.FilePath,
+		AppliedSettings: localResult.AppliedSettings,
+		AppliedText:     localResult.AppliedText,
 		RolledBack:      true,
 	}, &result); err != nil {
 		return err
 	}
-	if err := deleteApplyBackup(backup.ApplyID); err != nil {
+	if err := deleteApplyBackup(*applyID); err != nil {
 		return err
 	}
 	return prettyPrint(result)

@@ -211,6 +211,7 @@ type PatchPreviewItem struct {
 
 type ApplyPlanResp struct {
 	ApplyID        string             `json:"apply_id"`
+	ExperimentID   string             `json:"experiment_id"`
 	Recommendation RecommendationResp `json:"recommendation"`
 	Status         string             `json:"status"`
 	PolicyMode     string             `json:"policy_mode"`
@@ -225,10 +226,11 @@ type ApplyPlanResp struct {
 }
 
 type ApplyResultResp struct {
-	ApplyID    string    `json:"apply_id"`
-	Status     string    `json:"status"`
-	AppliedAt  time.Time `json:"applied_at"`
-	RolledBack bool      `json:"rolled_back"`
+	ApplyID      string    `json:"apply_id"`
+	ExperimentID string    `json:"experiment_id"`
+	Status       string    `json:"status"`
+	AppliedAt    time.Time `json:"applied_at"`
+	RolledBack   bool      `json:"rolled_back"`
 }
 
 type ChangePlanReviewResp struct {
@@ -245,6 +247,7 @@ type ChangePlanReviewResp struct {
 
 type ApplyHistoryItem struct {
 	ApplyID          string             `json:"apply_id"`
+	ExperimentID     string             `json:"experiment_id"`
 	RecommendationID string             `json:"recommendation_id"`
 	Status           string             `json:"status"`
 	PolicyMode       string             `json:"policy_mode"`
@@ -258,6 +261,8 @@ type ApplyHistoryItem struct {
 	RequestedAt      time.Time          `json:"requested_at"`
 	ReviewedAt       *time.Time         `json:"reviewed_at"`
 	AppliedAt        *time.Time         `json:"applied_at"`
+	LastReportedAt   *time.Time         `json:"last_reported_at"`
+	RolledBackAt     *time.Time         `json:"rolled_back_at"`
 	AppliedFile      string             `json:"applied_file"`
 	AppliedSettings  map[string]any     `json:"applied_settings"`
 	AppliedText      string             `json:"applied_text"`
@@ -271,7 +276,9 @@ type ApplyHistoryResp struct {
 
 type PendingApplyItem struct {
 	ApplyID          string             `json:"apply_id"`
+	ExperimentID     string             `json:"experiment_id"`
 	RecommendationID string             `json:"recommendation_id"`
+	Action           string             `json:"action"`
 	Status           string             `json:"status"`
 	PolicyMode       string             `json:"policy_mode"`
 	PolicyReason     string             `json:"policy_reason"`
@@ -279,7 +286,34 @@ type PendingApplyItem struct {
 	Scope            string             `json:"scope"`
 	RequestedBy      string             `json:"requested_by"`
 	RequestedAt      time.Time          `json:"requested_at"`
+	Note             string             `json:"note"`
 	PatchPreview     []PatchPreviewItem `json:"patch_preview"`
+}
+
+type ExperimentSummaryResp struct {
+	ExperimentID      string     `json:"experiment_id"`
+	ProjectID         string     `json:"project_id"`
+	RecommendationID  string     `json:"recommendation_id"`
+	ApplyID           string     `json:"apply_id"`
+	Status            string     `json:"status"`
+	Decision          string     `json:"decision"`
+	DecisionReason    string     `json:"decision_reason"`
+	TargetMetric      string     `json:"target_metric"`
+	RequestedBy       string     `json:"requested_by"`
+	Scope             string     `json:"scope"`
+	BaselineSessions  int        `json:"baseline_sessions"`
+	BaselineQueries   int        `json:"baseline_queries"`
+	PostApplySessions int        `json:"post_apply_sessions"`
+	PostApplyQueries  int        `json:"post_apply_queries"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ApprovedAt        *time.Time `json:"approved_at"`
+	AppliedAt         *time.Time `json:"applied_at"`
+	LastObservedAt    *time.Time `json:"last_observed_at"`
+	ResolvedAt        *time.Time `json:"resolved_at"`
+}
+
+type ExperimentListResp struct {
+	Items []ExperimentSummaryResp `json:"items"`
 }
 
 type PendingApplyResp struct {
@@ -288,6 +322,7 @@ type PendingApplyResp struct {
 
 type ImpactSummaryItem struct {
 	ApplyID                         string     `json:"apply_id"`
+	ExperimentID                    string     `json:"experiment_id"`
 	RecommendationID                string     `json:"recommendation_id"`
 	Status                          string     `json:"status"`
 	AppliedAt                       *time.Time `json:"applied_at"`
@@ -339,6 +374,7 @@ type DashboardOverviewResp struct {
 	TotalProjects             int        `json:"total_projects"`
 	TotalSessions             int        `json:"total_sessions"`
 	ActiveRecommendations     int        `json:"active_recommendations"`
+	ActiveExperimentCount     int        `json:"active_experiment_count"`
 	PendingReviewCount        int        `json:"pending_review_count"`
 	ApprovedQueueCount        int        `json:"approved_queue_count"`
 	SuccessfulRolloutCount    int        `json:"successful_rollout_count"`

@@ -1047,6 +1047,103 @@ func TestRunSyncOnceAppliesPendingPlansAndReportsSuccess(t *testing.T) {
 	require.Len(t, backup.Files, 2)
 }
 
+func TestRunSyncOnceRollsBackRequestedPlansAndDeletesBackup(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTOPT_HOME", root)
+
+	configTarget := filepath.Join(root, "config.json")
+	textTarget := filepath.Join(root, "AGENTS.md")
+	require.NoError(t, os.WriteFile(configTarget, []byte("{\"shell_profile\":\"safe\"}\n"), 0o644))
+	require.NoError(t, os.WriteFile(textTarget, []byte("# Existing\n\n## AgentOpt\n- rollout\n"), 0o644))
+
+	require.NoError(t, saveApplyBackup(applyBackup{
+		ApplyID:     "apply-sync-rollback",
+		WorkspaceID: "project-1",
+		Files: []applyFileBackup{
+			{
+				FilePath:       configTarget,
+				FileKind:       "json_merge",
+				OriginalExists: true,
+				OriginalJSON: map[string]any{
+					"baseline": true,
+				},
+			},
+			{
+				FilePath:       textTarget,
+				FileKind:       "text_append",
+				OriginalExists: true,
+				OriginalText:   "# Existing\n",
+			},
+		},
+	}))
+
+	var reported request.ApplyResultReq
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "token-sync-rollback", r.Header.Get("X-AgentOpt-Token"))
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/applies/pending":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.PendingApplyResp{
+					Items: []response.PendingApplyItem{{
+						ApplyID: "apply-sync-rollback",
+						Action:  "rollback",
+						Status:  "rollback_requested",
+						Note:    "token regression detected",
+					}},
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/applies/result":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&reported))
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ApplyResultResp{
+					ApplyID:    reported.ApplyID,
+					Status:     "rollback_confirmed",
+					RolledBack: true,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	st := state{
+		ServerURL:   server.URL,
+		APIToken:    "token-sync-rollback",
+		UserID:      "user-1",
+		WorkspaceID: "project-1",
+	}
+
+	err := runSyncOnce(st, newAPIClient(server.URL, "token-sync-rollback"), "", "")
+	require.NoError(t, err)
+
+	configData, err := os.ReadFile(configTarget)
+	require.NoError(t, err)
+	require.Contains(t, string(configData), "\"baseline\": true")
+	require.NotContains(t, string(configData), "\"shell_profile\"")
+
+	textData, err := os.ReadFile(textTarget)
+	require.NoError(t, err)
+	require.Equal(t, "# Existing\n", string(textData))
+
+	require.Equal(t, "apply-sync-rollback", reported.ApplyID)
+	require.True(t, reported.Success)
+	require.True(t, reported.RolledBack)
+	require.Equal(t, "rolled back by agentopt sync", reported.Note)
+	require.Contains(t, reported.AppliedFile, configTarget)
+	require.Contains(t, reported.AppliedFile, textTarget)
+
+	backupPath, err := applyBackupPath("apply-sync-rollback")
+	require.NoError(t, err)
+	_, err = os.Stat(backupPath)
+	require.Error(t, err)
+	require.True(t, os.IsNotExist(err))
+}
+
 func TestRunSyncOnceReportsFailuresAndContinues(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENTOPT_HOME", root)

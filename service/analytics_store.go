@@ -36,6 +36,7 @@ type AnalyticsStore struct {
 	sessionSummaries       map[string][]*SessionSummary
 	recommendations        map[string]*Recommendation
 	projectRecommendations map[string][]string
+	experiments            map[string]*Experiment
 	applyOperations        map[string]*ApplyOperation
 	audits                 []*AuditEvent
 }
@@ -51,6 +52,7 @@ type analyticsStoreState struct {
 	SessionSummaries       map[string][]*SessionSummary `json:"session_summaries"`
 	Recommendations        map[string]*Recommendation   `json:"recommendations"`
 	ProjectRecommendations map[string][]string          `json:"project_recommendations"`
+	Experiments            map[string]*Experiment       `json:"experiments"`
 	ApplyOperations        map[string]*ApplyOperation   `json:"apply_operations"`
 	Audits                 []*AuditEvent                `json:"audits"`
 }
@@ -176,8 +178,28 @@ type PatchPreview struct {
 	ContentPreview  string
 }
 
+type Experiment struct {
+	ID               string
+	ProjectID        string
+	RecommendationID string
+	ApplyID          string
+	RequestedBy      string
+	Scope            string
+	TargetMetric     string
+	Status           string
+	Decision         string
+	DecisionReason   string
+	BaselineSessions int
+	BaselineQueries  int
+	CreatedAt        time.Time
+	ApprovedAt       *time.Time
+	AppliedAt        *time.Time
+	ResolvedAt       *time.Time
+}
+
 type ApplyOperation struct {
 	ID               string
+	ExperimentID     string
 	RecommendationID string
 	ProjectID        string
 	RequestedBy      string
@@ -198,6 +220,8 @@ type ApplyOperation struct {
 	RequestedAt      time.Time
 	ReviewedAt       *time.Time
 	AppliedAt        *time.Time
+	LastReportedAt   *time.Time
+	RolledBackAt     *time.Time
 }
 
 type AuditEvent struct {
@@ -234,6 +258,7 @@ func NewAnalyticsStore(conf *configs.Config) (*AnalyticsStore, error) {
 		sessionSummaries:       make(map[string][]*SessionSummary),
 		recommendations:        make(map[string]*Recommendation),
 		projectRecommendations: make(map[string][]string),
+		experiments:            make(map[string]*Experiment),
 		applyOperations:        make(map[string]*ApplyOperation),
 		audits:                 make([]*AuditEvent, 0, 32),
 	}
@@ -486,6 +511,11 @@ func (s *AnalyticsStore) recordsForPersistence() ([]analyticsDBRecord, error) {
 			return nil, err
 		}
 	}
+	for _, id := range sortedKeys(s.experiments) {
+		if err := appendRecord("experiment", "", id, s.experiments[id]); err != nil {
+			return nil, err
+		}
+	}
 	for _, id := range sortedKeys(s.applyOperations) {
 		if err := appendRecord("apply_operation", "", id, s.applyOperations[id]); err != nil {
 			return nil, err
@@ -625,6 +655,12 @@ func (s *AnalyticsStore) applyLoadedRecord(recordType, scopeID, recordID string,
 			return err
 		}
 		s.projectRecommendations[recordID] = append([]string(nil), item...)
+	case "experiment":
+		var item Experiment
+		if err := json.Unmarshal(payload, &item); err != nil {
+			return err
+		}
+		s.experiments[recordID] = &item
 	case "apply_operation":
 		var item ApplyOperation
 		if err := json.Unmarshal(payload, &item); err != nil {
@@ -676,6 +712,7 @@ func (s *AnalyticsStore) resetInMemoryState() {
 	s.sessionSummaries = make(map[string][]*SessionSummary)
 	s.recommendations = make(map[string]*Recommendation)
 	s.projectRecommendations = make(map[string][]string)
+	s.experiments = make(map[string]*Experiment)
 	s.applyOperations = make(map[string]*ApplyOperation)
 	s.audits = make([]*AuditEvent, 0, 32)
 }
@@ -692,6 +729,7 @@ func (s *AnalyticsStore) snapshotStateLocked() analyticsStoreState {
 		SessionSummaries:       s.sessionSummaries,
 		Recommendations:        s.recommendations,
 		ProjectRecommendations: s.projectRecommendations,
+		Experiments:            s.experiments,
 		ApplyOperations:        s.applyOperations,
 		Audits:                 s.audits,
 	}
@@ -708,6 +746,7 @@ func (s *AnalyticsStore) replaceStateLocked(state analyticsStoreState) error {
 	s.sessionSummaries = ensureNestedMap(state.SessionSummaries)
 	s.recommendations = ensureMap(state.Recommendations)
 	s.projectRecommendations = ensureStringSliceMap(state.ProjectRecommendations)
+	s.experiments = ensureMap(state.Experiments)
 	s.applyOperations = ensureMap(state.ApplyOperations)
 	if state.Audits == nil {
 		s.audits = make([]*AuditEvent, 0, 32)
@@ -1000,6 +1039,12 @@ func (s *AnalyticsStore) collapseProjectsLocked() bool {
 			for _, op := range s.applyOperations {
 				if op != nil && op.ProjectID == project.ID {
 					op.ProjectID = canonical.ID
+				}
+			}
+
+			for _, experiment := range s.experiments {
+				if experiment != nil && experiment.ProjectID == project.ID {
+					experiment.ProjectID = canonical.ID
 				}
 			}
 

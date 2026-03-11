@@ -128,6 +128,10 @@ type ChangePlanListReq struct {
 	UserID    string `query:"user_id"`
 }
 
+type ExperimentListReq struct {
+	ProjectID string `query:"project_id"`
+}
+
 type ImpactSummaryReq struct {
 	ProjectID string `query:"project_id"`
 }
