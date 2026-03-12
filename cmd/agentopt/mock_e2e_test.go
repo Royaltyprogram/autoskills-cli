@@ -44,8 +44,8 @@ func TestMockDashboardApprovalTriggersLocalSyncAndRollback(t *testing.T) {
 	require.NotEmpty(t, cliTokenResp.Token)
 
 	workspace := filepath.Join(root, "workspace")
-	agentsPath := filepath.Join(workspace, "AGENTS.md")
-	originalAgents := "# Project Codex instructions\n"
+	agentsPath := filepath.Join(home, ".codex", "AGENTS.md")
+	originalAgents := "# Global Codex instructions\n"
 	require.NoError(t, os.MkdirAll(workspace, 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Dir(agentsPath), 0o755))
 	require.NoError(t, os.WriteFile(agentsPath, []byte(originalAgents), 0o644))
@@ -96,7 +96,7 @@ func TestMockDashboardApprovalTriggersLocalSyncAndRollback(t *testing.T) {
 		"project_id": []string{workspaceID},
 	})
 	require.NotEmpty(t, recommendations.Items)
-	require.Equal(t, "AGENTS.md", recommendations.Items[0].ChangePlan[0].TargetFile)
+	require.Equal(t, "~/.codex/AGENTS.md", recommendations.Items[0].ChangePlan[0].TargetFile)
 
 	applyResp := dashboardPostJSON[response.ApplyPlanResp](t, dashboardClient, serverURL, "/api/v1/recommendations/apply", request.ApplyRecommendationReq{
 		RecommendationID: recommendations.Items[0].ID,

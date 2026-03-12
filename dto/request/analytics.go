@@ -163,30 +163,3 @@ type ApplyResultReq struct {
 	AppliedText     string         `json:"applied_text"`
 	RolledBack      bool           `json:"rolled_back"`
 }
-
-type HarnessCommandResultReq struct {
-	Phase      string `json:"phase"`
-	Command    string `json:"command"`
-	ExitCode   int    `json:"exit_code"`
-	DurationMS int64  `json:"duration_ms"`
-	Output     string `json:"output,omitempty"`
-	Passed     bool   `json:"passed"`
-	Error      string `json:"error,omitempty"`
-}
-
-type HarnessRunReq struct {
-	ProjectID        string                    `json:"project_id" validate:"required"`
-	RecommendationID string                    `json:"recommendation_id"`
-	ApplyID          string                    `json:"apply_id"`
-	SpecFile         string                    `json:"spec_file" validate:"required"`
-	Name             string                    `json:"name" validate:"required"`
-	Goal             string                    `json:"goal"`
-	Passed           bool                      `json:"passed"`
-	Reason           string                    `json:"reason"`
-	RootDir          string                    `json:"root_dir"`
-	DurationMS       int64                     `json:"duration_ms"`
-	TriggeredBy      string                    `json:"triggered_by"`
-	Commands         []HarnessCommandResultReq `json:"commands"`
-	StartedAt        time.Time                 `json:"started_at"`
-	CompletedAt      time.Time                 `json:"completed_at"`
-}

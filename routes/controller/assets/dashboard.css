@@ -438,7 +438,7 @@
 
     .signals {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 0;
       margin-bottom: 24px;
       border: 1px solid var(--line);
@@ -834,16 +834,6 @@
 
     .usage-flag.snapshot {
       background: var(--support);
-    }
-
-    .usage-flag.harness-pass {
-      background: var(--good);
-      box-shadow: 0 0 0 1px rgba(20, 33, 42, 0.08);
-    }
-
-    .usage-flag.harness-fail {
-      background: var(--danger);
-      box-shadow: 0 0 0 1px rgba(20, 33, 42, 0.08);
     }
 
     .usage-bar-wrap {

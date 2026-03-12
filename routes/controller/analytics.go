@@ -46,7 +46,6 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.GET("/applies/pending", r.pendingApplies)
 	api.GET("/applies", r.applyHistory)
 	api.POST("/applies/result", r.reportApplyResult)
-	api.POST("/harness-runs", r.reportHarnessRun)
 	api.GET("/dashboard/overview", r.dashboardOverview)
 	api.GET("/dashboard/project-insights", r.dashboardProjectInsights)
 }
@@ -242,14 +241,6 @@ func (r *AnalyticsRoute) reportApplyResult(c *echo.Context) error {
 		return err
 	}
 	return common.WrapResp(c)(r.AnalyticsService.ReportApplyResult(c.Request().Context(), &req))
-}
-
-func (r *AnalyticsRoute) reportHarnessRun(c *echo.Context) error {
-	var req request.HarnessRunReq
-	if err := c.Bind(&req); err != nil {
-		return err
-	}
-	return common.WrapResp(c)(r.AnalyticsService.ReportHarnessRun(c.Request().Context(), &req))
 }
 
 func (r *AnalyticsRoute) dashboardOverview(c *echo.Context) error {

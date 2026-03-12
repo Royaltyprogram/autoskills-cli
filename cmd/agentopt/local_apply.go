@@ -921,10 +921,9 @@ func preflightLocalApply(st state, applyID string, previews []response.PatchPrev
 		Reason:  "preflight passed",
 		Steps:   make([]preflightStep, 0, len(previews)),
 	}
-	projectRoot := st.repoPath()
 	resolvedSeen := map[string]struct{}{}
 	for index, preview := range previews {
-		resolvedPath, source, err := resolveApplyTarget(preview.FilePath, stepTargetOverride(targetOverride, index), projectRoot)
+		resolvedPath, source, err := resolveApplyTarget(preview.FilePath, stepTargetOverride(targetOverride, index))
 		if err != nil {
 			return preflightResult{}, err
 		}
@@ -942,7 +941,7 @@ func preflightLocalApply(st state, applyID string, previews []response.PatchPrev
 			step.Allowed = false
 			step.Guard = "operation"
 			step.Reason = "unsupported patch operation"
-		case !isAllowedTarget(preview.FilePath, resolvedPath, projectRoot):
+		case !isAllowedTarget(preview.FilePath, resolvedPath):
 			step.Allowed = false
 			step.Guard = "file_scope"
 			step.Reason = "target file is outside the local guard allowlist"

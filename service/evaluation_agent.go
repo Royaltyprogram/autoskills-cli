@@ -159,8 +159,8 @@ func (a *CloudEvaluationAgent) reviewExperimentFallback(beforeQueries, afterQuer
 	beforeTexts := flattenEvaluationQueries(beforeQueries)
 	afterTexts := flattenEvaluationQueries(afterQueries)
 
-	beforeCounts := countWorkflowPatternMatches(beforeTexts)
-	afterCounts := countWorkflowPatternMatches(afterTexts)
+	beforeCounts := countInstructionPatternMatches(beforeTexts)
+	afterCounts := countInstructionPatternMatches(afterTexts)
 
 	negativeTerms := []string{"slower", "slow", "rollback", "revert", "worse", "regression", "rediscovery", "larger trace"}
 	positiveTerms := []string{"minimal", "targeted", "exact", "verification", "smaller", "focused"}

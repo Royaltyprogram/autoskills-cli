@@ -21,6 +21,7 @@ type AnalyticsService struct {
 	recommendationMinSessions int
 }
 
+const sharedWorkspaceName = "Shared workspace"
 const defaultRecommendationMinSessions = 10
 
 func NewAnalyticsService(opt Options) *AnalyticsService {
@@ -321,12 +322,12 @@ func (s *AnalyticsService) authorizeOrg(ctx context.Context, orgID string) error
 
 func (s *AnalyticsService) authorizeProject(ctx context.Context, project *Project) error {
 	if project == nil {
-		return ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project"))
+		return ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown workspace"))
 	}
 	return s.authorizeOrg(ctx, project.OrgID)
 }
 
-func (s *AnalyticsService) projectsForOrgLocked(orgID string) []*Project {
+func (s *AnalyticsService) findWorkspaceForOrgLocked(orgID string) *Project {
 	orgID = strings.TrimSpace(orgID)
 	if orgID == "" {
 		return nil
@@ -338,55 +339,11 @@ func (s *AnalyticsService) projectsForOrgLocked(orgID string) []*Project {
 			projects = append(projects, project)
 		}
 	}
-	return projects
-}
-
-func (s *AnalyticsService) latestProjectForOrgLocked(orgID string) *Project {
-	return latestProject(s.projectsForOrgLocked(orgID))
-}
-
-func (s *AnalyticsService) findProjectByRepoLocked(orgID, repoHash, repoPath string) *Project {
-	orgID = strings.TrimSpace(orgID)
-	repoHash = strings.TrimSpace(repoHash)
-	repoPath = strings.TrimSpace(repoPath)
-	if orgID == "" {
-		return nil
+	workspace := latestProject(projects)
+	if workspace != nil {
+		workspace.Name = sharedWorkspaceName
 	}
-	cleanRepoPath := ""
-	if repoPath != "" {
-		cleanRepoPath = filepath.Clean(repoPath)
-	}
-	for _, project := range s.projectsForOrgLocked(orgID) {
-		if project == nil {
-			continue
-		}
-		if repoHash != "" && strings.TrimSpace(project.RepoHash) == repoHash {
-			return project
-		}
-		if cleanRepoPath != "" && strings.TrimSpace(project.RepoPath) != "" && filepath.Clean(project.RepoPath) == cleanRepoPath {
-			return project
-		}
-	}
-	return nil
-}
-
-func defaultProjectName(req *request.RegisterProjectReq) string {
-	if req == nil {
-		return "project"
-	}
-	if name := strings.TrimSpace(req.Name); name != "" {
-		return name
-	}
-	if repoPath := strings.TrimSpace(req.RepoPath); repoPath != "" {
-		base := filepath.Base(filepath.Clean(repoPath))
-		if base != "" && base != "." && base != string(filepath.Separator) {
-			return base
-		}
-	}
-	if repoHash := strings.TrimSpace(req.RepoHash); repoHash != "" {
-		return repoHash
-	}
-	return "project"
+	return workspace
 }
 
 func (s *AnalyticsService) resolveProjectLocked(ctx context.Context, projectID string) (*Project, error) {
@@ -399,15 +356,15 @@ func (s *AnalyticsService) resolveProjectLocked(ctx context.Context, projectID s
 
 	identity, ok := AuthIdentityFromContext(ctx)
 	if ok && identity.OrgID != "" {
-		if project := s.latestProjectForOrgLocked(identity.OrgID); project != nil {
-			return project, nil
+		if workspace := s.findWorkspaceForOrgLocked(identity.OrgID); workspace != nil {
+			return workspace, nil
 		}
 	}
 
 	if projectID != "" {
-		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown project"))
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown workspace"))
 	}
-	return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("no connected project"))
+	return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("no connected workspace"))
 }
 
 func (s *AnalyticsService) actorFromContext(ctx context.Context, fallback string) string {
@@ -514,38 +471,30 @@ func (s *AnalyticsService) RegisterProject(ctx context.Context, req *request.Reg
 		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("agent_id does not belong to org_id"))
 	}
 
-	projectID := strings.TrimSpace(req.ProjectID)
-	project := (*Project)(nil)
-	if projectID != "" {
-		if existing, ok := s.AnalyticsStore.projects[projectID]; ok {
-			project = existing
-		}
-	}
+	project := s.findWorkspaceForOrgLocked(req.OrgID)
 	if project == nil {
-		project = s.findProjectByRepoLocked(req.OrgID, req.RepoHash, req.RepoPath)
-	}
-	if project == nil {
+		projectID := strings.TrimSpace(req.ProjectID)
 		if projectID == "" {
 			projectID = s.AnalyticsStore.nextID("project")
 		}
 		project = &Project{
 			ID:    projectID,
 			OrgID: req.OrgID,
-			Name:  defaultProjectName(req),
+			Name:  sharedWorkspaceName,
 		}
 		s.AnalyticsStore.projects[projectID] = project
 	}
 
-	projectID = project.ID
+	projectID := project.ID
 	project.AgentID = req.AgentID
-	project.Name = defaultProjectName(req)
+	project.Name = sharedWorkspaceName
 	project.RepoHash = req.RepoHash
 	project.RepoPath = req.RepoPath
 	project.LanguageMix = cloneFloatMap(req.LanguageMix)
 	project.DefaultTool = req.DefaultTool
 	project.ConnectedAt = now
 
-	s.appendAuditLocked(req.OrgID, projectID, "project.connected", "project connected to aiops")
+	s.appendAuditLocked(req.OrgID, projectID, "workspace.connected", "shared workspace connected to aiops")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -874,14 +823,7 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		totalRollbacks         int
 		totalPendingReview     int
 		totalApprovedQueue     int
-		totalHarnessRuns       int
-		totalHarnessFailures   int
 		lastIngestedAt         *time.Time
-		latestHarnessAt        *time.Time
-		latestFailingHarnessAt *time.Time
-		latestHarnessStatus    string
-		latestHarnessName      string
-		lastFailingHarnessName string
 		researchStatus         *RecommendationResearchStatus
 	)
 
@@ -944,31 +886,6 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 			totalActiveExperiments++
 		}
 	}
-	for _, run := range s.AnalyticsStore.harnessRuns {
-		if run == nil {
-			continue
-		}
-		project := s.AnalyticsStore.projects[run.ProjectID]
-		if project == nil || project.OrgID != req.OrgID {
-			continue
-		}
-		totalHarnessRuns++
-		if !run.Passed {
-			totalHarnessFailures++
-		}
-		recordedAt := latestHarnessRecordedAt(run)
-		if latestHarnessAt == nil || recordedAt.After(*latestHarnessAt) {
-			ts := recordedAt
-			latestHarnessAt = &ts
-			latestHarnessStatus = run.Status
-			latestHarnessName = run.Name
-		}
-		if !run.Passed && (latestFailingHarnessAt == nil || recordedAt.After(*latestFailingHarnessAt)) {
-			ts := recordedAt
-			latestFailingHarnessAt = &ts
-			lastFailingHarnessName = run.Name
-		}
-	}
 
 	rollbackRate := safeDiv(float64(totalRollbacks), float64(maxInt(totalApplyOps, 1)))
 
@@ -995,13 +912,6 @@ func (s *AnalyticsService) DashboardOverview(ctx context.Context, req *request.D
 		AvgQueriesPerSession:      safeDiv(float64(totalQueries), float64(maxInt(totalSessions, 1))),
 		RecommendationApplyRate:   safeDiv(float64(totalSuccessfulApply), float64(maxInt(totalActiveRecs+totalSuccessfulApply, 1))),
 		RollbackRate:              rollbackRate,
-		HarnessRunCount:           totalHarnessRuns,
-		HarnessFailureCount:       totalHarnessFailures,
-		HarnessPassRate:           safeDiv(float64(maxInt(totalHarnessRuns-totalHarnessFailures, 0)), float64(maxInt(totalHarnessRuns, 1))),
-		LatestHarnessStatus:       latestHarnessStatus,
-		LatestHarnessName:         latestHarnessName,
-		LastFailingHarnessName:    lastFailingHarnessName,
-		LatestHarnessAt:           latestHarnessAt,
 		ActionSummary:             buildDashboardActionSummary(totalPendingReview, totalApprovedQueue, totalActiveRecs),
 		OutcomeSummary:            buildDashboardOutcomeSummary(totalSuccessfulApply, totalFailedApply, rollbackRate),
 		ResearchProvider:          s.researchAgent.Provider,
@@ -1054,14 +964,6 @@ func (s *AnalyticsService) DashboardProjectInsights(ctx context.Context, req *re
 	totalToolWallTimeMS := 0
 	sessionsWithFunctionCalls := 0
 	sessionsWithToolErrors := 0
-	harnessRunCount := 0
-	harnessPassCount := 0
-	harnessFailCount := 0
-	latestHarnessStatus := ""
-	latestHarnessName := ""
-	lastFailingHarnessName := ""
-	var latestFailingHarnessAt *time.Time
-	var latestHarnessAt *time.Time
 	totalSessions := len(s.AnalyticsStore.sessionSummaries[req.ProjectID])
 
 	ensureDay := func(day string) *projectInsightDayAccumulator {
@@ -1172,33 +1074,6 @@ func (s *AnalyticsService) DashboardProjectInsights(ctx context.Context, req *re
 	for _, snapshot := range s.AnalyticsStore.configSnapshots[req.ProjectID] {
 		day := snapshot.CapturedAt.UTC().Format("2006-01-02")
 		ensureDay(day).point.SnapshotCount++
-	}
-	for _, run := range s.AnalyticsStore.harnessRuns {
-		if run == nil || run.ProjectID != req.ProjectID {
-			continue
-		}
-		recordedAt := latestHarnessRecordedAt(run)
-		day := recordedAt.UTC().Format("2006-01-02")
-		point := ensureDay(day)
-		harnessRunCount++
-		if run.Passed {
-			harnessPassCount++
-			point.point.HarnessPassCount++
-		} else {
-			harnessFailCount++
-			point.point.HarnessFailCount++
-			if latestFailingHarnessAt == nil || recordedAt.After(*latestFailingHarnessAt) {
-				ts := recordedAt
-				latestFailingHarnessAt = &ts
-				lastFailingHarnessName = run.Name
-			}
-		}
-		if latestHarnessAt == nil || recordedAt.After(*latestHarnessAt) {
-			ts := recordedAt
-			latestHarnessAt = &ts
-			latestHarnessStatus = run.Status
-			latestHarnessName = run.Name
-		}
 	}
 
 	for _, audit := range s.AnalyticsStore.audits {
@@ -1316,14 +1191,6 @@ func (s *AnalyticsService) DashboardProjectInsights(ctx context.Context, req *re
 		AvgToolWallTimeMS:          int(math.Round(safeDiv(float64(totalToolWallTimeMS), float64(maxInt(totalFunctionCalls, 1))))),
 		SessionsWithFunctionCalls:  sessionsWithFunctionCalls,
 		SessionsWithToolErrors:     sessionsWithToolErrors,
-		HarnessRunCount:            harnessRunCount,
-		HarnessPassCount:           harnessPassCount,
-		HarnessFailCount:           harnessFailCount,
-		HarnessPassRate:            safeDiv(float64(harnessPassCount), float64(maxInt(harnessRunCount, 1))),
-		LatestHarnessStatus:        latestHarnessStatus,
-		LatestHarnessName:          latestHarnessName,
-		LastFailingHarnessName:     lastFailingHarnessName,
-		LatestHarnessAt:            latestHarnessAt,
 		ResearchStatus:             cloneRecommendationResearchStatusResp(s.AnalyticsStore.recommendationResearch[req.ProjectID]),
 	}, nil
 }
@@ -1340,24 +1207,19 @@ func (s *AnalyticsService) ListProjects(ctx context.Context, req *request.Projec
 	}
 
 	items := make([]response.ProjectResp, 0)
-	for _, project := range s.projectsForOrgLocked(req.OrgID) {
+	if workspace := s.findWorkspaceForOrgLocked(req.OrgID); workspace != nil {
 		items = append(items, response.ProjectResp{
-			ID:             project.ID,
-			Name:           project.Name,
-			RepoHash:       project.RepoHash,
-			RepoPath:       project.RepoPath,
-			DefaultTool:    project.DefaultTool,
-			LastProfileID:  project.LastProfileID,
-			LastIngestedAt: project.LastIngestedAt,
-			LanguageMix:    cloneFloatMap(project.LanguageMix),
+			ID:             workspace.ID,
+			Name:           workspace.Name,
+			RepoHash:       workspace.RepoHash,
+			RepoPath:       workspace.RepoPath,
+			DefaultTool:    workspace.DefaultTool,
+			LastProfileID:  workspace.LastProfileID,
+			LastIngestedAt: workspace.LastIngestedAt,
+			LanguageMix:    cloneFloatMap(workspace.LanguageMix),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
-		left := s.AnalyticsStore.projects[items[i].ID]
-		right := s.AnalyticsStore.projects[items[j].ID]
-		if left != nil && right != nil && !left.ConnectedAt.Equal(right.ConnectedAt) {
-			return left.ConnectedAt.After(right.ConnectedAt)
-		}
 		if items[i].Name == items[j].Name {
 			return items[i].ID < items[j].ID
 		}
@@ -1872,116 +1734,6 @@ func (s *AnalyticsService) ReportApplyResult(ctx context.Context, req *request.A
 	}, nil
 }
 
-func (s *AnalyticsService) ReportHarnessRun(ctx context.Context, req *request.HarnessRunReq) (*response.HarnessRunResp, error) {
-	s.AnalyticsStore.mu.Lock()
-	defer s.AnalyticsStore.mu.Unlock()
-
-	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizeProject(ctx, project); err != nil {
-		return nil, err
-	}
-
-	specFile := strings.TrimSpace(req.SpecFile)
-	name := strings.TrimSpace(req.Name)
-	if specFile == "" {
-		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("spec_file is required"))
-	}
-	if name == "" {
-		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("name is required"))
-	}
-	recommendationID := strings.TrimSpace(req.RecommendationID)
-	if recommendationID != "" {
-		rec, ok := s.AnalyticsStore.recommendations[recommendationID]
-		if !ok || rec == nil || rec.ProjectID != project.ID {
-			return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("unknown recommendation_id"))
-		}
-	}
-	applyID := strings.TrimSpace(req.ApplyID)
-	if applyID != "" {
-		op, ok := s.AnalyticsStore.applyOperations[applyID]
-		if !ok || op == nil || op.ProjectID != project.ID {
-			return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("unknown apply_id"))
-		}
-		if recommendationID == "" {
-			recommendationID = op.RecommendationID
-		} else if strings.TrimSpace(op.RecommendationID) != recommendationID {
-			return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("apply_id does not match recommendation_id"))
-		}
-	}
-
-	now := time.Now().UTC()
-	startedAt := req.StartedAt.UTC()
-	if startedAt.IsZero() {
-		startedAt = now
-	}
-	completedAt := req.CompletedAt.UTC()
-	if completedAt.IsZero() {
-		if req.DurationMS > 0 {
-			completedAt = startedAt.Add(time.Duration(req.DurationMS) * time.Millisecond)
-		} else {
-			completedAt = now
-		}
-	}
-	if completedAt.Before(startedAt) {
-		completedAt = startedAt
-	}
-	durationMS := req.DurationMS
-	if durationMS < 0 {
-		durationMS = 0
-	}
-	if durationMS == 0 {
-		durationMS = completedAt.Sub(startedAt).Milliseconds()
-	}
-
-	commands := make([]HarnessCommandResult, 0, len(req.Commands))
-	for _, item := range req.Commands {
-		commands = append(commands, HarnessCommandResult{
-			Phase:      strings.TrimSpace(item.Phase),
-			Command:    strings.TrimSpace(item.Command),
-			ExitCode:   item.ExitCode,
-			DurationMS: item.DurationMS,
-			Output:     strings.TrimSpace(item.Output),
-			Passed:     item.Passed,
-			Error:      strings.TrimSpace(item.Error),
-		})
-	}
-
-	status := "passed"
-	if !req.Passed {
-		status = "failed"
-	}
-	run := &HarnessRun{
-		ID:               s.AnalyticsStore.nextID("harness"),
-		ProjectID:        project.ID,
-		RecommendationID: recommendationID,
-		ApplyID:          applyID,
-		SpecFile:         filepath.Clean(specFile),
-		Name:             name,
-		Goal:             strings.TrimSpace(req.Goal),
-		Status:           status,
-		Passed:           req.Passed,
-		Reason:           strings.TrimSpace(req.Reason),
-		RootDir:          strings.TrimSpace(req.RootDir),
-		DurationMS:       durationMS,
-		Commands:         commands,
-		TriggeredBy:      s.actorFromContext(ctx, req.TriggeredBy),
-		StartedAt:        startedAt,
-		CompletedAt:      completedAt,
-		CreatedAt:        now,
-	}
-	s.AnalyticsStore.harnessRuns[run.ID] = run
-	s.appendAuditLocked(project.OrgID, project.ID, "harness.run", run.Status)
-	if err := s.AnalyticsStore.persistLocked(); err != nil {
-		return nil, err
-	}
-
-	resp := toHarnessRunResp(run)
-	return &resp, nil
-}
-
 func (s *AnalyticsService) currentRecommendationsLocked(projectID string) []*Recommendation {
 	ids := s.AnalyticsStore.projectRecommendations[projectID]
 	items := make([]*Recommendation, 0, len(ids))
@@ -2158,7 +1910,6 @@ func (s *AnalyticsService) newRecommendationLocked(project *Project, tpl researc
 		ResearchModel:    s.researchAgent.Model,
 		Evidence:         cloneStringSlice(tpl.Evidence),
 		ChangePlan:       cloneChangePlanSteps(tpl.Steps),
-		HarnessSpec:      cloneHarnessSpec(tpl.HarnessSpec),
 		SettingsUpdates:  cloneAnyMap(tpl.Settings),
 		RawSuggestion:    tpl.RawSuggestion,
 		CreatedAt:        time.Now().UTC(),
@@ -2262,40 +2013,10 @@ func toRecommendationResp(rec *Recommendation) response.RecommendationResp {
 		ResearchModel:    rec.ResearchModel,
 		Evidence:         cloneStringSlice(rec.Evidence),
 		ChangePlan:       toChangePlanResp(rec.ChangePlan),
-		HarnessSpec:      toHarnessSpecResp(rec.HarnessSpec),
 		SettingsUpdates:  cloneAnyMap(rec.SettingsUpdates),
 		RawSuggestion:    rec.RawSuggestion,
 		CreatedAt:        rec.CreatedAt,
 	}
-}
-
-func toHarnessSpecResp(spec *HarnessSpec) *response.HarnessSpecResp {
-	if spec == nil {
-		return nil
-	}
-	return &response.HarnessSpecResp{
-		Version:       spec.Version,
-		Name:          spec.Name,
-		Goal:          spec.Goal,
-		TargetPaths:   cloneStringSlice(spec.TargetPaths),
-		SetupCommands: cloneStringSlice(spec.SetupCommands),
-		TestCommands:  cloneStringSlice(spec.TestCommands),
-		Assertions:    toHarnessAssertionResp(spec.Assertions),
-		AntiGoals:     cloneStringSlice(spec.AntiGoals),
-	}
-}
-
-func toHarnessAssertionResp(items []HarnessAssertion) []response.HarnessAssertionResp {
-	out := make([]response.HarnessAssertionResp, 0, len(items))
-	for _, item := range items {
-		out = append(out, response.HarnessAssertionResp{
-			Kind:        item.Kind,
-			Equals:      item.Equals,
-			Contains:    item.Contains,
-			NotContains: item.NotContains,
-		})
-	}
-	return out
 }
 
 func toPatchPreviewResp(items []PatchPreview) []response.PatchPreviewItem {
@@ -2307,22 +2028,6 @@ func toPatchPreviewResp(items []PatchPreview) []response.PatchPreviewItem {
 			Summary:         item.Summary,
 			SettingsUpdates: cloneAnyMap(item.SettingsUpdates),
 			ContentPreview:  item.ContentPreview,
-		})
-	}
-	return out
-}
-
-func toHarnessCommandResultsResp(items []HarnessCommandResult) []response.HarnessCommandResultResp {
-	out := make([]response.HarnessCommandResultResp, 0, len(items))
-	for _, item := range items {
-		out = append(out, response.HarnessCommandResultResp{
-			Phase:      item.Phase,
-			Command:    item.Command,
-			ExitCode:   item.ExitCode,
-			DurationMS: item.DurationMS,
-			Output:     item.Output,
-			Passed:     item.Passed,
-			Error:      item.Error,
 		})
 	}
 	return out
@@ -2341,28 +2046,6 @@ func toChangePlanResp(items []ChangePlanStep) []response.ChangePlanStepResp {
 		})
 	}
 	return out
-}
-
-func toHarnessRunResp(run *HarnessRun) response.HarnessRunResp {
-	return response.HarnessRunResp{
-		ID:               run.ID,
-		ProjectID:        run.ProjectID,
-		RecommendationID: run.RecommendationID,
-		ApplyID:          run.ApplyID,
-		SpecFile:         run.SpecFile,
-		Name:             run.Name,
-		Goal:             run.Goal,
-		Status:           run.Status,
-		Passed:           run.Passed,
-		Reason:           run.Reason,
-		RootDir:          run.RootDir,
-		DurationMS:       run.DurationMS,
-		TriggeredBy:      run.TriggeredBy,
-		Commands:         toHarnessCommandResultsResp(run.Commands),
-		StartedAt:        run.StartedAt,
-		CompletedAt:      run.CompletedAt,
-		CreatedAt:        run.CreatedAt,
-	}
 }
 
 func toApplyHistoryItem(op *ApplyOperation) response.ApplyHistoryItem {
@@ -2679,19 +2362,6 @@ func derefTime(value *time.Time, fallback time.Time) time.Time {
 		return fallback
 	}
 	return *value
-}
-
-func latestHarnessRecordedAt(run *HarnessRun) time.Time {
-	if run == nil {
-		return time.Time{}
-	}
-	if !run.CompletedAt.IsZero() {
-		return run.CompletedAt
-	}
-	if !run.StartedAt.IsZero() {
-		return run.StartedAt
-	}
-	return run.CreatedAt
 }
 
 func maxInt(a, b int) int {

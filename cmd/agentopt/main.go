@@ -27,42 +27,29 @@ import (
 )
 
 type state struct {
-	ServerURL     string                        `json:"server_url"`
-	APIToken      string                        `json:"api_token"`
-	OrgID         string                        `json:"org_id"`
-	UserID        string                        `json:"user_id"`
-	AgentID       string                        `json:"agent_id"`
-	DeviceName    string                        `json:"device_name"`
-	Hostname      string                        `json:"hostname"`
-	WorkspaceID   string                        `json:"workspace_id,omitempty"`
-	WorkspaceName string                        `json:"workspace_name,omitempty"`
-	RepoPath      string                        `json:"repo_path,omitempty"`
-	Workspaces    map[string]connectedWorkspace `json:"workspaces,omitempty"`
+	ServerURL   string `json:"server_url"`
+	APIToken    string `json:"api_token"`
+	OrgID       string `json:"org_id"`
+	UserID      string `json:"user_id"`
+	AgentID     string `json:"agent_id"`
+	DeviceName  string `json:"device_name"`
+	Hostname    string `json:"hostname"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 
 type stateDisk struct {
-	ServerURL       string                        `json:"server_url"`
-	APIToken        string                        `json:"api_token"`
-	OrgID           string                        `json:"org_id"`
-	UserID          string                        `json:"user_id"`
-	AgentID         string                        `json:"agent_id"`
-	DeviceName      string                        `json:"device_name"`
-	Hostname        string                        `json:"hostname"`
-	WorkspaceID     string                        `json:"workspace_id,omitempty"`
-	WorkspaceName   string                        `json:"workspace_name,omitempty"`
-	RepoPath        string                        `json:"repo_path,omitempty"`
-	Workspaces      map[string]connectedWorkspace `json:"workspaces,omitempty"`
-	LegacyProjectID string                        `json:"project_id,omitempty"`
+	ServerURL       string `json:"server_url"`
+	APIToken        string `json:"api_token"`
+	OrgID           string `json:"org_id"`
+	UserID          string `json:"user_id"`
+	AgentID         string `json:"agent_id"`
+	DeviceName      string `json:"device_name"`
+	Hostname        string `json:"hostname"`
+	WorkspaceID     string `json:"workspace_id,omitempty"`
+	LegacyProjectID string `json:"project_id,omitempty"`
 }
 
-type connectedWorkspace struct {
-	ID       string `json:"id"`
-	Name     string `json:"name,omitempty"`
-	RepoPath string `json:"repo_path,omitempty"`
-	RepoHash string `json:"repo_hash,omitempty"`
-}
-
-const defaultWorkspaceName = "Connected project"
+const sharedWorkspaceName = "Shared workspace"
 
 type envelope struct {
 	Code    int             `json:"code"`
@@ -79,15 +66,6 @@ type apiClient struct {
 	baseURL string
 	token   string
 	http    *http.Client
-}
-
-type guardedApplyLabels struct {
-	SuccessNote              string
-	ApplyFailurePrefix       string
-	PreHarnessFailurePrefix  string
-	PostHarnessFailurePrefix string
-	RollbackFailurePrefix    string
-	RollbackSuccessNote      string
 }
 
 const defaultAPIClientTimeout = 90 * time.Second
@@ -139,8 +117,6 @@ func run(args []string) error {
 		return runImpact(args[1:])
 	case "audit":
 		return runAudit(args[1:])
-	case "harness":
-		return runHarness(args[1:])
 	case "sync":
 		return runSync(args[1:])
 	case "daemon":
@@ -169,21 +145,20 @@ func printUsage() {
 	fmt.Println(`agentopt commands:
   version           print the CLI build version
   login             authenticate with an issued CLI token and register this device
-  connect           connect a local repo as a project for the current org
+  connect           connect a local repo to the shared workspace for the current org
   snapshot          upload a config snapshot from a JSON file
   session           upload one or more session summaries from a JSON file or local Codex session files
   collect           upload local usage data now and optionally keep collecting on an interval
-  snapshots         list config snapshots for the active project
-  sessions          list recent session summaries for the active project
-  recommendations   list active recommendations for the active project
-  status            print org overview and active project recommendations
-  workspace         show connected projects for the current org
-  history           list apply history for the active project
-  experiments       list experiment lifecycle records for the active project
-  pending           list pending apply jobs visible to the current user and active project
-  impact            list recommendation impact summaries for the active project
-  audit             list recent audit events for the current org and active project
-  harness           run repo-local AgentOpt harness specs
+  snapshots         list config snapshots for the shared workspace
+  sessions          list recent session summaries for the shared workspace
+  recommendations   list active recommendations for the shared workspace
+  status            print org overview and shared workspace recommendations
+  workspace         show the shared workspace connected to the current org
+  history           list apply history for the shared workspace
+  experiments       list experiment lifecycle records for the shared workspace
+  pending           list pending apply jobs visible to the current user and shared workspace
+  impact            list recommendation impact summaries for the shared workspace
+  audit             list recent audit events for the current org and shared workspace
   sync              pull approved change plans and execute them locally
   daemon            install or inspect background collect + auto-sync automation
   rollback          restore the local config backup for a previous apply
@@ -299,7 +274,7 @@ func runConnect(args []string) error {
 	req := request.RegisterProjectReq{
 		OrgID:       st.OrgID,
 		AgentID:     st.AgentID,
-		Name:        workspaceNameForRepo(repoRoot),
+		Name:        sharedWorkspaceName,
 		RepoHash:    hash,
 		RepoPath:    repoRoot,
 		LanguageMix: parseLanguageMix(*languageMix),
@@ -310,12 +285,7 @@ func runConnect(args []string) error {
 		return err
 	}
 
-	st.rememberWorkspace(connectedWorkspace{
-		ID:       resp.ProjectID,
-		Name:     req.Name,
-		RepoPath: repoRoot,
-		RepoHash: hash,
-	})
+	st.setWorkspaceID(resp.ProjectID)
 	if err := saveState(st); err != nil {
 		return err
 	}
@@ -501,7 +471,7 @@ func runStatus(args []string) error {
 
 	payload := map[string]any{
 		"workspace_id":    st.workspaceID(),
-		"workspace_name":  st.workspaceName(),
+		"workspace_name":  sharedWorkspaceName,
 		"overview":        overview,
 		"recommendations": recs.Items,
 	}
@@ -719,28 +689,38 @@ func runSyncOnce(st state, client *apiClient, targetConfig, reasoningEffort stri
 			continue
 		}
 
-		result, err := executeGuardedLocalApply(st, client, item.ApplyID, item.RecommendationID, item.PatchPreview, targetConfig, reasoningEffort, guardedApplyLabels{
-			SuccessNote:              "applied by agentopt sync",
-			ApplyFailurePrefix:       "local apply failed during sync",
-			PreHarnessFailurePrefix:  "pre-apply harness failed during sync",
-			PostHarnessFailurePrefix: "post-apply harness failed during sync",
-			RollbackFailurePrefix:    "automatic rollback failed during sync",
-			RollbackSuccessNote:      "auto-rolled back by agentopt sync after post-apply harness failure",
-		})
+		localResult, err := executeLocalApply(st, item.ApplyID, item.PatchPreview, targetConfig, reasoningEffort)
 		if err != nil {
-			if result.ApplyID == "" {
-				return err
+			result, reportErr := reportApplyResult(client, request.ApplyResultReq{
+				ApplyID: item.ApplyID,
+				Success: false,
+				Note:    fmt.Sprintf("local apply failed during sync: %v", err),
+			})
+			if reportErr != nil {
+				return fmt.Errorf("apply %s failed locally: %v; failed to report result: %w", item.ApplyID, err, reportErr)
 			}
 			results = append(results, result)
 			failedApplyIDs = append(failedApplyIDs, item.ApplyID)
 			continue
+		}
+
+		result, err := reportApplyResult(client, request.ApplyResultReq{
+			ApplyID:         item.ApplyID,
+			Success:         true,
+			Note:            "applied by agentopt sync",
+			AppliedFile:     localResult.FilePath,
+			AppliedSettings: localResult.AppliedSettings,
+			AppliedText:     localResult.AppliedText,
+		})
+		if err != nil {
+			return err
 		}
 		results = append(results, result)
 	}
 
 	if err := prettyPrint(map[string]any{
 		"workspace_id":   st.workspaceID(),
-		"workspace_name": st.workspaceName(),
+		"workspace_name": sharedWorkspaceName,
 		"pending_count":  len(pending.Items),
 		"failed_count":   len(failedApplyIDs),
 		"results":        results,
@@ -800,107 +780,30 @@ func runApply(args []string) error {
 		}
 	}
 
-	result, err := executeGuardedLocalApply(st, client, plan.ApplyID, plan.Recommendation.ID, plan.PatchPreview, *targetConfig, resolvedReasoningEffort, guardedApplyLabels{
-		SuccessNote:              *note,
-		ApplyFailurePrefix:       "local apply failed",
-		PreHarnessFailurePrefix:  "pre-apply harness failed",
-		PostHarnessFailurePrefix: "post-apply harness failed",
-		RollbackFailurePrefix:    "automatic rollback failed",
-		RollbackSuccessNote:      "auto-rolled back after post-apply harness failure",
-	})
+	localResult, err := executeLocalApply(st, plan.ApplyID, plan.PatchPreview, *targetConfig, resolvedReasoningEffort)
 	if err != nil {
-		if result.ApplyID != "" {
-			_ = prettyPrint(result)
+		if _, reportErr := reportApplyResult(client, request.ApplyResultReq{
+			ApplyID: plan.ApplyID,
+			Success: false,
+			Note:    fmt.Sprintf("local apply failed: %v", err),
+		}); reportErr != nil {
+			return fmt.Errorf("local apply failed: %v; failed to report result: %w", err, reportErr)
 		}
 		return err
 	}
-	return prettyPrint(result)
-}
-
-func executeGuardedLocalApply(st state, client *apiClient, applyID, recommendationID string, previews []response.PatchPreviewItem, targetConfig, reasoningEffort string, labels guardedApplyLabels) (response.ApplyResultResp, error) {
-	preHarness, err := runHarnessGate(st, client, applyID, recommendationID)
-	if err != nil {
-		note := fmt.Sprintf("%s: %v", labels.PreHarnessFailurePrefix, err)
-		return reportFailedGuardedApply(client, applyID, note)
-	}
-	if preHarness.Executed && !preHarness.Passed {
-		note := fmt.Sprintf("%s: %s", labels.PreHarnessFailurePrefix, summarizeHarnessFailure(preHarness.Results))
-		return reportFailedGuardedApply(client, applyID, note)
-	}
-
-	localResult, err := executeLocalApply(st, applyID, previews, targetConfig, reasoningEffort)
-	if err != nil {
-		note := fmt.Sprintf("%s: %v", labels.ApplyFailurePrefix, err)
-		return reportFailedGuardedApply(client, applyID, note)
-	}
-
-	postHarness, err := runHarnessGate(st, client, applyID, recommendationID)
-	if err != nil {
-		note := fmt.Sprintf("%s: %v", labels.PostHarnessFailurePrefix, err)
-		return rollbackAfterHarnessFailure(client, applyID, note, labels)
-	}
-	if postHarness.Executed && !postHarness.Passed {
-		note := fmt.Sprintf("%s: %s", labels.PostHarnessFailurePrefix, summarizeHarnessFailure(postHarness.Results))
-		return rollbackAfterHarnessFailure(client, applyID, note, labels)
-	}
 
 	result, err := reportApplyResult(client, request.ApplyResultReq{
-		ApplyID:         applyID,
+		ApplyID:         plan.ApplyID,
 		Success:         true,
-		Note:            labels.SuccessNote,
+		Note:            *note,
 		AppliedFile:     localResult.FilePath,
 		AppliedSettings: localResult.AppliedSettings,
 		AppliedText:     localResult.AppliedText,
 	})
 	if err != nil {
-		return response.ApplyResultResp{}, err
+		return err
 	}
-	return result, nil
-}
-
-func rollbackAfterHarnessFailure(client *apiClient, applyID, harnessNote string, labels guardedApplyLabels) (response.ApplyResultResp, error) {
-	rollbackResult, rollbackErr := executeLocalRollback(applyID)
-	if rollbackErr != nil {
-		note := fmt.Sprintf("%s; %s: %v", harnessNote, labels.RollbackFailurePrefix, rollbackErr)
-		result, err := reportApplyResult(client, request.ApplyResultReq{
-			ApplyID: applyID,
-			Success: false,
-			Note:    note,
-		})
-		if err != nil {
-			return response.ApplyResultResp{}, fmt.Errorf("%s; failed to report result: %w", note, err)
-		}
-		return result, errors.New(note)
-	}
-
-	result, err := reportApplyResult(client, request.ApplyResultReq{
-		ApplyID:         applyID,
-		Success:         true,
-		Note:            fmt.Sprintf("%s: %s", labels.RollbackSuccessNote, harnessNote),
-		AppliedFile:     rollbackResult.FilePath,
-		AppliedSettings: rollbackResult.AppliedSettings,
-		AppliedText:     rollbackResult.AppliedText,
-		RolledBack:      true,
-	})
-	if err != nil {
-		return response.ApplyResultResp{}, err
-	}
-	if err := deleteApplyBackup(applyID); err != nil {
-		return result, err
-	}
-	return result, errors.New(harnessNote)
-}
-
-func reportFailedGuardedApply(client *apiClient, applyID, note string) (response.ApplyResultResp, error) {
-	result, err := reportApplyResult(client, request.ApplyResultReq{
-		ApplyID: applyID,
-		Success: false,
-		Note:    note,
-	})
-	if err != nil {
-		return response.ApplyResultResp{}, fmt.Errorf("%s; failed to report result: %w", note, err)
-	}
-	return result, errors.New(note)
+	return prettyPrint(result)
 }
 
 func runReview(args []string) error {
@@ -1168,32 +1071,16 @@ func loadState() (state, error) {
 	if err := json.Unmarshal(data, &disk); err != nil {
 		return state{}, err
 	}
-	st := state{
-		ServerURL:     disk.ServerURL,
-		APIToken:      disk.APIToken,
-		OrgID:         disk.OrgID,
-		UserID:        disk.UserID,
-		AgentID:       disk.AgentID,
-		DeviceName:    disk.DeviceName,
-		Hostname:      disk.Hostname,
-		WorkspaceID:   firstNonEmpty(disk.WorkspaceID, disk.LegacyProjectID),
-		WorkspaceName: disk.WorkspaceName,
-		RepoPath:      strings.TrimSpace(disk.RepoPath),
-		Workspaces:    cloneConnectedWorkspaces(disk.Workspaces),
-	}
-	if st.Workspaces == nil {
-		st.Workspaces = map[string]connectedWorkspace{}
-	}
-	if id := st.workspaceID(); id != "" {
-		if _, ok := st.Workspaces[id]; !ok {
-			st.Workspaces[id] = connectedWorkspace{
-				ID:       id,
-				Name:     st.WorkspaceName,
-				RepoPath: st.RepoPath,
-			}
-		}
-	}
-	return st, nil
+	return state{
+		ServerURL:   disk.ServerURL,
+		APIToken:    disk.APIToken,
+		OrgID:       disk.OrgID,
+		UserID:      disk.UserID,
+		AgentID:     disk.AgentID,
+		DeviceName:  disk.DeviceName,
+		Hostname:    disk.Hostname,
+		WorkspaceID: firstNonEmpty(disk.WorkspaceID, disk.LegacyProjectID),
+	}, nil
 }
 
 func loadWorkspaceState() (state, error) {
@@ -1201,11 +1088,8 @@ func loadWorkspaceState() (state, error) {
 	if err != nil {
 		return state{}, err
 	}
-	if err := st.resolveWorkspaceForCurrentDir(); err != nil {
-		return state{}, err
-	}
 	if st.workspaceID() == "" {
-		return state{}, errors.New("no connected project found; run `agentopt connect` first")
+		return state{}, errors.New("shared workspace is not connected; run `agentopt connect` first")
 	}
 	return st, nil
 }
@@ -1219,17 +1103,14 @@ func saveState(st state) error {
 		return err
 	}
 	payload := stateDisk{
-		ServerURL:     st.ServerURL,
-		APIToken:      st.APIToken,
-		OrgID:         st.OrgID,
-		UserID:        st.UserID,
-		AgentID:       st.AgentID,
-		DeviceName:    st.DeviceName,
-		Hostname:      st.Hostname,
-		WorkspaceID:   st.workspaceID(),
-		WorkspaceName: st.workspaceName(),
-		RepoPath:      st.repoPath(),
-		Workspaces:    cloneConnectedWorkspaces(st.Workspaces),
+		ServerURL:   st.ServerURL,
+		APIToken:    st.APIToken,
+		OrgID:       st.OrgID,
+		UserID:      st.UserID,
+		AgentID:     st.AgentID,
+		DeviceName:  st.DeviceName,
+		Hostname:    st.Hostname,
+		WorkspaceID: st.workspaceID(),
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -1259,33 +1140,13 @@ func normalizeRepoPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return canonicalizePath(absolute), nil
-}
-
-func canonicalizePath(path string) string {
-	path = filepath.Clean(strings.TrimSpace(path))
-	if path == "" {
-		return ""
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err == nil && strings.TrimSpace(resolved) != "" {
-		return filepath.Clean(resolved)
-	}
-	return path
-}
-
-func workspaceNameForRepo(repoRoot string) string {
-	base := filepath.Base(filepath.Clean(strings.TrimSpace(repoRoot)))
-	if base == "" || base == "." || base == string(filepath.Separator) {
-		return defaultWorkspaceName
-	}
-	return base
+	return absolute, nil
 }
 
 func workspaceScopedItems(st state, items any) map[string]any {
 	return map[string]any{
 		"workspace_id":   st.workspaceID(),
-		"workspace_name": st.workspaceName(),
+		"workspace_name": sharedWorkspaceName,
 		"items":          items,
 	}
 }
@@ -1296,124 +1157,6 @@ func (s state) workspaceID() string {
 
 func (s *state) setWorkspaceID(id string) {
 	s.WorkspaceID = strings.TrimSpace(id)
-}
-
-func (s state) workspaceName() string {
-	if ws, ok := s.activeWorkspace(); ok && strings.TrimSpace(ws.Name) != "" {
-		return strings.TrimSpace(ws.Name)
-	}
-	if name := strings.TrimSpace(s.WorkspaceName); name != "" {
-		return name
-	}
-	return defaultWorkspaceName
-}
-
-func (s state) repoPath() string {
-	if ws, ok := s.activeWorkspace(); ok && strings.TrimSpace(ws.RepoPath) != "" {
-		return strings.TrimSpace(ws.RepoPath)
-	}
-	return strings.TrimSpace(s.RepoPath)
-}
-
-func (s state) activeWorkspace() (connectedWorkspace, bool) {
-	id := s.workspaceID()
-	if id != "" && s.Workspaces != nil {
-		if ws, ok := s.Workspaces[id]; ok {
-			if strings.TrimSpace(ws.ID) == "" {
-				ws.ID = id
-			}
-			return ws, true
-		}
-	}
-	if id == "" {
-		return connectedWorkspace{}, false
-	}
-	return connectedWorkspace{
-		ID:       id,
-		Name:     s.WorkspaceName,
-		RepoPath: s.RepoPath,
-	}, true
-}
-
-func (s *state) rememberWorkspace(ws connectedWorkspace) {
-	ws.ID = strings.TrimSpace(ws.ID)
-	ws.Name = strings.TrimSpace(ws.Name)
-	ws.RepoPath = canonicalizePath(ws.RepoPath)
-	ws.RepoHash = strings.TrimSpace(ws.RepoHash)
-	if ws.ID == "" {
-		return
-	}
-	if s.Workspaces == nil {
-		s.Workspaces = map[string]connectedWorkspace{}
-	}
-	s.Workspaces[ws.ID] = ws
-	s.WorkspaceID = ws.ID
-	s.WorkspaceName = ws.Name
-	s.RepoPath = ws.RepoPath
-}
-
-func (s *state) resolveWorkspaceForCurrentDir() error {
-	if s.workspaceID() == "" && len(s.Workspaces) == 0 {
-		return errors.New("no connected project found; run `agentopt connect` first")
-	}
-	cwd, err := os.Getwd()
-	if err == nil {
-		if ws, ok := s.matchWorkspaceByDir(cwd); ok {
-			s.rememberWorkspace(ws)
-			return nil
-		}
-	}
-	if ws, ok := s.activeWorkspace(); ok {
-		s.rememberWorkspace(ws)
-		return nil
-	}
-	if len(s.Workspaces) == 1 {
-		for _, ws := range s.Workspaces {
-			s.rememberWorkspace(ws)
-			return nil
-		}
-	}
-	return errors.New("current directory does not match any connected project; run `agentopt connect --repo-path <path>` or switch into a connected repo")
-}
-
-func (s state) matchWorkspaceByDir(dir string) (connectedWorkspace, bool) {
-	dir = canonicalizePath(dir)
-	if dir == "" {
-		return connectedWorkspace{}, false
-	}
-	bestDepth := -1
-	best := connectedWorkspace{}
-	for _, ws := range s.Workspaces {
-		repoPath := canonicalizePath(ws.RepoPath)
-		if repoPath == "" || !isWithinRoot(repoPath, dir) {
-			continue
-		}
-		depth := len(filepath.Clean(repoPath))
-		if depth > bestDepth {
-			bestDepth = depth
-			best = ws
-		}
-	}
-	if bestDepth >= 0 {
-		if strings.TrimSpace(best.ID) == "" {
-			best.ID = s.workspaceID()
-		}
-		return best, true
-	}
-	return connectedWorkspace{}, false
-}
-
-func cloneConnectedWorkspaces(input map[string]connectedWorkspace) map[string]connectedWorkspace {
-	if len(input) == 0 {
-		return map[string]connectedWorkspace{}
-	}
-	out := make(map[string]connectedWorkspace, len(input))
-	for key, value := range input {
-		value.ID = firstNonEmpty(strings.TrimSpace(value.ID), strings.TrimSpace(key))
-		value.RepoPath = canonicalizePath(value.RepoPath)
-		out[value.ID] = value
-	}
-	return out
 }
 
 func prettyPrint(v any) error {
@@ -1602,7 +1345,7 @@ func runtimePlatform() string {
 	return runtime.GOOS + "/" + runtime.GOARCH
 }
 
-func resolveApplyTarget(previewPath, targetOverride string, baseDir ...string) (string, string, error) {
+func resolveApplyTarget(previewPath, targetOverride string) (string, string, error) {
 	target := previewPath
 	source := "preview"
 	if strings.TrimSpace(targetOverride) != "" {
@@ -1617,18 +1360,11 @@ func resolveApplyTarget(previewPath, targetOverride string, baseDir ...string) (
 	if filepath.IsAbs(target) {
 		return filepath.Clean(target), source, nil
 	}
-	root := ""
-	if len(baseDir) > 0 {
-		root = strings.TrimSpace(baseDir[0])
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", "", err
 	}
-	if root == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", "", err
-		}
-		root = cwd
-	}
-	return filepath.Clean(filepath.Join(root, target)), source, nil
+	return filepath.Clean(filepath.Join(cwd, target)), source, nil
 }
 
 func expandUserPath(target string) (string, bool, error) {
@@ -1674,9 +1410,8 @@ func isAllowedOperation(operation string) bool {
 	}
 }
 
-func isAllowedTarget(previewPath, resolvedPath string, roots ...string) bool {
+func isAllowedTarget(previewPath, resolvedPath string) bool {
 	allowSkillTarget := isAllowedAgentoptSkillTarget(previewPath) || isAllowedAgentoptSkillTarget(resolvedPath)
-	allowHarnessTarget := isAllowedHarnessTarget(previewPath) || isAllowedHarnessTarget(resolvedPath)
 	allowedRelative := map[string]struct{}{
 		filepath.Clean(".codex/config.json"):          {},
 		filepath.Clean(".claude/settings.local.json"): {},
@@ -1687,7 +1422,7 @@ func isAllowedTarget(previewPath, resolvedPath string, roots ...string) bool {
 	}
 
 	if !filepath.IsAbs(previewPath) {
-		if _, ok := allowedRelative[filepath.Clean(previewPath)]; !ok && !allowSkillTarget && !allowHarnessTarget {
+		if _, ok := allowedRelative[filepath.Clean(previewPath)]; !ok && !allowSkillTarget {
 			return false
 		}
 	}
@@ -1702,52 +1437,24 @@ func isAllowedTarget(previewPath, resolvedPath string, roots ...string) bool {
 		"SKILL.md":            {},
 	}
 	if _, ok := allowedBase[base]; !ok {
-		if !(allowHarnessTarget && strings.EqualFold(filepath.Ext(base), ".json")) {
-			return false
-		}
+		return false
 	}
 	if base == "SKILL.md" && !allowSkillTarget {
 		return false
 	}
 
-	allowedRoots := make([]string, 0, len(roots)+3)
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root != "" {
-			allowedRoots = append(allowedRoots, root)
-		}
+	cwd, err := os.Getwd()
+	if err == nil && isWithinRoot(cwd, resolvedPath) {
+		return true
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		allowedRoots = append(allowedRoots, cwd)
-	}
-	if root := os.Getenv("AGENTOPT_HOME"); strings.TrimSpace(root) != "" {
-		allowedRoots = append(allowedRoots, root)
-	}
-	for _, root := range allowedRoots {
-		if isWithinRoot(root, resolvedPath) {
-			return true
-		}
+	if root := os.Getenv("AGENTOPT_HOME"); strings.TrimSpace(root) != "" && isWithinRoot(root, resolvedPath) {
+		return true
 	}
 	home, err := os.UserHomeDir()
 	if err == nil && isWithinRoot(home, resolvedPath) {
 		return true
 	}
 	return false
-}
-
-func isAllowedHarnessTarget(target string) bool {
-	cleaned := filepath.ToSlash(filepath.Clean(strings.TrimSpace(target)))
-	if cleaned == "" || !strings.HasSuffix(cleaned, ".json") {
-		return false
-	}
-	switch {
-	case strings.HasPrefix(cleaned, ".agentopt/harness/"):
-		return true
-	case strings.Contains(cleaned, "/.agentopt/harness/"):
-		return true
-	default:
-		return false
-	}
 }
 
 func isAllowedAgentoptSkillTarget(target string) bool {

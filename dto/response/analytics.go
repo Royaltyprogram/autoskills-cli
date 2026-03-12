@@ -160,24 +160,6 @@ type ChangePlanStepResp struct {
 	ContentPreview  string         `json:"content_preview"`
 }
 
-type HarnessAssertionResp struct {
-	Kind        string `json:"kind"`
-	Equals      int    `json:"equals,omitempty"`
-	Contains    string `json:"contains,omitempty"`
-	NotContains string `json:"not_contains,omitempty"`
-}
-
-type HarnessSpecResp struct {
-	Version       int                    `json:"version"`
-	Name          string                 `json:"name"`
-	Goal          string                 `json:"goal,omitempty"`
-	TargetPaths   []string               `json:"target_paths,omitempty"`
-	SetupCommands []string               `json:"setup_commands,omitempty"`
-	TestCommands  []string               `json:"test_commands"`
-	Assertions    []HarnessAssertionResp `json:"assertions,omitempty"`
-	AntiGoals     []string               `json:"anti_goals,omitempty"`
-}
-
 type RecommendationResp struct {
 	ID               string               `json:"id"`
 	ProjectID        string               `json:"project_id"`
@@ -197,7 +179,6 @@ type RecommendationResp struct {
 	ResearchModel    string               `json:"research_model"`
 	Evidence         []string             `json:"evidence"`
 	ChangePlan       []ChangePlanStepResp `json:"change_plan"`
-	HarnessSpec      *HarnessSpecResp     `json:"harness_spec,omitempty"`
 	SettingsUpdates  map[string]any       `json:"settings_updates"`
 	RawSuggestion    string               `json:"raw_suggestion"`
 	CreatedAt        time.Time            `json:"created_at"`
@@ -252,36 +233,6 @@ type ApplyResultResp struct {
 	Status       string    `json:"status"`
 	AppliedAt    time.Time `json:"applied_at"`
 	RolledBack   bool      `json:"rolled_back"`
-}
-
-type HarnessCommandResultResp struct {
-	Phase      string `json:"phase"`
-	Command    string `json:"command"`
-	ExitCode   int    `json:"exit_code"`
-	DurationMS int64  `json:"duration_ms"`
-	Output     string `json:"output,omitempty"`
-	Passed     bool   `json:"passed"`
-	Error      string `json:"error,omitempty"`
-}
-
-type HarnessRunResp struct {
-	ID               string                     `json:"id"`
-	ProjectID        string                     `json:"project_id"`
-	RecommendationID string                     `json:"recommendation_id,omitempty"`
-	ApplyID          string                     `json:"apply_id,omitempty"`
-	SpecFile         string                     `json:"spec_file"`
-	Name             string                     `json:"name"`
-	Goal             string                     `json:"goal,omitempty"`
-	Status           string                     `json:"status"`
-	Passed           bool                       `json:"passed"`
-	Reason           string                     `json:"reason,omitempty"`
-	RootDir          string                     `json:"root_dir,omitempty"`
-	DurationMS       int64                      `json:"duration_ms"`
-	TriggeredBy      string                     `json:"triggered_by,omitempty"`
-	Commands         []HarnessCommandResultResp `json:"commands"`
-	StartedAt        time.Time                  `json:"started_at"`
-	CompletedAt      time.Time                  `json:"completed_at"`
-	CreatedAt        time.Time                  `json:"created_at"`
 }
 
 type ChangePlanReviewResp struct {
@@ -471,13 +422,6 @@ type DashboardOverviewResp struct {
 	AvgQueriesPerSession      float64                           `json:"avg_queries_per_session"`
 	RecommendationApplyRate   float64                           `json:"recommendation_apply_rate"`
 	RollbackRate              float64                           `json:"rollback_rate"`
-	HarnessRunCount           int                               `json:"harness_run_count"`
-	HarnessFailureCount       int                               `json:"harness_failure_count"`
-	HarnessPassRate           float64                           `json:"harness_pass_rate"`
-	LatestHarnessStatus       string                            `json:"latest_harness_status,omitempty"`
-	LatestHarnessName         string                            `json:"latest_harness_name,omitempty"`
-	LastFailingHarnessName    string                            `json:"last_failing_harness_name,omitempty"`
-	LatestHarnessAt           *time.Time                        `json:"latest_harness_at,omitempty"`
 	ActionSummary             string                            `json:"action_summary"`
 	OutcomeSummary            string                            `json:"outcome_summary"`
 	ResearchProvider          string                            `json:"research_provider"`
@@ -501,8 +445,6 @@ type DashboardProjectInsightDayResp struct {
 	ApprovalCount             int    `json:"approval_count"`
 	AppliedCount              int    `json:"applied_count"`
 	RollbackCount             int    `json:"rollback_count"`
-	HarnessPassCount          int    `json:"harness_pass_count"`
-	HarnessFailCount          int    `json:"harness_fail_count"`
 	SnapshotCount             int    `json:"snapshot_count"`
 	LatencySessionCount       int    `json:"latency_session_count"`
 	AvgFirstResponseLatencyMS int    `json:"avg_first_response_latency_ms"`
@@ -557,13 +499,5 @@ type DashboardProjectInsightsResp struct {
 	AvgToolWallTimeMS          int                                   `json:"avg_tool_wall_time_ms"`
 	SessionsWithFunctionCalls  int                                   `json:"sessions_with_function_calls"`
 	SessionsWithToolErrors     int                                   `json:"sessions_with_tool_errors"`
-	HarnessRunCount            int                                   `json:"harness_run_count"`
-	HarnessPassCount           int                                   `json:"harness_pass_count"`
-	HarnessFailCount           int                                   `json:"harness_fail_count"`
-	HarnessPassRate            float64                               `json:"harness_pass_rate"`
-	LatestHarnessStatus        string                                `json:"latest_harness_status,omitempty"`
-	LatestHarnessName          string                                `json:"latest_harness_name,omitempty"`
-	LastFailingHarnessName     string                                `json:"last_failing_harness_name,omitempty"`
-	LatestHarnessAt            *time.Time                            `json:"latest_harness_at,omitempty"`
 	ResearchStatus             *RecommendationResearchStatusResp     `json:"research_status,omitempty"`
 }

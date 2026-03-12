@@ -18,15 +18,11 @@ import (
 )
 
 const (
-	defaultOpenAIResponsesModel      = "gpt-5.4"
-	defaultResearchSampleSize        = 10
-	defaultResearchRequestTimeout    = 45 * time.Second
-	defaultResearchEvidenceLimit     = 5
-	defaultProjectInstructionTarget  = "AGENTS.md"
-	defaultProjectSkillTarget        = ".codex/skills/agentopt-repo-discovery/SKILL.md"
-	defaultProjectHarnessSkillTarget = ".codex/skills/agentopt-test-harness/SKILL.md"
-	defaultProjectHarnessSpecTarget  = ".agentopt/harness/agentopt-default.json"
-	defaultCodexInstructionTarget    = defaultProjectInstructionTarget
+	defaultOpenAIResponsesModel   = "gpt-5.4"
+	defaultResearchSampleSize     = 10
+	defaultResearchRequestTimeout = 45 * time.Second
+	defaultResearchEvidenceLimit  = 5
+	defaultCodexInstructionTarget = "~/.codex/AGENTS.md"
 )
 
 type CloudResearchAgent struct {
@@ -52,7 +48,6 @@ type researchRecommendation struct {
 	Score           float64
 	Evidence        []string
 	Steps           []ChangePlanStep
-	HarnessSpec     *HarnessSpec
 	Settings        map[string]any
 	RawSuggestion   string
 }
@@ -73,7 +68,6 @@ type researchRecommendationItemPayload struct {
 	Score           float64                         `json:"score"`
 	Evidence        []string                        `json:"evidence"`
 	ChangePlan      []researchChangePlanStepPayload `json:"change_plan"`
-	HarnessSpec     *researchHarnessSpecPayload     `json:"harness_spec"`
 }
 
 type researchChangePlanStepPayload struct {
@@ -85,27 +79,11 @@ type researchChangePlanStepPayload struct {
 	ContentPreview  string         `json:"content_preview"`
 }
 
-type researchHarnessSpecPayload struct {
-	Version       int                               `json:"version"`
-	Name          string                            `json:"name"`
-	Goal          string                            `json:"goal"`
-	TargetPaths   []string                          `json:"target_paths"`
-	SetupCommands []string                          `json:"setup_commands"`
-	TestCommands  []string                          `json:"test_commands"`
-	Assertions    []researchHarnessAssertionPayload `json:"assertions"`
-	AntiGoals     []string                          `json:"anti_goals"`
-}
-
-type researchHarnessAssertionPayload struct {
-	Kind        string `json:"kind"`
-	Equals      int    `json:"equals,omitempty"`
-	Contains    string `json:"contains,omitempty"`
-	NotContains string `json:"not_contains,omitempty"`
-}
-
-type workflowPattern struct {
-	Key   string
-	Terms []string
+type instructionPattern struct {
+	Key         string
+	Label       string
+	Terms       []string
+	Instruction string
 }
 
 type researchSessionSnapshot struct {
@@ -148,18 +126,36 @@ type researchUsageSummary struct {
 	RecentSessions             []researchSessionSnapshot
 }
 
-var workflowPatterns = []workflowPattern{
+var personalInstructionPatterns = []instructionPattern{
 	{
-		Key:   "repo_discovery",
-		Terms: []string{"find", "inspect", "explore", "locate", "repo", "which file", "control flow", "summarize the current"},
+		Key:         "repo_discovery",
+		Label:       "repo discovery",
+		Terms:       []string{"find", "inspect", "explore", "locate", "repo", "which file", "control flow", "summarize the current"},
+		Instruction: "The user repeatedly spends turns on repo discovery and control-flow recap before real work begins, which suggests the default workflow starts without enough context.",
 	},
 	{
-		Key:   "root_cause",
-		Terms: []string{"why", "root cause", "cause", "bug", "error", "failing", "regression"},
+		Key:         "root_cause",
+		Label:       "root-cause analysis",
+		Terms:       []string{"why", "root cause", "cause", "bug", "error", "failing", "regression"},
+		Instruction: "The user often has to explicitly ask for root-cause analysis, which suggests fixes are attempted before the diagnosis is stable.",
 	},
 	{
-		Key:   "verification",
-		Terms: []string{"test", "verify", "verification", "regression", "repro", "run", "check"},
+		Key:         "minimal_patch",
+		Label:       "minimal patching",
+		Terms:       []string{"minimal", "smallest", "small", "least", "patch", "fix only", "without changing"},
+		Instruction: "The user repeatedly asks for smaller patches, which suggests the default response scope expands too aggressively without explicit pressure.",
+	},
+	{
+		Key:         "verification",
+		Label:       "targeted verification",
+		Terms:       []string{"test", "verify", "verification", "regression", "repro", "run", "check"},
+		Instruction: "The user repeatedly asks for exact verification steps, which suggests testing discipline is not being applied by default.",
+	},
+	{
+		Key:         "contract_review",
+		Label:       "contract comparison",
+		Terms:       []string{"compare", "same", "contract", "response", "shared", "similar"},
+		Instruction: "The user explicitly requests neighboring contract comparisons, which suggests shared interfaces are easy to change without enough compatibility checks.",
 	},
 }
 
@@ -218,7 +214,6 @@ func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*Sessio
 	if err != nil {
 		return nil, err
 	}
-	recommendations = localizeResearchRecommendations(project, recommendations)
 	sort.Slice(recommendations, func(i, j int) bool {
 		if recommendations[i].Score == recommendations[j].Score {
 			return recommendations[i].Title < recommendations[j].Title
@@ -226,92 +221,6 @@ func (a *CloudResearchAgent) AnalyzeProject(project *Project, sessions []*Sessio
 		return recommendations[i].Score > recommendations[j].Score
 	})
 	return recommendations, nil
-}
-
-func localizeResearchRecommendations(project *Project, items []researchRecommendation) []researchRecommendation {
-	if len(items) == 0 {
-		return items
-	}
-	out := make([]researchRecommendation, 0, len(items))
-	for _, item := range items {
-		clone := item
-		clone.HarnessSpec = cloneHarnessSpec(item.HarnessSpec)
-		clone.Steps = make([]ChangePlanStep, 0, len(item.Steps))
-		for _, step := range item.Steps {
-			clone.Steps = append(clone.Steps, ChangePlanStep{
-				Type:            step.Type,
-				Action:          step.Action,
-				TargetFile:      localizeResearchTargetFile(project, step.TargetFile),
-				Summary:         step.Summary,
-				SettingsUpdates: localizeInstructionFilesSettings(step.SettingsUpdates),
-				ContentPreview:  step.ContentPreview,
-			})
-		}
-		clone.Settings = localizeInstructionFilesSettings(item.Settings)
-		out = append(out, clone)
-	}
-	return out
-}
-
-func localizeResearchTargetFile(project *Project, target string) string {
-	target = strings.TrimSpace(target)
-	switch target {
-	case "", "~/.codex/AGENTS.md":
-		return defaultProjectInstructionTarget
-	case "~/.codex/skills/agentopt-repo-discovery/SKILL.md":
-		return defaultProjectSkillTarget
-	case "~/.codex/skills/agentopt-test-harness/SKILL.md":
-		return defaultProjectHarnessSkillTarget
-	case ".agentopt/harness/default.json":
-		return defaultProjectHarnessSpecTarget
-	default:
-		if strings.HasPrefix(target, "~/.codex/skills/agentopt-") && strings.HasSuffix(target, "/SKILL.md") {
-			return strings.TrimPrefix(target, "~/")
-		}
-		return target
-	}
-}
-
-func localizeInstructionFilesSettings(settings map[string]any) map[string]any {
-	if len(settings) == 0 {
-		return cloneAnyMap(settings)
-	}
-	cloned := cloneAnyMap(settings)
-	raw, ok := cloned["instruction_files"]
-	if !ok {
-		return cloned
-	}
-	items, ok := raw.([]any)
-	if !ok {
-		return cloned
-	}
-	out := make([]any, 0, len(items))
-	seen := make(map[string]struct{}, len(items))
-	for _, item := range items {
-		text, ok := item.(string)
-		if !ok {
-			continue
-		}
-		text = strings.TrimSpace(text)
-		switch text {
-		case "~/.codex/AGENTS.md":
-			text = defaultProjectInstructionTarget
-		case "~/.codex/skills/agentopt-repo-discovery/SKILL.md":
-			text = defaultProjectSkillTarget
-		}
-		if text == "" {
-			continue
-		}
-		if _, exists := seen[text]; exists {
-			continue
-		}
-		seen[text] = struct{}{}
-		out = append(out, text)
-	}
-	if len(out) > 0 {
-		cloned["instruction_files"] = out
-	}
-	return cloned
 }
 
 func collectRawQueries(sessions []*SessionSummary) []string {
@@ -459,76 +368,8 @@ func sanitizeResearchRecommendation(item researchRecommendationItemPayload, rawS
 		Score:           round(score),
 		Evidence:        evidence,
 		Steps:           steps,
-		HarnessSpec:     sanitizeResearchHarnessSpec(item.HarnessSpec),
 		RawSuggestion:   strings.TrimSpace(rawSuggestion),
 	}, true
-}
-
-func sanitizeResearchHarnessSpec(item *researchHarnessSpecPayload) *HarnessSpec {
-	if item == nil {
-		return nil
-	}
-	testCommands := make([]string, 0, len(item.TestCommands))
-	for _, command := range item.TestCommands {
-		command = strings.TrimSpace(command)
-		if command == "" {
-			continue
-		}
-		testCommands = append(testCommands, command)
-	}
-	if len(testCommands) == 0 {
-		return nil
-	}
-	setupCommands := make([]string, 0, len(item.SetupCommands))
-	for _, command := range item.SetupCommands {
-		command = strings.TrimSpace(command)
-		if command == "" {
-			continue
-		}
-		setupCommands = append(setupCommands, command)
-	}
-	assertions := make([]HarnessAssertion, 0, len(item.Assertions))
-	for _, assertion := range item.Assertions {
-		kind := strings.TrimSpace(assertion.Kind)
-		if kind == "" {
-			continue
-		}
-		assertions = append(assertions, HarnessAssertion{
-			Kind:        kind,
-			Equals:      assertion.Equals,
-			Contains:    strings.TrimSpace(assertion.Contains),
-			NotContains: strings.TrimSpace(assertion.NotContains),
-		})
-	}
-	version := item.Version
-	if version <= 0 {
-		version = 1
-	}
-	return &HarnessSpec{
-		Version:       version,
-		Name:          strings.TrimSpace(item.Name),
-		Goal:          strings.TrimSpace(item.Goal),
-		TargetPaths:   normalizeResearchStringSlice(item.TargetPaths),
-		SetupCommands: setupCommands,
-		TestCommands:  testCommands,
-		Assertions:    assertions,
-		AntiGoals:     normalizeResearchStringSlice(item.AntiGoals),
-	}
-}
-
-func normalizeResearchStringSlice(input []string) []string {
-	if len(input) == 0 {
-		return []string{}
-	}
-	out := make([]string, 0, len(input))
-	for _, entry := range input {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		out = append(out, entry)
-	}
-	return out
 }
 
 func formatResearchSuggestion(raw json.RawMessage) string {
@@ -646,15 +487,15 @@ func stripTaggedBlock(raw, openTag, closeTag string) string {
 	}
 }
 
-func countWorkflowPatternMatches(queries []string) map[string]int {
-	counts := make(map[string]int, len(workflowPatterns))
+func countInstructionPatternMatches(queries []string) map[string]int {
+	counts := make(map[string]int, len(personalInstructionPatterns))
 	for _, query := range queries {
 		normalized := strings.ToLower(strings.TrimSpace(query))
 		if normalized == "" {
 			continue
 		}
-		for _, pattern := range workflowPatterns {
-			if queryMatchesAnyTerm(normalized, pattern.Terms) {
+		for _, pattern := range personalInstructionPatterns {
+			if queryMatchesPattern(normalized, pattern.Terms) {
 				counts[pattern.Key]++
 			}
 		}
@@ -662,7 +503,7 @@ func countWorkflowPatternMatches(queries []string) map[string]int {
 	return counts
 }
 
-func queryMatchesAnyTerm(query string, terms []string) bool {
+func queryMatchesPattern(query string, terms []string) bool {
 	query = strings.ToLower(strings.TrimSpace(query))
 	for _, term := range terms {
 		if strings.Contains(query, term) {
