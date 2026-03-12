@@ -1,47 +1,32 @@
 # Local Manual E2E
 
-This document is the shortest manual path for testing the full local flow:
+This document is the shortest manual path for validating the current report-based workflow:
 
-- local Codex usage data is uploaded
-- the server generates recommendations
-- a change plan is approved
-- the local CLI pulls and applies it
-- follow-up usage is uploaded
-- the evaluation agent reviews the real raw-query context
+- local agent usage is uploaded
+- the server generates workflow feedback reports
+- the dashboard and CLI surface those reports
 
 ## Scope
-
-This is for a fresh local test on one machine.
 
 Assumptions:
 
 - repo root is the current working directory
 - Python env exists at `myenv/`
-- Node dependencies for the local Codex runner can be installed
-- you will use a real OpenAI API key so both research and evaluation agents run
-- you will create at least one real Codex session before the first upload, and at least one more after local apply
+- you will use a real OpenAI API key if you want live report generation
+- you will create at least one real Codex session before the first upload
 
 ## 1. Start Clean
 
-These commands remove local AgentOpt state, local databases, generated backups, repo-local Codex config, and ignored secret material:
-
 ```bash
 rm -rf .agentopt-dev .agentopt-live-daemon .agentopt-live-test .codex
-rm -f data/agentopt.db data/agentopt-local.db data/agentopt-local.db.backup-* data/agentopt-store.json.backup-*
+rm -f data/agentopt.db data/agentopt-local.db data/agentopt-store.json
 find secrets -maxdepth 1 -type f ! -name '.gitignore' ! -name '*.example' -delete
-```
-
-If you also want a clean user-level CLI state outside the repo, remove it explicitly:
-
-```bash
 rm -rf ~/.agentopt
 ```
 
 Do not remove `~/.codex/sessions` if you still need older real Codex sessions for upload.
 
 ## 2. Recreate Local Secrets
-
-Copy the example files and fill in real values:
 
 ```bash
 cp secrets/agentopt-jwt-secret.example secrets/agentopt-jwt-secret
@@ -52,43 +37,13 @@ cp secrets/agentopt-openai-api-key.example secrets/agentopt-openai-api-key
 Required contents:
 
 - `secrets/agentopt-jwt-secret`: one strong random string
-- `secrets/agentopt-beta-users.json`: at least one real beta user entry
-- `secrets/agentopt-openai-api-key`: one real OpenAI API key
+- `secrets/agentopt-beta-users.json`: at least one beta user entry
+- `secrets/agentopt-openai-api-key`: one real OpenAI API key if you want report generation
 
-Minimal bootstrap user example:
-
-```json
-[
-  {
-    "id": "beta-user-1",
-    "org_id": "beta-org",
-    "org_name": "Beta Org",
-    "email": "beta1@example.com",
-    "name": "Beta Operator",
-    "password": "replace-me"
-  }
-]
-```
-
-## 3. Install Local Prereqs
+## 3. Start The Server
 
 ```bash
 source myenv/bin/activate
-make generate
-make install-codex-runner
-```
-
-Optional runner sanity check:
-
-```bash
-make check-codex-runner
-```
-
-## 4. Start The Server
-
-Run the app in `prod` mode so the real auth path, research agent, and evaluation agent are all active:
-
-```bash
 APP_MODE=prod \
 JWT_SECRET_FILE=secrets/agentopt-jwt-secret \
 AUTH_BOOTSTRAP_USERS_FILE=secrets/agentopt-beta-users.json \
@@ -100,15 +55,15 @@ go run .
 
 Keep this shell open.
 
-## 5. Log In On The Web
+## 4. Log In On The Web
 
 Open `http://127.0.0.1:8082/`.
 
 Sign in with the user you put into `secrets/agentopt-beta-users.json`.
 
-From the dashboard, issue a CLI token.
+Issue a CLI token from the dashboard.
 
-## 6. Register The Local CLI
+## 5. Register The Local CLI
 
 In another shell:
 
@@ -119,24 +74,22 @@ go run ./cmd/agentopt connect --repo-path .
 go run ./cmd/agentopt workspace
 ```
 
-## 7. Upload A Snapshot
-
-Use a baseline snapshot first:
+## 6. Upload A Snapshot
 
 ```bash
 source myenv/bin/activate
 go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
 ```
 
-## 8. Generate Real Local Usage Data
+## 7. Generate Real Local Usage Data
 
-Before uploading anything, create a real Codex session in this repo. The session should contain real raw queries, not a hand-written summary JSON.
+Create a real Codex session in this repo. The session should contain real raw queries, not a hand-written summary JSON.
 
-Good seed prompts for the first session:
+Good seed prompts:
 
-- `Inspect the approval and sync flow and summarize the current behavior.`
-- `Find the smallest patch that would improve the local apply flow.`
-- `List the exact verification steps after the patch.`
+- `Inspect the route handler and summarize the current control flow.`
+- `Find the smallest patch that fixes the failing analytics path.`
+- `List the exact tests to run after the patch.`
 
 After that session exists under `~/.codex/sessions`, upload it:
 
@@ -144,95 +97,59 @@ After that session exists under `~/.codex/sessions`, upload it:
 source myenv/bin/activate
 go run ./cmd/agentopt collect --codex-home ~/.codex --recent 1 --snapshot-mode changed
 go run ./cmd/agentopt sessions --limit 5
-go run ./cmd/agentopt recommendations
+go run ./cmd/agentopt reports
 ```
 
-You should now see active recommendations in the CLI and dashboard.
+If the server is configured with a research model and enough sessions have been uploaded, you should now see workflow feedback reports in the CLI and dashboard.
+Those reports should now include `user_intent` and `model_interpretation`, and recent sessions may show captured reasoning summaries when the local Codex session contains them.
 
-## 9. Approve A Change Plan
+## 8. Verify The Report Surface
 
-Recommended path: approve from the web dashboard.
+Recommended places to inspect:
 
-Manual CLI path:
+- dashboard overview and latest report cards
+- `go run ./cmd/agentopt reports`
+- `go run ./cmd/agentopt status`
+- `go run ./cmd/agentopt audit`
 
-```bash
-source myenv/bin/activate
-go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID>
-go run ./cmd/agentopt review --apply-id <APPLY_ID> --decision approve
-go run ./cmd/agentopt pending
-```
+Expected report fields now include:
 
-If the plan was auto-approved by policy, the explicit review step is not needed.
+- `title`
+- `summary`
+- `confidence`
+- `strengths`
+- `frictions`
+- `next_steps`
 
-## 10. Pull And Apply Locally
+Nothing should be auto-applied back into the local agent.
 
-```bash
-source myenv/bin/activate
-go run ./cmd/agentopt preflight --apply-id <APPLY_ID>
-go run ./cmd/agentopt sync
-go run ./cmd/agentopt history
-```
+## 9. Upload Follow-Up Sessions
 
-At this point the approved patch should be applied locally by the Codex runner.
-
-## 11. Generate Post-Apply Usage
-
-Now create one or more new real Codex sessions after the apply, in the same workspace.
-
-Use prompts that make the changed workflow visible. For example:
-
-- `Work with the new agent instructions and summarize the current flow.`
-- `Explain whether the new configuration made repo discovery easier or harder.`
-- `List the exact verification steps with the current setup.`
-
-Then upload the recent post-apply sessions:
+Create one or more more real Codex sessions after reading the first report, then upload them:
 
 ```bash
 source myenv/bin/activate
 go run ./cmd/agentopt collect --codex-home ~/.codex --recent 2 --snapshot-mode skip
-go run ./cmd/agentopt experiments
-go run ./cmd/agentopt impact
+go run ./cmd/agentopt reports
+go run ./cmd/agentopt status
 ```
 
-## 12. Verify Evaluation Agent Output
+The next report refresh should reflect the newer usage pattern once the background research pass completes.
 
-Expected places to inspect:
+## 10. Optional Watch Mode
 
-- Dashboard experiment lifecycle
-- `go run ./cmd/agentopt experiments`
-- `go run ./cmd/agentopt impact`
-
-The evaluation result now includes qualitative fields such as:
-
-- `evaluation_mode`
-- `evaluation_model`
-- `evaluation_decision`
-- `evaluation_confidence`
-- `evaluation_summary`
-
-The final experiment decision should now come from the qualitative review of the raw queries, with numeric metrics only used as supporting context for the prompt.
-
-## 13. Optional Rollback
-
-If the experiment requests rollback, or you want to verify cleanup manually:
+To keep usage uploads flowing during a manual session:
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt pending
-go run ./cmd/agentopt sync
+go run ./cmd/agentopt collect --watch --recent 1 --interval 30m
 ```
 
-Or force a direct rollback:
-
-```bash
-source myenv/bin/activate
-go run ./cmd/agentopt rollback --apply-id <APPLY_ID>
-```
-
-## 14. Clean Up After The Run
+## 11. Clean Up After The Run
 
 ```bash
 rm -rf .agentopt-dev .agentopt-live-daemon .agentopt-live-test .codex
-rm -f data/agentopt.db data/agentopt-local.db data/agentopt-local.db.backup-* data/agentopt-store.json.backup-*
+rm -f data/agentopt.db data/agentopt-local.db data/agentopt-store.json
 find secrets -maxdepth 1 -type f ! -name '.gitignore' ! -name '*.example' -delete
+rm -rf ~/.agentopt
 ```

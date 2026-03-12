@@ -7,18 +7,15 @@ The product shape is:
 - `Local CLI Agent`
   - registers a device
   - uploads config snapshots and session summaries
-  - pulls only approved change plans
-  - applies local changes safely and can roll them back
 - `Cloud Research Agent`
   - analyzes token usage, raw query history, and config snapshots
-  - generates ranked instruction recommendations and structured change plans
+  - generates ranked workflow feedback reports for the user
   - stays local and uses only uploaded personal usage data in this MVP
 - `AIops Server`
-  - stores metrics, recommendations, change plans, execution history, impact, and audit logs
+  - stores metrics, feedback reports, research status, and audit logs
 - `Web Dashboard`
-  - shows a user-facing summary of recommendations and workspace health
-  - approves or rejects change plans
-  - inspects rollout queue and token-based before/after impact without exposing raw low-level internals
+  - shows a user-facing summary of feedback reports and workspace health
+  - helps the user inspect prompt quality, workflow friction, and usage trends without auto-applying changes
 
 Detailed codebase documentation:
 
@@ -28,24 +25,19 @@ Detailed codebase documentation:
 
 ## What changed
 
-- Recommendation requests now create `change plans` in `awaiting_review`
-- Low-risk single-file config merges can be `auto-approved` by the policy engine
-- Only approved plans appear in the local execution queue
-- The dashboard now favors a user-facing approval surface instead of a developer-style operations console
+- Reports are now read-only feedback reports instead of local patch plans
+- The dashboard now favors a user-facing report surface instead of an approval console
 - Session summaries now focus on token usage and raw query history for MVP research analysis
 - `agentopt session` auto-collects the latest local Codex session from `~/.codex/sessions` when `--file` is omitted
 - `agentopt session --recent N` uploads the most recent `N` local Codex sessions in chronological order
 - `agentopt collect` uploads session data now and can skip unchanged snapshots by default
-- `agentopt daemon enable --bootstrap-recent 10` can upload existing local sessions once during onboarding, then keep background collection and approve -> auto-apply running
-- Recommendations now wait until at least `10` uploaded sessions exist before the server generates the first suggestion
-- Local apply supports both `JSON merge patches` and safe `text append` patches such as `AGENTS.md`
-- Local apply is executed through a `Codex SDK` runner while preflight, allowlist checks, backup, and rollback stay in the Go CLI
+- `agentopt collect --watch` can keep background collection running during onboarding and beta usage
+- Feedback reports now wait until at least `10` uploaded sessions exist before the server publishes the first report
 
 ## Quickstart
 
 ```bash
 make generate
-make install-codex-runner
 make run
 ```
 
@@ -64,15 +56,8 @@ go run ./cmd/agentopt workspace
 go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
 go run ./cmd/agentopt session
 go run ./cmd/agentopt session --recent 5
-go run ./cmd/agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s
-go run ./cmd/agentopt recommendations
-go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID>
-go run ./cmd/agentopt preflight --apply-id <CHANGE_PLAN_ID>
-go run ./cmd/agentopt review --apply-id <CHANGE_PLAN_ID> --decision approve
-go run ./cmd/agentopt sync
-go run ./cmd/agentopt rollback --apply-id <CHANGE_PLAN_ID>
-go run ./cmd/agentopt history
-go run ./cmd/agentopt impact
+go run ./cmd/agentopt collect --watch --recent 1 --interval 30m
+go run ./cmd/agentopt reports
 go run ./cmd/agentopt audit
 ```
 
@@ -82,18 +67,10 @@ For beta or production user machines, install the released CLI and run `agentopt
 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
 agentopt login --server http://127.0.0.1:8082
 agentopt connect --repo-path .
-agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s
+agentopt collect --watch --recent 1 --interval 30m
 ```
 
-Release installs use a prebuilt binary, so Go is not required. The installer also provisions a local Node.js runtime when needed for sync/apply. If your shell cannot find `agentopt`, add `~/.local/bin` to `PATH`.
-
-You can still use:
-
-```bash
-go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID> --yes
-```
-
-That path is useful for development because it creates, approves, and applies the plan locally in one step.
+Release installs use a prebuilt binary, so Go is not required. If your shell cannot find `agentopt`, add `~/.local/bin` to `PATH`.
 
 For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `agentopt login --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted.
 
@@ -117,44 +94,19 @@ go run .
 ```
 
 Supported secret file envs now include `JWT_SECRET_FILE`, `DB_DSN_FILE`, `APP_API_TOKEN_FILE`, and `AUTH_BOOTSTRAP_USERS_FILE`. File-based values override the plain env form when both are set.
-`OPENAI_API_KEY_FILE` is also supported for the cloud research and qualitative evaluation agents.
+`OPENAI_API_KEY_FILE` is also supported for the cloud research agent.
 
 Bootstrap users are now treated as managed closed beta identities: removing a user from the bootstrap file revokes their existing tokens, and rotating a bootstrap password revokes prior sessions so the new credential takes effect immediately.
 
-In this MVP every connected repository shares one workspace per organization. `agentopt connect` keeps that shared workspace current, and `pending`, `sync`, `history`, and `impact` always read from the same rollout stream.
+In this MVP every connected repository shares one workspace per organization. `agentopt connect` keeps that shared workspace current, and the generated report records are now user-facing feedback reports rather than executable patch queues.
 
-If `sync` or `apply --yes` fails before the plan starts, check the local runner first:
-
-```bash
-make check-codex-runner
-```
-
-If you want to force a lower Codex reasoning effort for local apply, pass it through the CLI or env:
+If you want to keep uploads flowing in the background, keep the collector running:
 
 ```bash
-go run ./cmd/agentopt sync --codex-reasoning-effort low
-AGENTOPT_CODEX_REASONING_EFFORT=low go run ./cmd/agentopt apply --recommendation-id <RECOMMENDATION_ID> --yes
+agentopt collect --watch --recent 1 --interval 30m
 ```
 
-To keep both background uploads and automatic local apply running on macOS, install the combined daemon once:
-
-```bash
-agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s
-agentopt daemon status
-agentopt daemon disable
-```
-
-`daemon enable --bootstrap-recent 10` first uploads up to ten existing local Codex sessions during onboarding, then installs two local launchd jobs: one scheduled collector and one long-running `sync --watch` worker. In the MVP this is the shortest path to `seed usage history -> approve in web -> apply automatically on the same machine`.
-
-If you want a one-off manual upload without installing the daemon, keep using `agentopt collect --codex-home ~/.codex`.
-
-To rerun the mock dashboard approve -> local agent sync -> rollback flow without touching your real workspace:
-
-```bash
-make mock-e2e
-```
-
-That test starts the real analytics routes in-process, issues a dashboard CLI token, approves a change plan through the web auth flow, runs `agentopt sync` with a stub Codex runner against a temp workspace, verifies the file change, and rolls it back.
+If you want a one-off manual upload instead, keep using `agentopt collect --codex-home ~/.codex`.
 
 For closed beta deployment checks, the server also exposes:
 
@@ -181,7 +133,7 @@ To exercise the real `APP_MODE=prod` path locally with file-based secrets and a 
 make closed-beta-prod-smoke
 ```
 
-To force that smoke test to use the ignored local secret files in `secrets/` and verify live OpenAI-backed recommendation generation:
+To force that smoke test to use the ignored local secret files in `secrets/` and verify live OpenAI-backed feedback report generation:
 
 ```bash
 JWT_SECRET_FILE_OVERRIDE=secrets/agentopt-jwt-secret \
@@ -241,8 +193,6 @@ make store-import INPUT=output/runtime-store-backup.json
 The bundle itself contains:
 
 - `agentopt`
-- `tools/codex-runner/run.mjs`
-- the pinned Node dependencies required for local apply
 
 The installed CLI answers `agentopt version`, and `make build` now embeds git version metadata into `output/agentopt`.
 
@@ -311,10 +261,8 @@ If `HTTP_TRUSTED_PROXY_CIDRS` is empty, AgentOpt only trusts the direct socket r
 
 The cloud research agent is intentionally narrow in this MVP:
 
-- recommendation generation samples up to 10 uploaded raw queries and sends them to the OpenAI Responses API
-- recommendation output is still limited to instruction/custom-rule suggestions for now
-- the local executor now enforces a strict file allowlist before any approved plan is applied
-- the local executor can now apply and roll back multi-step plans across allowlisted files
-- the actual local file edit step is delegated to `Codex SDK`, but the CLI still owns preflight, backup, result reporting, and rollback
+- feedback report generation samples up to 10 uploaded raw queries, assistant responses, and captured reasoning summaries before sending them to the OpenAI Responses API
+- the generated output is rendered as user-facing workflow feedback reports with fields such as `user_intent`, `model_interpretation`, strengths, frictions, and next steps
+- the dashboard and CLI no longer create or execute local patch plans
 
-Set `OPENAI_API_KEY` on the server process to enable live recommendation generation. The config loader maps `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_RESPONSES_MODEL` into the `OpenAI` config section, and `OPENAI_API_KEY_FILE` is also supported for file-based secrets.
+Set `OPENAI_API_KEY` on the server process to enable live feedback report generation. The config loader maps `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_RESPONSES_MODEL` into the `OpenAI` config section, and `OPENAI_API_KEY_FILE` is also supported for file-based secrets.

@@ -7,10 +7,10 @@ This runbook is the shortest path from local verification to a release-candidate
 It assumes:
 
 - the repo root is your working directory
-- Go, Node, `wire`, and the local toolchain are already installed
+- Go, `wire`, and the local toolchain are already installed
 - the server runs on `http://127.0.0.1:8082` by default
 
-For beta user machines that install the released CLI, Go is not required. The installer also provisions Node.js automatically when the machine does not already have a compatible runtime. Only the development-from-source flow below uses `go run`.
+For beta user machines that install the released CLI, Go is not required. Only the development-from-source flow below uses `go run`.
 
 ## 1. Local Development Run
 
@@ -18,7 +18,6 @@ Start the local development server:
 
 ```bash
 make generate
-make install-codex-runner
 OPENAI_API_KEY_FILE=secrets/agentopt-openai-api-key make run
 ```
 
@@ -35,33 +34,28 @@ go run ./cmd/agentopt connect --repo-path .
 go run ./cmd/agentopt workspace
 go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
 go run ./cmd/agentopt session
-go run ./cmd/agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s
-go run ./cmd/agentopt daemon status
-go run ./cmd/agentopt recommendations
-go run ./cmd/agentopt impact
+go run ./cmd/agentopt collect --watch --recent 1 --interval 30m
+go run ./cmd/agentopt reports
+go run ./cmd/agentopt audit
 ```
 
 Notes:
 
 - In the MVP, every connected repository rolls into one shared workspace per organization.
 - `agentopt connect` updates that shared workspace.
-- `agentopt daemon enable --bootstrap-recent 10` uploads recent local sessions once during onboarding, then installs background collection plus automatic local sync on macOS via `launchd`.
-- `pending`, `history`, `sync`, and `impact` all read from the same rollout stream.
+- `agentopt collect --watch` keeps session and snapshot uploads flowing while the shared workspace is being observed.
+- Reports are now read-only feedback reports for the user; nothing is auto-applied.
 
-If you want a beta machine to keep uploading usage data without manual CLI runs, install background uploads once:
+If you want a beta machine to keep uploading usage data without repeated manual CLI runs, keep a long-lived collector running:
 
 ```bash
-agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s
-agentopt daemon status
-agentopt daemon disable
+agentopt collect --watch --recent 1 --interval 30m
 ```
 
 Notes:
 
-- The current background installer targets macOS `launchd`.
-- Prefer the installed `agentopt` command for `daemon`; do not rely on `go run` for long-lived beta machine setup.
-- The daemon can bootstrap existing local sessions once, then installs one scheduled collector job plus one long-running sync watcher.
-- Keep `agentopt collect` for one-off manual uploads when you do not want background automation.
+- Prefer the installed `agentopt` command for long-lived beta machine setup.
+- Keep `agentopt collect` without `--watch` for one-off manual uploads.
 
 For beta users who should install from GitHub Releases instead of an unpacked bundle:
 
@@ -70,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/i
 AGENTOPT_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
 ```
 
-The installer downloads the matching release bundle, installs it under `~/.local/share/agentopt/<version>`, writes a wrapper to `~/.local/bin/agentopt`, and provisions a local Node.js runtime when needed.
+The installer downloads the matching release bundle, installs it under `~/.local/share/agentopt/<version>`, and writes a wrapper to `~/.local/bin/agentopt`.
 That release install uses a prebuilt binary, so Go is not required on the beta machine.
 
 ## 2. Local Verification
@@ -79,7 +73,6 @@ Run the fast confidence checks:
 
 ```bash
 go test ./...
-make mock-e2e
 ```
 
 Run the closed beta smoke with a seeded beta user:
@@ -260,12 +253,12 @@ Run this before handing the build to beta users:
 
 1. `git status --short` shows only expected files.
 2. `go test ./...` passes.
-3. `make mock-e2e` passes.
+3. The dashboard shows workflow feedback reports instead of approval actions.
 4. `make closed-beta-prod-smoke` passes.
 5. `make beta-cli-bundle`, `make verify-beta-bundle`, and `make verify-install-script` pass.
-6. The release bundle contains `agentopt` and `tools/codex-runner`.
+6. The release bundle contains `agentopt` and the generated `README.md`.
 7. Runtime secrets are mounted from files, not hardcoded.
 8. `GET /healthz` and `GET /readyz` respond successfully in the target environment.
 9. A seeded beta user can log in on the dashboard and issue a CLI token.
 10. A beta machine can complete `agentopt login`, `agentopt connect`, and `agentopt collect`.
-11. If background automation is part of the beta flow, `agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s` and `agentopt daemon status` both succeed on the target macOS machine.
+11. If background collection is part of the beta flow, `agentopt collect --watch --recent 1 --interval 30m` succeeds on the target machine.
