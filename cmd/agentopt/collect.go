@@ -266,7 +266,7 @@ func formatResearchStatusSummary(status *response.RecommendationResearchStatusRe
 	case "disabled":
 		return "Recommendation research is disabled on the server."
 	case "running":
-		return "The server is fetching recommendations now."
+		return "Upload recorded. Waiting for the suggestion in the dashboard while the server analyzes sessions in the background."
 	case "succeeded":
 		return fmt.Sprintf("Fetched %d recommendation(s).", status.RecommendationCount)
 	case "no_recommendations":

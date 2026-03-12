@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -21,6 +22,27 @@ import (
 	"github.com/Royaltyprogram/aiops/routes/controller"
 	"github.com/Royaltyprogram/aiops/service"
 )
+
+func waitForDashboardRecommendations(t *testing.T, client *http.Client, baseURL, projectID string) response.RecommendationListResp {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		recommendations := dashboardGetJSON[response.RecommendationListResp](t, client, baseURL, "/api/v1/recommendations", url.Values{
+			"project_id": []string{projectID},
+		})
+		if len(recommendations.Items) > 0 {
+			return recommendations
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	recommendations := dashboardGetJSON[response.RecommendationListResp](t, client, baseURL, "/api/v1/recommendations", url.Values{
+		"project_id": []string{projectID},
+	})
+	require.NotEmpty(t, recommendations.Items)
+	return recommendations
+}
 
 func TestMockDashboardApprovalTriggersLocalSyncAndRollback(t *testing.T) {
 	root := t.TempDir()
@@ -92,9 +114,7 @@ func TestMockDashboardApprovalTriggersLocalSyncAndRollback(t *testing.T) {
 	require.Equal(t, "demo-user", st.UserID)
 	workspaceID := st.workspaceID()
 
-	recommendations := dashboardGetJSON[response.RecommendationListResp](t, dashboardClient, serverURL, "/api/v1/recommendations", url.Values{
-		"project_id": []string{workspaceID},
-	})
+	recommendations := waitForDashboardRecommendations(t, dashboardClient, serverURL, workspaceID)
 	require.NotEmpty(t, recommendations.Items)
 	require.Equal(t, "~/.codex/AGENTS.md", recommendations.Items[0].ChangePlan[0].TargetFile)
 

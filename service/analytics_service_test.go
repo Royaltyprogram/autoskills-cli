@@ -27,6 +27,66 @@ func findRecommendationByKind(items []response.RecommendationResp, kind string) 
 	return nil
 }
 
+func isBenignTestConnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection reset by peer")
+}
+
+func waitForResearchStatus(
+	t *testing.T,
+	svc *AnalyticsService,
+	ctx context.Context,
+	orgID string,
+	matcher func(*response.RecommendationResearchStatusResp) bool,
+) *response.RecommendationResearchStatusResp {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: orgID})
+		require.NoError(t, err)
+		if matcher(overview.ResearchStatus) {
+			return overview.ResearchStatus
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: orgID})
+	require.NoError(t, err)
+	require.True(t, matcher(overview.ResearchStatus), "unexpected research status: %#v", overview.ResearchStatus)
+	return overview.ResearchStatus
+}
+
+func waitForRecommendations(
+	t *testing.T,
+	svc *AnalyticsService,
+	ctx context.Context,
+	req *request.RecommendationListReq,
+	matcher func([]response.RecommendationResp) bool,
+) []response.RecommendationResp {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := svc.ListRecommendations(ctx, req)
+		require.NoError(t, err)
+		if matcher(resp.Items) {
+			return resp.Items
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	resp, err := svc.ListRecommendations(ctx, req)
+	require.NoError(t, err)
+	require.True(t, matcher(resp.Items), "unexpected recommendations: %#v", resp.Items)
+	return resp.Items
+}
+
 func newResearchStubConfig(t *testing.T, responseBody string) *configs.Config {
 	t.Helper()
 
@@ -35,7 +95,12 @@ func newResearchStubConfig(t *testing.T, responseBody string) *configs.Config {
 		require.Equal(t, "/v1/responses", r.URL.Path)
 		require.Equal(t, "Bearer test-openai-key", r.Header.Get("Authorization"))
 		var payload map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			if isBenignTestConnError(err) {
+				return
+			}
+			require.NoError(t, err)
+		}
 		input, _ := payload["input"].(string)
 		w.Header().Set("Content-Type", "application/json")
 		body := responseBody
@@ -43,7 +108,9 @@ func newResearchStubConfig(t *testing.T, responseBody string) *configs.Config {
 			body = defaultEvaluationStubResponse(input)
 		}
 		_, err := w.Write([]byte(body))
-		require.NoError(t, err)
+		if !isBenignTestConnError(err) {
+			require.NoError(t, err)
+		}
 	}))
 	t.Cleanup(server.Close)
 
@@ -185,22 +252,22 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	require.Equal(t, "project-z", projects.Items[0].ID)
 	require.Equal(t, "Shared workspace", projects.Items[0].Name)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-z"})
-	require.NoError(t, err)
-	require.Len(t, recommendations.Items, 1)
-	require.Equal(t, "llm-workflow-review", recommendations.Items[0].Kind)
-	require.Len(t, recommendations.Items[0].ChangePlan, 1)
-	require.Equal(t, defaultCodexInstructionTarget, recommendations.Items[0].ChangePlan[0].TargetFile)
-	require.Contains(t, recommendations.Items[0].ChangePlan[0].ContentPreview, "## Workflow Defaults")
-	require.Contains(t, recommendations.Items[0].RawSuggestion, "\"kind\": \"llm-workflow-review\"")
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-z"}, func(items []response.RecommendationResp) bool {
+		return len(items) == 1
+	})
+	require.Equal(t, "llm-workflow-review", recommendationItems[0].Kind)
+	require.Len(t, recommendationItems[0].ChangePlan, 1)
+	require.Equal(t, defaultCodexInstructionTarget, recommendationItems[0].ChangePlan[0].TargetFile)
+	require.Contains(t, recommendationItems[0].ChangePlan[0].ContentPreview, "## Workflow Defaults")
+	require.Contains(t, recommendationItems[0].RawSuggestion, "\"kind\": \"llm-workflow-review\"")
 
 	planOld, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-1",
 		Scope:            "project",
 	})
 	require.NoError(t, err)
-	require.Len(t, planOld.PatchPreview, len(recommendations.Items[0].ChangePlan))
+	require.Len(t, planOld.PatchPreview, len(recommendationItems[0].ChangePlan))
 	require.Equal(t, "requires_review", planOld.PolicyMode)
 	_, err = svc.ReviewChangePlan(ctx, &request.ReviewChangePlanReq{
 		ApplyID:    planOld.ApplyID,
@@ -224,7 +291,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	planNew, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-1",
 		Scope:            "user",
 	})
@@ -254,7 +321,7 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 	store.mu.Unlock()
 
 	projectScopedPlan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "another-user",
 		Scope:            "project",
 	})
@@ -469,21 +536,20 @@ func TestAnalyticsServiceWaitsForMinimumSessionsBeforeGeneratingRecommendations(
 		Timestamp: time.Now().UTC().Add(3 * time.Minute),
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, ingestResp.RecommendationCount)
-	require.Len(t, ingestResp.LatestRecommendationIDs, 1)
+	require.Zero(t, ingestResp.RecommendationCount)
+	require.Empty(t, ingestResp.LatestRecommendationIDs)
 	require.NotNil(t, ingestResp.ResearchStatus)
-	require.Equal(t, "succeeded", ingestResp.ResearchStatus.State)
-	require.Equal(t, 1, ingestResp.ResearchStatus.RecommendationCount)
-	require.NotNil(t, ingestResp.ResearchStatus.CompletedAt)
+	require.Equal(t, "running", ingestResp.ResearchStatus.State)
+
+	status := waitForResearchStatus(t, svc, ctx, "org-threshold", func(item *response.RecommendationResearchStatusResp) bool {
+		return item != nil && item.State == "succeeded"
+	})
+	require.Equal(t, 1, status.RecommendationCount)
+	require.NotNil(t, status.CompletedAt)
 
 	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: projectResp.ProjectID})
 	require.NoError(t, err)
 	require.Len(t, recommendations.Items, 1)
-
-	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-threshold"})
-	require.NoError(t, err)
-	require.NotNil(t, overview.ResearchStatus)
-	require.Equal(t, "succeeded", overview.ResearchStatus.State)
 }
 
 func TestRegisterProjectReusesExistingProjectAndPreservesSignals(t *testing.T) {
@@ -646,9 +712,10 @@ func TestAnalyticsServiceAuthWorkflow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(cliCtx, &request.RecommendationListReq{})
-	require.NoError(t, err)
-	require.NotEmpty(t, recommendations.Items)
+	recommendationItems := waitForRecommendations(t, svc, cliCtx, &request.RecommendationListReq{}, func(items []response.RecommendationResp) bool {
+		return len(items) > 0
+	})
+	require.NotEmpty(t, recommendationItems)
 
 	tokenListResp, err = svc.ListCLITokens(sessionCtx)
 	require.NoError(t, err)
@@ -752,13 +819,13 @@ func TestCreateApplyPlanRequiresReviewForInstructionAppend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-auto"})
-	require.NoError(t, err)
-	require.Len(t, recommendations.Items, 1)
-	require.Equal(t, "llm-workflow-review", recommendations.Items[0].Kind)
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-auto"}, func(items []response.RecommendationResp) bool {
+		return len(items) == 1
+	})
+	require.Equal(t, "llm-workflow-review", recommendationItems[0].Kind)
 
 	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-auto",
 		Scope:            "user",
 	})
@@ -842,17 +909,17 @@ func TestAnalyzeProjectAddsConfigAndMCPRecommendationsFromSnapshot(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-config"})
-	require.NoError(t, err)
-	require.Len(t, recommendations.Items, 2)
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-config"}, func(items []response.RecommendationResp) bool {
+		return len(items) == 2
+	})
 
-	configRecommendation := findRecommendationByKind(recommendations.Items, "config-defaults")
+	configRecommendation := findRecommendationByKind(recommendationItems, "config-defaults")
 	require.NotNil(t, configRecommendation)
 	require.Equal(t, ".codex/config.json", configRecommendation.ChangePlan[0].TargetFile)
 	require.Equal(t, "merge_patch", configRecommendation.ChangePlan[0].Action)
 	require.Equal(t, []any{"AGENTS.md", defaultCodexInstructionTarget}, configRecommendation.ChangePlan[0].SettingsUpdates["instruction_files"])
 
-	instructionRecommendation := findRecommendationByKind(recommendations.Items, "instruction-review")
+	instructionRecommendation := findRecommendationByKind(recommendationItems, "instruction-review")
 	require.NotNil(t, instructionRecommendation)
 	require.Equal(t, defaultCodexInstructionTarget, instructionRecommendation.ChangePlan[0].TargetFile)
 	require.Equal(t, "append_block", instructionRecommendation.ChangePlan[0].Action)
@@ -937,12 +1004,12 @@ func TestCreateApplyPlanBlocksWhenActiveExperimentExists(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-active"})
-	require.NoError(t, err)
-	require.Len(t, recommendations.Items, 1)
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-active"}, func(items []response.RecommendationResp) bool {
+		return len(items) == 1
+	})
 
 	firstPlan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-active",
 		Scope:            "project",
 	})
@@ -950,7 +1017,7 @@ func TestCreateApplyPlanBlocksWhenActiveExperimentExists(t *testing.T) {
 	require.NotEmpty(t, firstPlan.ExperimentID)
 
 	_, err = svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-active",
 		Scope:            "project",
 	})
@@ -1005,12 +1072,12 @@ func TestUploadSessionSummaryRequestsRollbackAfterSevereRegression(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-rollback"})
-	require.NoError(t, err)
-	require.Len(t, recommendations.Items, 1)
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-rollback"}, func(items []response.RecommendationResp) bool {
+		return len(items) == 1
+	})
 
 	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-rollback",
 		Scope:            "project",
 	})
@@ -1101,7 +1168,12 @@ func TestUploadSessionSummaryUsesQualitativeEvaluationAgentForRollback(t *testin
 		require.Equal(t, "/v1/responses", r.URL.Path)
 
 		var payload map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			if isBenignTestConnError(err) {
+				return
+			}
+			require.NoError(t, err)
+		}
 		input, _ := payload["input"].(string)
 		w.Header().Set("Content-Type", "application/json")
 		if !strings.Contains(input, "Before Rollout Queries") {
@@ -1118,7 +1190,9 @@ func TestUploadSessionSummaryUsesQualitativeEvaluationAgentForRollback(t *testin
     }
   ]
 }`))
-			require.NoError(t, err)
+			if !isBenignTestConnError(err) {
+				require.NoError(t, err)
+			}
 			return
 		}
 		require.Contains(t, input, "After Rollout Queries")
@@ -1138,7 +1212,9 @@ func TestUploadSessionSummaryUsesQualitativeEvaluationAgentForRollback(t *testin
     }
   ]
 }`))
-		require.NoError(t, err)
+		if !isBenignTestConnError(err) {
+			require.NoError(t, err)
+		}
 	}))
 	defer server.Close()
 
@@ -1195,12 +1271,12 @@ func TestUploadSessionSummaryUsesQualitativeEvaluationAgentForRollback(t *testin
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-qual"})
-	require.NoError(t, err)
-	require.NotEmpty(t, recommendations.Items)
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-qual"}, func(items []response.RecommendationResp) bool {
+		return len(items) > 0
+	})
 
 	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-qual",
 		Scope:            "project",
 	})
@@ -1403,12 +1479,12 @@ func TestReportApplyResultTracksApplyAndRollbackLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-exec"})
-	require.NoError(t, err)
-	require.NotEmpty(t, recommendations.Items)
+	recommendationItems := waitForRecommendations(t, svc, ctx, &request.RecommendationListReq{ProjectID: "project-exec"}, func(items []response.RecommendationResp) bool {
+		return len(items) > 0
+	})
 
 	plan, err := svc.CreateApplyPlan(ctx, &request.ApplyRecommendationReq{
-		RecommendationID: recommendations.Items[0].ID,
+		RecommendationID: recommendationItems[0].ID,
 		RequestedBy:      "user-exec",
 		Scope:            "project",
 	})

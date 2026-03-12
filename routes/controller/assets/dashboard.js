@@ -193,10 +193,10 @@ function renderAgentStatus(overview, recommendations, applyItems, experiments) {
     bar.dataset.state = "suggestion";
     text.textContent = `Rollback requested — ${rollbackCount} experiment${rollbackCount > 1 ? "s" : ""} will restore the previous config on the next sync`;
   } else if (researchState === "running") {
-    bar.dataset.state = "measuring";
+    bar.dataset.state = "suggestion";
     text.textContent =
       recommendationResearchNarrative(research) ||
-      "Fetching recommendation suggestions from uploaded sessions";
+      "Waiting for the suggestion while uploaded sessions are analyzed";
   } else if (activeRecs > 0) {
     bar.dataset.state = "suggestion";
     text.textContent = `Suggestion ready \u2014 ${activeRecs} optimization${activeRecs > 1 ? "s" : ""} awaiting your review`;
@@ -1006,7 +1006,7 @@ function recommendationResearchNarrative(status) {
     return "OpenAI-backed recommendation research is disabled on this server.";
   }
   if (state === "running") {
-    return "The server is currently fetching new recommendations.";
+    return "Waiting for the suggestion while the server analyzes uploaded sessions.";
   }
   if (state === "succeeded" || state === "no_recommendations") {
     const duration = Number(item.last_duration_ms || 0);

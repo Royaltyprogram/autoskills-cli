@@ -17,6 +17,46 @@ import (
 	"github.com/Royaltyprogram/aiops/dto/response"
 )
 
+func waitForSuggestionResearch(
+	t *testing.T,
+	suite *APISuite,
+	orgID, projectID string,
+) (*response.DashboardOverviewResp, *response.RecommendationListResp) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		overview := getAPIJSON[response.DashboardOverviewResp](t, suite, "/api/v1/dashboard/overview", url.Values{
+			"org_id": []string{orgID},
+		})
+		if status := overview.ResearchStatus; status != nil {
+			switch status.State {
+			case "disabled":
+				t.Skip("recommendation research is disabled on the server")
+			case "failed":
+				t.Skipf("recommendation research failed on the server: %s", status.LastError)
+			}
+		}
+
+		recommendations := getAPIJSON[response.RecommendationListResp](t, suite, "/api/v1/recommendations", url.Values{
+			"project_id": []string{projectID},
+		})
+		if len(recommendations.Items) > 0 {
+			return &overview, &recommendations
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	overview := getAPIJSON[response.DashboardOverviewResp](t, suite, "/api/v1/dashboard/overview", url.Values{
+		"org_id": []string{orgID},
+	})
+	if status := overview.ResearchStatus; status != nil {
+		t.Skipf("recommendation research completed without suggestions: %s", status.Summary)
+	}
+	t.Skip("recommendation research completed without suggestions")
+	return nil, nil
+}
+
 func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 	now := time.Now().UTC()
 	suffix := fmt.Sprintf("%d", now.UnixNano())
@@ -84,25 +124,7 @@ func (s *APISuite) TestAnalyticsLifecycle_ApplyAndRollback() {
 			sessionResp = uploadSession(i)
 		}
 	}
-	if status := sessionResp.ResearchStatus; status != nil && status.State == "disabled" {
-		s.T().Skip("recommendation research is disabled on the server")
-	}
-	if status := sessionResp.ResearchStatus; status != nil && status.State == "failed" {
-		s.T().Skipf("recommendation research failed on the server: %s", status.LastError)
-	}
-	if len(sessionResp.LatestRecommendationIDs) == 0 {
-		if status := sessionResp.ResearchStatus; status != nil {
-			s.T().Skipf("recommendation research completed without suggestions: %s", status.Summary)
-		}
-		s.T().Skip("recommendation research completed without suggestions")
-	}
-
-	require.NotEmpty(s.T(), sessionResp.LatestRecommendationIDs)
-
-	recommendations := getAPIJSON[response.RecommendationListResp](s.T(), s, "/api/v1/recommendations", url.Values{
-		"project_id": []string{projectResp.ProjectID},
-	})
-	require.NotEmpty(s.T(), recommendations.Items)
+	_, recommendations := waitForSuggestionResearch(s.T(), s, orgID, projectResp.ProjectID)
 
 	applyResp := postAPIJSON[response.ApplyPlanResp](s.T(), s, http.MethodPost, "/api/v1/recommendations/apply", request.ApplyRecommendationReq{
 		RecommendationID: recommendations.Items[0].ID,

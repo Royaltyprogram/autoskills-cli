@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Royaltyprogram/aiops/dto/request"
@@ -19,6 +20,9 @@ type AnalyticsService struct {
 	researchAgent             *CloudResearchAgent
 	evaluationAgent           *CloudEvaluationAgent
 	recommendationMinSessions int
+	recommendationRefreshMu   sync.Mutex
+	recommendationRefreshLive map[string]bool
+	recommendationRefreshNext map[string]*recommendationRefreshJob
 }
 
 const sharedWorkspaceName = "Shared workspace"
@@ -34,7 +38,17 @@ func NewAnalyticsService(opt Options) *AnalyticsService {
 		researchAgent:             NewCloudResearchAgent(opt.Config),
 		evaluationAgent:           NewCloudEvaluationAgent(opt.Config),
 		recommendationMinSessions: recommendationMinSessions,
+		recommendationRefreshLive: make(map[string]bool),
+		recommendationRefreshNext: make(map[string]*recommendationRefreshJob),
 	}
+}
+
+type recommendationRefreshJob struct {
+	project          *Project
+	sessions         []*SessionSummary
+	snapshots        []*ConfigSnapshot
+	triggerSessionID string
+	triggeredAt      time.Time
 }
 
 func (s *AnalyticsService) Login(ctx context.Context, req *request.LoginReq) (*response.LoginResp, error) {
@@ -601,13 +615,14 @@ func (s *AnalyticsService) ListConfigSnapshots(ctx context.Context, req *request
 
 func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *request.SessionSummaryReq) (*response.SessionIngestResp, error) {
 	s.AnalyticsStore.mu.Lock()
-	defer s.AnalyticsStore.mu.Unlock()
 
 	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
 	if err != nil {
+		s.AnalyticsStore.mu.Unlock()
 		return nil, err
 	}
 	if err := s.authorizeProject(ctx, project); err != nil {
+		s.AnalyticsStore.mu.Unlock()
 		return nil, err
 	}
 	req.ProjectID = project.ID
@@ -661,6 +676,7 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 	}
 
 	var recommendations []*Recommendation
+	var refreshJob *recommendationRefreshJob
 	if activeExperiment := s.findActiveExperimentLocked(project.ID); activeExperiment != nil {
 		s.setRecommendationResearchStatusLocked(project.ID, RecommendationResearchStatus{
 			ProjectID:           project.ID,
@@ -678,10 +694,10 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 		if s.findActiveExperimentLocked(project.ID) != nil {
 			recommendations = s.currentRecommendationsLocked(project.ID)
 		} else {
-			recommendations = s.refreshRecommendationsLocked(project, sessionID)
+			recommendations, refreshJob = s.prepareRecommendationRefreshLocked(project, sessionID)
 		}
 	} else {
-		recommendations = s.refreshRecommendationsLocked(project, sessionID)
+		recommendations, refreshJob = s.prepareRecommendationRefreshLocked(project, sessionID)
 	}
 	ids := make([]string, 0, len(recommendations))
 	for _, item := range recommendations {
@@ -690,17 +706,22 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 
 	s.appendAuditLocked(project.OrgID, req.ProjectID, "session.ingested", "session summary uploaded from local collector")
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		s.AnalyticsStore.mu.Unlock()
 		return nil, err
 	}
 
-	return &response.SessionIngestResp{
+	resp := &response.SessionIngestResp{
 		SessionID:               sessionID,
 		ProjectID:               req.ProjectID,
 		RecommendationCount:     len(ids),
 		LatestRecommendationIDs: ids,
 		RecordedAt:              recordedAt,
 		ResearchStatus:          cloneRecommendationResearchStatusResp(s.AnalyticsStore.recommendationResearch[project.ID]),
-	}, nil
+	}
+	s.AnalyticsStore.mu.Unlock()
+
+	s.enqueueRecommendationRefresh(refreshJob)
+	return resp, nil
 }
 
 func (s *AnalyticsService) ListSessionSummaries(ctx context.Context, req *request.SessionSummaryListReq) (*response.SessionSummaryListResp, error) {
@@ -1799,7 +1820,7 @@ func qualitativeOutcome(review experimentEvaluation) (string, string, string) {
 	}
 }
 
-func (s *AnalyticsService) refreshRecommendationsLocked(project *Project, triggerSessionID string) []*Recommendation {
+func (s *AnalyticsService) prepareRecommendationRefreshLocked(project *Project, triggerSessionID string) ([]*Recommendation, *recommendationRefreshJob) {
 	sessions := s.AnalyticsStore.sessionSummaries[project.ID]
 	rawQueries := collectRawQueries(sessions)
 	status := RecommendationResearchStatus{
@@ -1818,47 +1839,108 @@ func (s *AnalyticsService) refreshRecommendationsLocked(project *Project, trigge
 		status.State = "waiting_for_min_sessions"
 		status.Summary = fmt.Sprintf("Collected %d of %d sessions needed before fetching new recommendations.", len(sessions), s.recommendationMinSessions)
 		s.setRecommendationResearchStatusLocked(project.ID, status)
-		return s.currentRecommendationsLocked(project.ID)
+		return s.currentRecommendationsLocked(project.ID), nil
 	}
 	if strings.TrimSpace(s.researchAgent.apiKey) == "" {
 		status.State = "disabled"
 		status.Summary = "OpenAI-backed recommendation research is disabled on this server, so no new suggestions will be fetched."
 		s.setRecommendationResearchStatusLocked(project.ID, status)
-		return s.currentRecommendationsLocked(project.ID)
+		return s.currentRecommendationsLocked(project.ID), nil
 	}
 	if len(rawQueries) == 0 {
 		status.State = "missing_raw_queries"
 		status.Summary = "Uploaded sessions are missing raw query evidence, so the server cannot fetch targeted recommendations yet."
 		s.setRecommendationResearchStatusLocked(project.ID, status)
-		return s.currentRecommendationsLocked(project.ID)
+		return s.currentRecommendationsLocked(project.ID), nil
 	}
 	status.State = "running"
-	status.Summary = fmt.Sprintf("Fetching recommendation suggestions from %s across %d uploaded sessions.", s.researchAgent.Provider, len(sessions))
+	status.Summary = fmt.Sprintf("Waiting for the suggestion from %s. Uploaded sessions are being analyzed in the background.", s.researchAgent.Provider)
 	status.StartedAt = cloneTime(&triggeredAt)
 	s.setRecommendationResearchStatusLocked(project.ID, status)
+	return s.currentRecommendationsLocked(project.ID), &recommendationRefreshJob{
+		project:          cloneProject(project),
+		sessions:         cloneSessionSummaries(sessions),
+		snapshots:        cloneConfigSnapshots(s.AnalyticsStore.configSnapshots[project.ID]),
+		triggerSessionID: triggerSessionID,
+		triggeredAt:      triggeredAt,
+	}
+}
 
-	previousIDs := s.AnalyticsStore.projectRecommendations[project.ID]
+func (s *AnalyticsService) enqueueRecommendationRefresh(job *recommendationRefreshJob) {
+	if job == nil || job.project == nil {
+		return
+	}
+
+	s.recommendationRefreshMu.Lock()
+	projectID := job.project.ID
+	if s.recommendationRefreshLive[projectID] {
+		s.recommendationRefreshNext[projectID] = job
+		s.recommendationRefreshMu.Unlock()
+		return
+	}
+	s.recommendationRefreshLive[projectID] = true
+	s.recommendationRefreshMu.Unlock()
+
+	go func(current *recommendationRefreshJob) {
+		for current != nil {
+			s.runRecommendationRefresh(current)
+
+			s.recommendationRefreshMu.Lock()
+			next := s.recommendationRefreshNext[projectID]
+			if next != nil {
+				delete(s.recommendationRefreshNext, projectID)
+				s.recommendationRefreshMu.Unlock()
+				current = next
+				continue
+			}
+			delete(s.recommendationRefreshLive, projectID)
+			s.recommendationRefreshMu.Unlock()
+			current = nil
+		}
+	}(job)
+}
+
+func (s *AnalyticsService) runRecommendationRefresh(job *recommendationRefreshJob) {
+	if job == nil || job.project == nil {
+		return
+	}
+
+	startedAt := time.Now()
+	rawCandidates, err := s.researchAgent.AnalyzeProject(job.project, job.sessions, job.snapshots)
+	completedAt := time.Now().UTC()
+	durationMS := int(time.Since(startedAt) / time.Millisecond)
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	current := s.AnalyticsStore.recommendationResearch[job.project.ID]
+	if !recommendationRefreshMatchesRun(current, job.triggeredAt) {
+		return
+	}
+
+	status := *current
+	status.CompletedAt = cloneTime(&completedAt)
+	status.LastDurationMS = durationMS
+	status.TriggerSessionID = job.triggerSessionID
+	if err != nil {
+		status.State = "failed"
+		status.Summary = fmt.Sprintf("Recommendation research failed after %s while waiting for %s.", humanizeDurationMS(status.LastDurationMS), s.researchAgent.Provider)
+		status.LastError = err.Error()
+		s.setRecommendationResearchStatusLocked(job.project.ID, status)
+		_ = s.AnalyticsStore.persistLocked()
+		return
+	}
+
+	previousIDs := s.AnalyticsStore.projectRecommendations[job.project.ID]
 	for _, id := range previousIDs {
 		if rec, ok := s.AnalyticsStore.recommendations[id]; ok && rec.Status == "active" {
 			rec.Status = "superseded"
 		}
 	}
 
-	startedAt := time.Now()
-	rawCandidates, err := s.researchAgent.AnalyzeProject(project, sessions, s.AnalyticsStore.configSnapshots[project.ID])
-	completedAt := time.Now().UTC()
-	status.CompletedAt = cloneTime(&completedAt)
-	status.LastDurationMS = int(time.Since(startedAt) / time.Millisecond)
-	if err != nil {
-		status.State = "failed"
-		status.Summary = fmt.Sprintf("Recommendation research failed after %s while waiting for %s.", humanizeDurationMS(status.LastDurationMS), s.researchAgent.Provider)
-		status.LastError = err.Error()
-		s.setRecommendationResearchStatusLocked(project.ID, status)
-		return s.currentRecommendationsLocked(project.ID)
-	}
 	candidates := make([]*Recommendation, 0, len(rawCandidates))
 	for _, candidate := range rawCandidates {
-		candidates = append(candidates, s.newRecommendationLocked(project, candidate))
+		candidates = append(candidates, s.newRecommendationLocked(job.project, candidate))
 	}
 
 	ids := make([]string, 0, len(candidates))
@@ -1866,7 +1948,7 @@ func (s *AnalyticsService) refreshRecommendationsLocked(project *Project, trigge
 		ids = append(ids, candidate.ID)
 		s.AnalyticsStore.recommendations[candidate.ID] = candidate
 	}
-	s.AnalyticsStore.projectRecommendations[project.ID] = ids
+	s.AnalyticsStore.projectRecommendations[job.project.ID] = ids
 	status.RecommendationCount = len(ids)
 	status.LastError = ""
 	if len(ids) == 0 {
@@ -1877,9 +1959,64 @@ func (s *AnalyticsService) refreshRecommendationsLocked(project *Project, trigge
 		status.Summary = fmt.Sprintf("Recommendation research finished in %s and produced %d suggestion(s).", humanizeDurationMS(status.LastDurationMS), len(ids))
 		status.LastSuccessfulAt = cloneTime(&completedAt)
 	}
-	s.setRecommendationResearchStatusLocked(project.ID, status)
+	s.setRecommendationResearchStatusLocked(job.project.ID, status)
+	_ = s.AnalyticsStore.persistLocked()
+}
 
-	return candidates
+func recommendationRefreshMatchesRun(current *RecommendationResearchStatus, triggeredAt time.Time) bool {
+	if current == nil || current.TriggeredAt == nil {
+		return false
+	}
+	return current.TriggeredAt.Equal(triggeredAt)
+}
+
+func cloneProject(project *Project) *Project {
+	if project == nil {
+		return nil
+	}
+	cloned := *project
+	cloned.LanguageMix = cloneFloatMap(project.LanguageMix)
+	cloned.LastIngestedAt = cloneTime(project.LastIngestedAt)
+	return &cloned
+}
+
+func cloneSessionSummaries(items []*SessionSummary) []*SessionSummary {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]*SessionSummary, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		cloned := *item
+		cloned.ToolCalls = cloneIntMap(item.ToolCalls)
+		cloned.ToolErrors = cloneIntMap(item.ToolErrors)
+		cloned.ToolWallTimesMS = cloneIntMap(item.ToolWallTimesMS)
+		cloned.RawQueries = cloneStringSlice(item.RawQueries)
+		cloned.Models = cloneStringSlice(item.Models)
+		cloned.AssistantResponses = cloneStringSlice(item.AssistantResponses)
+		out = append(out, &cloned)
+	}
+	return out
+}
+
+func cloneConfigSnapshots(items []*ConfigSnapshot) []*ConfigSnapshot {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]*ConfigSnapshot, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		cloned := *item
+		cloned.Settings = cloneAnyMap(item.Settings)
+		cloned.InstructionFiles = cloneStringSlice(item.InstructionFiles)
+		cloned.RecentConfigChanges = cloneStringSlice(item.RecentConfigChanges)
+		out = append(out, &cloned)
+	}
+	return out
 }
 
 func (s *AnalyticsService) newRecommendationLocked(project *Project, tpl researchRecommendation) *Recommendation {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Royaltyprogram/aiops/configs"
@@ -26,6 +27,42 @@ type envelope struct {
 	Code    int             `json:"code"`
 	Message string          `json:"msg"`
 	Data    json.RawMessage `json:"data"`
+}
+
+func isBenignRouteConnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection reset by peer")
+}
+
+func waitForDashboardResearchStatus(
+	t *testing.T,
+	echo *echo.Echo,
+	token, orgID string,
+	matcher func(*response.RecommendationResearchStatusResp) bool,
+) *response.RecommendationResearchStatusResp {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		overview := getJSON[response.DashboardOverviewResp](t, echo, token, "/api/v1/dashboard/overview", url.Values{
+			"org_id": []string{orgID},
+		})
+		if matcher(overview.ResearchStatus) {
+			return overview.ResearchStatus
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	overview := getJSON[response.DashboardOverviewResp](t, echo, token, "/api/v1/dashboard/overview", url.Values{
+		"org_id": []string{orgID},
+	})
+	require.True(t, matcher(overview.ResearchStatus), "unexpected research status: %#v", overview.ResearchStatus)
+	return overview.ResearchStatus
 }
 
 func TestAnalyticsRouteLifecycle(t *testing.T) {
@@ -100,7 +137,13 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 			"The analytics route registers auth, ingestion, and dashboard handlers in one place.",
 		},
 	})
-	require.NotEmpty(t, ingestResp.LatestRecommendationIDs)
+	require.NotNil(t, ingestResp.ResearchStatus)
+	require.Equal(t, "running", ingestResp.ResearchStatus.State)
+
+	status := waitForDashboardResearchStatus(t, echo, conf.App.APIToken, "org-route", func(item *response.RecommendationResearchStatusResp) bool {
+		return item != nil && item.State == "succeeded"
+	})
+	require.Equal(t, 1, status.RecommendationCount)
 
 	snapshotList := getJSON[response.ConfigSnapshotListResp](t, echo, conf.App.APIToken, "/api/v1/config-snapshots", url.Values{
 		"project_id": []string{projectResp.ProjectID},
@@ -304,7 +347,12 @@ func newRouteResearchConfig(t *testing.T) *configs.Config {
 		require.Equal(t, "Bearer test-openai-key", r.Header.Get("Authorization"))
 
 		var payload map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			if isBenignRouteConnError(err) {
+				return
+			}
+			require.NoError(t, err)
+		}
 		input, _ := payload["input"].(string)
 
 		body := `{
@@ -338,7 +386,9 @@ func newRouteResearchConfig(t *testing.T) *configs.Config {
 
 		w.Header().Set("Content-Type", "application/json")
 		_, err := w.Write([]byte(body))
-		require.NoError(t, err)
+		if !isBenignRouteConnError(err) {
+			require.NoError(t, err)
+		}
 	}))
 	t.Cleanup(server.Close)
 
