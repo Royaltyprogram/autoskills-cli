@@ -206,6 +206,75 @@ func TestParseResearchRecommendationsRejectsInvalidEntries(t *testing.T) {
 	require.Contains(t, recs[0].RawSuggestion, "\"title\": \"Keep verification local\"")
 }
 
+func TestParseResearchRecommendationsCapturesHarnessSpec(t *testing.T) {
+	recs, err := parseResearchRecommendations(`{
+  "recommendations": [
+    {
+      "kind": "harness-seed",
+      "title": "Install regression harness",
+      "summary": "Repeated verification drift suggests a repo-local harness should define the expected contract.",
+      "reason": "The user keeps re-stating the same acceptance checks before coding.",
+      "explanation": "A structured harness spec lets the agent run the same regression contract each time.",
+      "expected_benefit": "Less repeated acceptance-criteria steering.",
+      "risk": "Low. Reviewable harness file and skill only.",
+      "expected_impact": "Faster convergence on the intended behavior.",
+      "score": 0.81,
+      "evidence": ["repeated acceptance checks"],
+      "harness_spec": {
+        "version": 1,
+        "name": "approval-regression",
+        "goal": "approval flow should stay green end-to-end",
+        "target_paths": ["service/", "cmd/agentopt/"],
+        "setup_commands": ["go test ./service -run TestSmoke -count=1"],
+        "test_commands": ["go test ./cmd/agentopt -run TestApproval -count=1"],
+        "assertions": [{"kind": "exit_code", "equals": 0}],
+        "anti_goals": ["do not broaden patch scope"]
+      },
+      "change_plan": [
+        {
+          "type": "text_replace",
+          "action": "text_replace",
+          "target_file": ".agentopt/harness/default.json",
+          "summary": "Install the default harness JSON.",
+          "content_preview": "{\n  \"version\": 1\n}"
+        }
+      ]
+    }
+  ]
+}`)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	require.NotNil(t, recs[0].HarnessSpec)
+	require.Equal(t, "approval-regression", recs[0].HarnessSpec.Name)
+	require.Equal(t, []string{"service/", "cmd/agentopt/"}, recs[0].HarnessSpec.TargetPaths)
+	require.Equal(t, []string{"go test ./service -run TestSmoke -count=1"}, recs[0].HarnessSpec.SetupCommands)
+	require.Equal(t, []string{"go test ./cmd/agentopt -run TestApproval -count=1"}, recs[0].HarnessSpec.TestCommands)
+	require.Len(t, recs[0].HarnessSpec.Assertions, 1)
+	require.Equal(t, "exit_code", recs[0].HarnessSpec.Assertions[0].Kind)
+	require.Equal(t, 0, recs[0].HarnessSpec.Assertions[0].Equals)
+}
+
+func TestLocalizeResearchRecommendationsMapsHarnessTargetsToRepoLocalFiles(t *testing.T) {
+	items := localizeResearchRecommendations(&Project{Name: "demo"}, []researchRecommendation{{
+		Kind:  "harness-seed",
+		Title: "Install repo-local harness",
+		Steps: []ChangePlanStep{
+			{
+				Action:     "text_replace",
+				TargetFile: "~/.codex/skills/agentopt-test-harness/SKILL.md",
+			},
+			{
+				Action:     "text_replace",
+				TargetFile: ".agentopt/harness/default.json",
+			},
+		},
+	}})
+	require.Len(t, items, 1)
+	require.Len(t, items[0].Steps, 2)
+	require.Equal(t, defaultProjectHarnessSkillTarget, items[0].Steps[0].TargetFile)
+	require.Equal(t, defaultProjectHarnessSpecTarget, items[0].Steps[1].TargetFile)
+}
+
 func TestNormalizeQueriesForResearchPromptStripsBoilerplate(t *testing.T) {
 	queries := normalizeQueriesForResearchPrompt([]string{
 		`# AGENTS.md instructions for /tmp/demo

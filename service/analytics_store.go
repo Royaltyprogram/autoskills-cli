@@ -39,6 +39,7 @@ type AnalyticsStore struct {
 	recommendationResearch map[string]*RecommendationResearchStatus
 	experiments            map[string]*Experiment
 	applyOperations        map[string]*ApplyOperation
+	harnessRuns            map[string]*HarnessRun
 	audits                 []*AuditEvent
 }
 
@@ -56,6 +57,7 @@ type analyticsStoreState struct {
 	RecommendationResearch map[string]*RecommendationResearchStatus `json:"recommendation_research"`
 	Experiments            map[string]*Experiment                   `json:"experiments"`
 	ApplyOperations        map[string]*ApplyOperation               `json:"apply_operations"`
+	HarnessRuns            map[string]*HarnessRun                   `json:"harness_runs"`
 	Audits                 []*AuditEvent                            `json:"audits"`
 }
 
@@ -159,6 +161,7 @@ type Recommendation struct {
 	ResearchModel    string
 	Evidence         []string
 	ChangePlan       []ChangePlanStep
+	HarnessSpec      *HarnessSpec
 	SettingsUpdates  map[string]any
 	RawSuggestion    string
 	CreatedAt        time.Time
@@ -190,6 +193,54 @@ type ChangePlanStep struct {
 	Summary         string
 	SettingsUpdates map[string]any
 	ContentPreview  string
+}
+
+type HarnessSpec struct {
+	Version       int
+	Name          string
+	Goal          string
+	TargetPaths   []string
+	SetupCommands []string
+	TestCommands  []string
+	Assertions    []HarnessAssertion
+	AntiGoals     []string
+}
+
+type HarnessAssertion struct {
+	Kind        string
+	Equals      int
+	Contains    string
+	NotContains string
+}
+
+type HarnessCommandResult struct {
+	Phase      string
+	Command    string
+	ExitCode   int
+	DurationMS int64
+	Output     string
+	Passed     bool
+	Error      string
+}
+
+type HarnessRun struct {
+	ID               string
+	ProjectID        string
+	RecommendationID string
+	ApplyID          string
+	SpecFile         string
+	Name             string
+	Goal             string
+	Status           string
+	Passed           bool
+	Reason           string
+	RootDir          string
+	DurationMS       int64
+	Commands         []HarnessCommandResult
+	TriggeredBy      string
+	StartedAt        time.Time
+	CompletedAt      time.Time
+	CreatedAt        time.Time
 }
 
 type PatchPreview struct {
@@ -289,6 +340,7 @@ func NewAnalyticsStore(conf *configs.Config) (*AnalyticsStore, error) {
 		recommendationResearch: make(map[string]*RecommendationResearchStatus),
 		experiments:            make(map[string]*Experiment),
 		applyOperations:        make(map[string]*ApplyOperation),
+		harnessRuns:            make(map[string]*HarnessRun),
 		audits:                 make([]*AuditEvent, 0, 32),
 	}
 	if err := store.initDB(); err != nil {
@@ -555,6 +607,11 @@ func (s *AnalyticsStore) recordsForPersistence() ([]analyticsDBRecord, error) {
 			return nil, err
 		}
 	}
+	for _, id := range sortedKeys(s.harnessRuns) {
+		if err := appendRecord("harness_run", "", id, s.harnessRuns[id]); err != nil {
+			return nil, err
+		}
+	}
 	for _, audit := range s.audits {
 		if audit != nil {
 			if err := appendRecord("audit", "", audit.ID, audit); err != nil {
@@ -707,6 +764,12 @@ func (s *AnalyticsStore) applyLoadedRecord(recordType, scopeID, recordID string,
 			return err
 		}
 		s.applyOperations[recordID] = &item
+	case "harness_run":
+		var item HarnessRun
+		if err := json.Unmarshal(payload, &item); err != nil {
+			return err
+		}
+		s.harnessRuns[recordID] = &item
 	case "audit":
 		var item AuditEvent
 		if err := json.Unmarshal(payload, &item); err != nil {
@@ -755,6 +818,7 @@ func (s *AnalyticsStore) resetInMemoryState() {
 	s.recommendationResearch = make(map[string]*RecommendationResearchStatus)
 	s.experiments = make(map[string]*Experiment)
 	s.applyOperations = make(map[string]*ApplyOperation)
+	s.harnessRuns = make(map[string]*HarnessRun)
 	s.audits = make([]*AuditEvent, 0, 32)
 }
 
@@ -773,6 +837,7 @@ func (s *AnalyticsStore) snapshotStateLocked() analyticsStoreState {
 		RecommendationResearch: s.recommendationResearch,
 		Experiments:            s.experiments,
 		ApplyOperations:        s.applyOperations,
+		HarnessRuns:            s.harnessRuns,
 		Audits:                 s.audits,
 	}
 }
@@ -791,6 +856,7 @@ func (s *AnalyticsStore) replaceStateLocked(state analyticsStoreState) error {
 	s.recommendationResearch = ensureMap(state.RecommendationResearch)
 	s.experiments = ensureMap(state.Experiments)
 	s.applyOperations = ensureMap(state.ApplyOperations)
+	s.harnessRuns = ensureMap(state.HarnessRuns)
 	if state.Audits == nil {
 		s.audits = make([]*AuditEvent, 0, 32)
 	} else {
@@ -979,17 +1045,72 @@ func cloneChangePlanSteps(input []ChangePlanStep) []ChangePlanStep {
 	return out
 }
 
-func (s *AnalyticsStore) collapseProjectsLocked() bool {
-	orgProjects := make(map[string][]*Project)
+func cloneHarnessSpec(input *HarnessSpec) *HarnessSpec {
+	if input == nil {
+		return nil
+	}
+	return &HarnessSpec{
+		Version:       input.Version,
+		Name:          input.Name,
+		Goal:          input.Goal,
+		TargetPaths:   cloneStringSlice(input.TargetPaths),
+		SetupCommands: cloneStringSlice(input.SetupCommands),
+		TestCommands:  cloneStringSlice(input.TestCommands),
+		Assertions:    cloneHarnessAssertions(input.Assertions),
+		AntiGoals:     cloneStringSlice(input.AntiGoals),
+	}
+}
+
+func cloneHarnessAssertions(input []HarnessAssertion) []HarnessAssertion {
+	if len(input) == 0 {
+		return []HarnessAssertion{}
+	}
+	out := make([]HarnessAssertion, 0, len(input))
+	for _, item := range input {
+		out = append(out, HarnessAssertion{
+			Kind:        item.Kind,
+			Equals:      item.Equals,
+			Contains:    item.Contains,
+			NotContains: item.NotContains,
+		})
+	}
+	return out
+}
+
+func cloneHarnessCommandResults(input []HarnessCommandResult) []HarnessCommandResult {
+	if len(input) == 0 {
+		return []HarnessCommandResult{}
+	}
+	out := make([]HarnessCommandResult, 0, len(input))
+	for _, item := range input {
+		out = append(out, HarnessCommandResult{
+			Phase:      item.Phase,
+			Command:    item.Command,
+			ExitCode:   item.ExitCode,
+			DurationMS: item.DurationMS,
+			Output:     item.Output,
+			Passed:     item.Passed,
+			Error:      item.Error,
+		})
+	}
+	return out
+}
+
+func (s *AnalyticsStore) dedupeProjectsLocked() bool {
+	projectGroups := make(map[string][]*Project)
 	for _, project := range s.projects {
 		if project == nil || project.OrgID == "" {
 			continue
 		}
-		orgProjects[project.OrgID] = append(orgProjects[project.OrgID], project)
+		key, ok := dedupeProjectKey(project)
+		if !ok {
+			continue
+		}
+		projectGroups[key] = append(projectGroups[key], project)
 	}
 
 	modified := false
-	for _, projects := range orgProjects {
+	for _, projects := range projectGroups {
 		if len(projects) <= 1 {
 			continue
 		}
@@ -1101,12 +1222,29 @@ func (s *AnalyticsStore) collapseProjectsLocked() bool {
 		}
 
 		if modified {
-			canonical.Name = sharedWorkspaceName
+			if strings.TrimSpace(canonical.Name) == "" {
+				canonical.Name = "project"
+			}
 			s.projectRecommendations[canonical.ID] = recommendationIDs
 		}
 	}
 
 	return modified
+}
+
+func dedupeProjectKey(project *Project) (string, bool) {
+	if project == nil {
+		return "", false
+	}
+	repoHash := strings.TrimSpace(project.RepoHash)
+	if repoHash != "" {
+		return project.OrgID + "\x00hash\x00" + repoHash, true
+	}
+	repoPath := strings.TrimSpace(project.RepoPath)
+	if repoPath != "" {
+		return project.OrgID + "\x00path\x00" + filepath.Clean(repoPath), true
+	}
+	return "", false
 }
 
 func latestProject(projects []*Project) *Project {

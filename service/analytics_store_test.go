@@ -42,6 +42,37 @@ func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 			Timestamp: now,
 		},
 	}
+	store.recommendations["rec_1"] = &Recommendation{
+		ID:        "rec_1",
+		ProjectID: "project_1",
+		Kind:      "harness-seed",
+		Title:     "Install harness",
+		Summary:   "Persist harness metadata.",
+		Status:    "active",
+		HarnessSpec: &HarnessSpec{
+			Version:      1,
+			Name:         "approval-regression",
+			Goal:         "approval flow should stay green",
+			TestCommands: []string{"go test ./... -run TestApproval -count=1"},
+			Assertions: []HarnessAssertion{{
+				Kind:   "exit_code",
+				Equals: 0,
+			}},
+		},
+		CreatedAt: now,
+	}
+	store.harnessRuns["harness_1"] = &HarnessRun{
+		ID:          "harness_1",
+		ProjectID:   "project_1",
+		SpecFile:    ".agentopt/harness/agentopt-default.json",
+		Name:        "approval-regression",
+		Status:      "passed",
+		Passed:      true,
+		DurationMS:  2400,
+		StartedAt:   now.Add(-3 * time.Second),
+		CompletedAt: now,
+		CreatedAt:   now,
+	}
 	require.NoError(t, store.persistLocked())
 	store.mu.Unlock()
 
@@ -57,9 +88,13 @@ func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 	require.Len(t, loaded.sessionSummaries["project_1"], 1)
 	require.Equal(t, "session_1", loaded.sessionSummaries["project_1"][0].ID)
 	require.NotNil(t, loaded.projects["project_1"].LastIngestedAt)
+	require.NotNil(t, loaded.recommendations["rec_1"].HarnessSpec)
+	require.Equal(t, "approval-regression", loaded.recommendations["rec_1"].HarnessSpec.Name)
+	require.Contains(t, loaded.harnessRuns, "harness_1")
+	require.Equal(t, "passed", loaded.harnessRuns["harness_1"].Status)
 }
 
-func TestAnalyticsStoreCollapsesProjectsIntoSharedWorkspaceOnLoad(t *testing.T) {
+func TestAnalyticsStoreDedupesProjectsForTheSameRepoOnLoad(t *testing.T) {
 	conf := &configs.Config{}
 	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
 
@@ -75,12 +110,16 @@ func TestAnalyticsStoreCollapsesProjectsIntoSharedWorkspaceOnLoad(t *testing.T) 
 		ID:          "project_1",
 		OrgID:       "org-1",
 		Name:        "repo-a",
+		RepoHash:    "repo-hash",
+		RepoPath:    "/tmp/demo-repo",
 		ConnectedAt: older,
 	}
 	store.projects["project_2"] = &Project{
 		ID:          "project_2",
 		OrgID:       "org-1",
 		Name:        "repo-b",
+		RepoHash:    "repo-hash",
+		RepoPath:    "/tmp/demo-repo",
 		ConnectedAt: newer,
 	}
 	store.sessionSummaries["project_1"] = []*SessionSummary{{
@@ -107,7 +146,7 @@ func TestAnalyticsStoreCollapsesProjectsIntoSharedWorkspaceOnLoad(t *testing.T) 
 	require.Len(t, loaded.projects, 1)
 	workspace := loaded.projects["project_2"]
 	require.NotNil(t, workspace)
-	require.Equal(t, "Shared workspace", workspace.Name)
+	require.Equal(t, "repo-b", workspace.Name)
 	require.Len(t, loaded.sessionSummaries["project_2"], 2)
 	require.Empty(t, loaded.sessionSummaries["project_1"])
 }

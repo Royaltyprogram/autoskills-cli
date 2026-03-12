@@ -11,10 +11,10 @@ The product shape is:
   - applies local changes safely and can roll them back
 - `Cloud Research Agent`
   - analyzes token usage, raw query history, and config snapshots
-  - generates ranked instruction recommendations and structured change plans
+  - generates ranked workflow recommendations, including structured harness specs and change plans
   - stays local and uses only uploaded personal usage data in this MVP
 - `AIops Server`
-  - stores metrics, recommendations, change plans, execution history, impact, and audit logs
+  - stores metrics, recommendations, harness runs, change plans, execution history, impact, and audit logs
 - `Web Dashboard`
   - shows a user-facing summary of recommendations and workspace health
   - approves or rejects change plans
@@ -39,6 +39,8 @@ Detailed codebase documentation:
 - `agentopt daemon enable --bootstrap-recent 10` can upload existing local sessions once during onboarding, then keep background collection and approve -> auto-apply running
 - Recommendations now wait until at least `10` uploaded sessions exist before the server generates the first suggestion
 - Local apply supports both `JSON merge patches` and safe `text append` patches such as `AGENTS.md`
+- `agentopt harness run` executes repo-local AgentOpt harness specs from `.agentopt/harness/*.json` and uploads results back to AgentOpt when the repo is connected
+- `sync` and `apply --yes` now treat repo-local harness specs as rollout gates: a red pre-check blocks the apply, and a red post-check triggers an automatic rollback attempt
 - Local apply is executed through a `Codex SDK` runner while preflight, allowlist checks, backup, and rollback stay in the Go CLI
 
 ## Quickstart
@@ -121,7 +123,11 @@ Supported secret file envs now include `JWT_SECRET_FILE`, `DB_DSN_FILE`, `APP_AP
 
 Bootstrap users are now treated as managed closed beta identities: removing a user from the bootstrap file revokes their existing tokens, and rotating a bootstrap password revokes prior sessions so the new credential takes effect immediately.
 
-In this MVP every connected repository shares one workspace per organization. `agentopt connect` keeps that shared workspace current, and `pending`, `sync`, `history`, and `impact` always read from the same rollout stream.
+In this MVP each connected repository is tracked as its own project within the organization. `agentopt connect` reuses the existing project for the same repo and updates the active local project mapping, so `pending`, `sync`, `history`, and `impact` follow the rollout stream for the repo you are currently inside.
+Recommendation patches now prefer repo-local agent files such as `AGENTS.md` and `.codex/skills/agentopt-*` instead of editing `~/.codex` global defaults by default.
+Repo-local harness recommendations can now install `.agentopt/harness/*.json` specs plus `.codex/skills/agentopt-test-harness/SKILL.md`, expose the intended contract as structured `harness_spec` metadata, then run them with `agentopt harness run`.
+When the repo is already connected with `agentopt connect`, harness runs are uploaded to the server as analytics events and appear in the audit stream.
+The dashboard overview and project analytics now surface harness health directly, including pass rate, latest status, and recent failing specs.
 
 If `sync` or `apply --yes` fails before the plan starts, check the local runner first:
 
@@ -312,7 +318,7 @@ If `HTTP_TRUSTED_PROXY_CIDRS` is empty, AgentOpt only trusts the direct socket r
 The cloud research agent is intentionally narrow in this MVP:
 
 - recommendation generation samples up to 10 uploaded raw queries and sends them to the OpenAI Responses API
-- recommendation output is still limited to instruction/custom-rule suggestions for now
+- recommendation output now supports repo-local harness specs, skills, and workflow-default patches
 - the local executor now enforces a strict file allowlist before any approved plan is applied
 - the local executor can now apply and roll back multi-step plans across allowlisted files
 - the actual local file edit step is delegated to `Codex SDK`, but the CLI still owns preflight, backup, result reporting, and rollback

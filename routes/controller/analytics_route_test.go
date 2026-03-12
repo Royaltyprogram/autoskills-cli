@@ -289,10 +289,69 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.NotEmpty(t, insightsResp.Providers)
 	require.Equal(t, "openai", insightsResp.Providers[0].Provider)
 
+	harnessResp := postJSON[response.HarnessRunResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/harness-runs", request.HarnessRunReq{
+		ProjectID:   projectResp.ProjectID,
+		SpecFile:    ".agentopt/harness/agentopt-default.json",
+		Name:        "route-harness",
+		Goal:        "route lifecycle should stay green",
+		Passed:      true,
+		Reason:      "assertions passed",
+		RootDir:     "/tmp/route-project",
+		DurationMS:  1800,
+		TriggeredBy: "user-route",
+		Commands: []request.HarnessCommandResultReq{{
+			Phase:      "test",
+			Command:    "go test ./routes/controller -run TestAnalyticsRouteLifecycle -count=1",
+			ExitCode:   0,
+			DurationMS: 1800,
+			Passed:     true,
+		}},
+		StartedAt: time.Now().UTC().Add(-2 * time.Second),
+	})
+	require.Equal(t, "passed", harnessResp.Status)
+	require.True(t, harnessResp.Passed)
+	require.Len(t, harnessResp.Commands, 1)
+
+	overviewAfterHarness := getJSON[response.DashboardOverviewResp](t, echo, conf.App.APIToken, "/api/v1/dashboard/overview", url.Values{
+		"org_id": []string{"org-route"},
+	})
+	require.Equal(t, 1, overviewAfterHarness.HarnessRunCount)
+	require.Equal(t, 0, overviewAfterHarness.HarnessFailureCount)
+	require.Equal(t, 1.0, overviewAfterHarness.HarnessPassRate)
+	require.Equal(t, "passed", overviewAfterHarness.LatestHarnessStatus)
+	require.Equal(t, "route-harness", overviewAfterHarness.LatestHarnessName)
+	require.NotNil(t, overviewAfterHarness.LatestHarnessAt)
+
+	insightsAfterHarness := getJSON[response.DashboardProjectInsightsResp](t, echo, conf.App.APIToken, "/api/v1/dashboard/project-insights", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.Equal(t, 1, insightsAfterHarness.HarnessRunCount)
+	require.Equal(t, 1, insightsAfterHarness.HarnessPassCount)
+	require.Equal(t, 0, insightsAfterHarness.HarnessFailCount)
+	require.Equal(t, 1.0, insightsAfterHarness.HarnessPassRate)
+	require.Equal(t, "passed", insightsAfterHarness.LatestHarnessStatus)
+	require.Equal(t, "route-harness", insightsAfterHarness.LatestHarnessName)
+	require.NotNil(t, insightsAfterHarness.LatestHarnessAt)
+	foundHarnessDay := false
+	for _, day := range insightsAfterHarness.Days {
+		if day.HarnessPassCount > 0 || day.HarnessFailCount > 0 {
+			foundHarnessDay = true
+		}
+	}
+	require.True(t, foundHarnessDay)
+
 	auditResp := getJSON[response.AuditListResp](t, echo, conf.App.APIToken, "/api/v1/audits", url.Values{
 		"org_id": []string{"org-route"},
 	})
 	require.NotEmpty(t, auditResp.Items)
+	foundHarnessAudit := false
+	for _, item := range auditResp.Items {
+		if item.Type == "harness.run" && item.Message == "passed" {
+			foundHarnessAudit = true
+			break
+		}
+	}
+	require.True(t, foundHarnessAudit)
 }
 
 func newRouteResearchConfig(t *testing.T) *configs.Config {

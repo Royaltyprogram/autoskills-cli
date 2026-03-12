@@ -181,9 +181,11 @@ func TestAnalyticsServiceLifecycleAndOrdering(t *testing.T) {
 
 	projects, err := svc.ListProjects(ctx, &request.ProjectListReq{OrgID: "org-1"})
 	require.NoError(t, err)
-	require.Len(t, projects.Items, 1)
-	require.Equal(t, "project-z", projects.Items[0].ID)
-	require.Equal(t, "Shared workspace", projects.Items[0].Name)
+	require.Len(t, projects.Items, 2)
+	require.Equal(t, "project-a", projects.Items[0].ID)
+	require.Equal(t, "alpha", projects.Items[0].Name)
+	require.Equal(t, "project-z", projects.Items[1].ID)
+	require.Equal(t, "zeta", projects.Items[1].Name)
 
 	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-z"})
 	require.NoError(t, err)
@@ -556,7 +558,7 @@ func TestRegisterProjectReusesExistingProjectAndPreservesSignals(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, projects.Items, 1)
 	require.Equal(t, "project-1", projects.Items[0].ID)
-	require.Equal(t, "Shared workspace", projects.Items[0].Name)
+	require.Equal(t, "demo-repo", projects.Items[0].Name)
 	require.Equal(t, "/tmp/demo-repo", projects.Items[0].RepoPath)
 	require.Equal(t, "baseline", projects.Items[0].LastProfileID)
 	require.NotNil(t, projects.Items[0].LastIngestedAt)
@@ -850,7 +852,7 @@ func TestAnalyzeProjectAddsConfigAndMCPRecommendationsFromSnapshot(t *testing.T)
 	require.NotNil(t, configRecommendation)
 	require.Equal(t, ".codex/config.json", configRecommendation.ChangePlan[0].TargetFile)
 	require.Equal(t, "merge_patch", configRecommendation.ChangePlan[0].Action)
-	require.Equal(t, []any{"AGENTS.md", defaultCodexInstructionTarget}, configRecommendation.ChangePlan[0].SettingsUpdates["instruction_files"])
+	require.Equal(t, []any{"AGENTS.md"}, configRecommendation.ChangePlan[0].SettingsUpdates["instruction_files"])
 
 	instructionRecommendation := findRecommendationByKind(recommendations.Items, "instruction-review")
 	require.NotNil(t, instructionRecommendation)
@@ -890,6 +892,165 @@ func TestAnalyzeProjectAddsConfigAndMCPRecommendationsFromSnapshot(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, "requires_review", instructionPlan.PolicyMode)
 	require.Equal(t, "awaiting_review", instructionPlan.Status)
+}
+
+func TestAnalyzeProjectCapturesHarnessSpecAndPersistsHarnessRuns(t *testing.T) {
+	ctx := context.Background()
+	conf := newResearchStubConfig(t, `{
+  "output": [
+    {
+      "type": "message",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"recommendations\":[{\"kind\":\"harness-seed\",\"title\":\"Install approval regression harness\",\"summary\":\"The uploaded sessions show repeated approval-flow verification drift before implementation.\",\"reason\":\"The user keeps re-stating the approval checks and exact tests on each task.\",\"explanation\":\"A repo-local harness spec can make the desired regression contract executable instead of prose-only.\",\"expected_benefit\":\"Less repeated steering around approval regressions.\",\"risk\":\"Low. Reviewable harness files only.\",\"expected_impact\":\"Faster validation and narrower patches.\",\"score\":0.88,\"evidence\":[\"repeated approval checks\"],\"harness_spec\":{\"version\":1,\"name\":\"approval-regression\",\"goal\":\"approval flow should stay green end-to-end\",\"target_paths\":[\"service/\",\"cmd/agentopt/\"],\"setup_commands\":[\"go test ./service -run TestSmoke -count=1\"],\"test_commands\":[\"go test ./cmd/agentopt -run TestApproval -count=1\"],\"assertions\":[{\"kind\":\"exit_code\",\"equals\":0}],\"anti_goals\":[\"do not broaden patch scope\"]},\"change_plan\":[{\"type\":\"text_replace\",\"action\":\"text_replace\",\"target_file\":\".agentopt/harness/default.json\",\"summary\":\"Install the repo-local harness spec.\",\"content_preview\":\"{\\n  \\\"version\\\": 1\\n}\"}]}]}"
+        }
+      ]
+    }
+  ]
+}`)
+	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+
+	store, err := NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	svc := NewAnalyticsService(Options{
+		Config:                    conf,
+		AnalyticsStore:            store,
+		RecommendationMinSessions: 1,
+	})
+
+	agentResp, err := svc.RegisterAgent(ctx, &request.RegisterAgentReq{
+		OrgID:      "org-harness",
+		UserID:     "user-harness",
+		DeviceName: "macbook",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.RegisterProject(ctx, &request.RegisterProjectReq{
+		OrgID:       "org-harness",
+		AgentID:     agentResp.AgentID,
+		ProjectID:   "project-harness",
+		Name:        "harness",
+		RepoHash:    "harness-hash",
+		DefaultTool: "codex",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UploadSessionSummary(ctx, &request.SessionSummaryReq{
+		ProjectID: "project-harness",
+		SessionID: "session-harness",
+		Tool:      "codex",
+		TokenIn:   900,
+		TokenOut:  220,
+		RawQueries: []string{
+			"Inspect the approval flow before editing it.",
+			"List the exact approval regression checks.",
+			"Keep the patch minimal and rerun the approval tests.",
+		},
+		Timestamp: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	recommendations, err := svc.ListRecommendations(ctx, &request.RecommendationListReq{ProjectID: "project-harness"})
+	require.NoError(t, err)
+	require.Len(t, recommendations.Items, 1)
+	require.NotNil(t, recommendations.Items[0].HarnessSpec)
+	require.Equal(t, "approval-regression", recommendations.Items[0].HarnessSpec.Name)
+	require.Equal(t, []string{"service/", "cmd/agentopt/"}, recommendations.Items[0].HarnessSpec.TargetPaths)
+	require.Equal(t, ".agentopt/harness/agentopt-default.json", recommendations.Items[0].ChangePlan[0].TargetFile)
+
+	runResp, err := svc.ReportHarnessRun(ctx, &request.HarnessRunReq{
+		ProjectID:   "project-harness",
+		SpecFile:    ".agentopt/harness/agentopt-default.json",
+		Name:        "approval-regression",
+		Goal:        "approval flow should stay green end-to-end",
+		Passed:      true,
+		Reason:      "assertions passed",
+		RootDir:     "/tmp/project-harness",
+		DurationMS:  3200,
+		TriggeredBy: "user-harness",
+		Commands: []request.HarnessCommandResultReq{{
+			Phase:      "test",
+			Command:    "go test ./cmd/agentopt -run TestApproval -count=1",
+			ExitCode:   0,
+			DurationMS: 3200,
+			Passed:     true,
+		}},
+		StartedAt: time.Now().UTC().Add(-4 * time.Second),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "passed", runResp.Status)
+	require.True(t, runResp.Passed)
+	require.Len(t, runResp.Commands, 1)
+
+	failResp, err := svc.ReportHarnessRun(ctx, &request.HarnessRunReq{
+		ProjectID:   "project-harness",
+		SpecFile:    ".agentopt/harness/agentopt-default.json",
+		Name:        "approval-regression",
+		Goal:        "approval flow should stay green end-to-end",
+		Passed:      false,
+		Reason:      "assertion failed",
+		RootDir:     "/tmp/project-harness",
+		DurationMS:  2100,
+		TriggeredBy: "user-harness",
+		Commands: []request.HarnessCommandResultReq{{
+			Phase:      "test",
+			Command:    "go test ./cmd/agentopt -run TestApproval -count=1",
+			ExitCode:   1,
+			DurationMS: 2100,
+			Passed:     false,
+			Error:      "exit status 1",
+		}},
+		StartedAt: time.Now().UTC().Add(-2 * time.Second),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "failed", failResp.Status)
+	require.False(t, failResp.Passed)
+
+	store.mu.RLock()
+	require.Len(t, store.harnessRuns, 2)
+	var stored *HarnessRun
+	for _, item := range store.harnessRuns {
+		stored = item
+	}
+	store.mu.RUnlock()
+	require.NotNil(t, stored)
+	require.Equal(t, "project-harness", stored.ProjectID)
+	require.Equal(t, ".agentopt/harness/agentopt-default.json", stored.SpecFile)
+	require.Contains(t, []string{"passed", "failed"}, stored.Status)
+
+	audits, err := svc.AuditList(ctx, &request.AuditListReq{OrgID: "org-harness"})
+	require.NoError(t, err)
+	require.NotEmpty(t, audits.Items)
+	require.Equal(t, "harness.run", audits.Items[0].Type)
+	require.Equal(t, "failed", audits.Items[0].Message)
+
+	overview, err := svc.DashboardOverview(ctx, &request.DashboardOverviewReq{OrgID: "org-harness"})
+	require.NoError(t, err)
+	require.Equal(t, 2, overview.HarnessRunCount)
+	require.Equal(t, 1, overview.HarnessFailureCount)
+	require.Equal(t, 0.5, overview.HarnessPassRate)
+	require.Equal(t, "failed", overview.LatestHarnessStatus)
+	require.Equal(t, "approval-regression", overview.LastFailingHarnessName)
+	require.NotNil(t, overview.LatestHarnessAt)
+
+	insights, err := svc.DashboardProjectInsights(ctx, &request.DashboardProjectInsightsReq{ProjectID: "project-harness"})
+	require.NoError(t, err)
+	require.Equal(t, 2, insights.HarnessRunCount)
+	require.Equal(t, 1, insights.HarnessPassCount)
+	require.Equal(t, 1, insights.HarnessFailCount)
+	require.Equal(t, 0.5, insights.HarnessPassRate)
+	require.Equal(t, "failed", insights.LatestHarnessStatus)
+	require.Equal(t, "approval-regression", insights.LastFailingHarnessName)
+	require.NotNil(t, insights.LatestHarnessAt)
+	foundHarnessDay := false
+	for _, day := range insights.Days {
+		if day.HarnessPassCount > 0 || day.HarnessFailCount > 0 {
+			foundHarnessDay = true
+		}
+	}
+	require.True(t, foundHarnessDay)
 }
 
 func TestCreateApplyPlanBlocksWhenActiveExperimentExists(t *testing.T) {

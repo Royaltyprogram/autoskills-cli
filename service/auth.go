@@ -77,7 +77,7 @@ func (s *AnalyticsStore) ensureBootstrapData() error {
 	if s.ensureConfiguredUsersLocked(now) {
 		modified = true
 	}
-	if s.collapseProjectsLocked() {
+	if s.dedupeProjectsLocked() {
 		modified = true
 	}
 

@@ -38,15 +38,18 @@ go run ./cmd/agentopt session
 go run ./cmd/agentopt daemon enable --bootstrap-recent 10 --collect-interval 30m --sync-interval 15s
 go run ./cmd/agentopt daemon status
 go run ./cmd/agentopt recommendations
+go run ./cmd/agentopt harness run
 go run ./cmd/agentopt impact
 ```
 
 Notes:
 
-- In the MVP, every connected repository rolls into one shared workspace per organization.
-- `agentopt connect` updates that shared workspace.
+- In the MVP, each connected repository is tracked as its own project within the organization.
+- `agentopt connect` reuses the existing project for the same repo and updates the local CLI's active project mapping.
+- `agentopt harness run` executes repo-local harness specs and uploads the result to the server when the repo is connected.
+- If repo-local harness specs exist, `agentopt sync` and `agentopt apply --yes` run them before and after the local patch; a failing post-check triggers an automatic rollback attempt.
 - `agentopt daemon enable --bootstrap-recent 10` uploads recent local sessions once during onboarding, then installs background collection plus automatic local sync on macOS via `launchd`.
-- `pending`, `history`, `sync`, and `impact` all read from the same rollout stream.
+- `pending`, `history`, `sync`, and `impact` follow the rollout stream for the connected repo you are currently inside.
 
 If you want a beta machine to keep uploading usage data without manual CLI runs, install background uploads once:
 

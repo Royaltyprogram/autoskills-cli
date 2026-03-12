@@ -977,6 +977,7 @@ function workloadNarrative(overview) {
   const research = recommendationResearchNarrative(
     overview && overview.research_status,
   );
+  const harness = harnessNarrative(overview);
   const input = Number(overview.avg_input_tokens_per_query || 0);
   const output = Number(overview.avg_output_tokens_per_query || 0);
   const tokenRead =
@@ -985,11 +986,24 @@ function workloadNarrative(overview) {
         ? " Prompt-side token usage is currently the larger share of each captured query."
         : " Response-side token usage is currently the larger share of each captured query."
       : "";
-  const combined = `${action} ${outcome} ${research}${tokenRead}`.trim();
+  const combined = `${action} ${outcome} ${research} ${harness}${tokenRead}`.trim();
   return (
     combined ||
     "AgentOpt is collecting enough setup and session context to produce steadier recommendations."
   );
+}
+
+function harnessNarrative(item) {
+  const harnessRuns = Number((item && item.harness_run_count) || 0);
+  if (harnessRuns <= 0) {
+    return "";
+  }
+  const latestStatus = titleize(String((item && item.latest_harness_status) || "passed"));
+  const latestName = String((item && item.latest_harness_name) || "").trim();
+  const latestAt = item && item.latest_harness_at;
+  const namePart = latestName ? ` for ${latestName}` : "";
+  const timePart = latestAt ? ` at ${formatDateTime(latestAt)}` : "";
+  return `Latest harness run ${latestStatus}${namePart}${timePart}.`;
 }
 
 function recommendationResearchNarrative(status) {
@@ -1351,11 +1365,11 @@ function sessionSummaryLines(item) {
   }
   if (queries.length >= 2) {
     lines.push(
-      "Repeated phrasing here can be turned into a shared instruction block.",
+      "Repeated phrasing here can be turned into a shared harness or workflow default.",
     );
   } else {
     lines.push(
-      "More raw queries will make the next instruction suggestion more specific.",
+      "More raw queries will make the next workflow recommendation more specific.",
     );
   }
 
@@ -1968,6 +1982,9 @@ function auditTitle(item) {
   if (type === "execution.result" && item.message) {
     return `Execution ${titleize(item.message)}`;
   }
+  if (type === "harness.run" && item.message) {
+    return `Harness ${titleize(item.message)}`;
+  }
   return titleize(type || "activity");
 }
 
@@ -1975,6 +1992,12 @@ function auditTitle(item) {
 
 function renderOverview(overview) {
   const activeRecs = Number(overview.active_recommendations || 0);
+  const harnessRuns = Number(overview.harness_run_count || 0);
+  const harnessFailures = Number(overview.harness_failure_count || 0);
+  const latestHarnessStatus = String(overview.latest_harness_status || "").trim();
+  const lastFailingHarness = String(
+    overview.last_failing_harness_name || "",
+  ).trim();
   const research = overview && overview.research_status;
   const researchState = String((research && research.state) || "")
     .trim()
@@ -2003,6 +2026,14 @@ function renderOverview(overview) {
         : `${formatCount(totalSessions)} AI usage session(s) collected from the CLI so far.`;
   $("avgTokensMeta").textContent =
     `${formatCount(overview.total_input_tokens || 0)} input / ${formatCount(overview.total_output_tokens || 0)} output tokens uploaded so far.`;
+  $("harnessPassRate").textContent =
+    harnessRuns > 0 ? formatPercent(overview.harness_pass_rate || 0) : "None";
+  $("harnessPassRateMeta").textContent =
+    harnessRuns === 0
+      ? "No repo-local harness runs uploaded yet."
+      : latestHarnessStatus
+        ? `${titleize(latestHarnessStatus)} on ${formatCount(harnessRuns)} run(s); ${formatCount(harnessFailures)} failing run(s)${lastFailingHarness ? ` · latest failing spec: ${lastFailingHarness}` : ""}.`
+        : `${formatCount(harnessRuns)} harness run(s) uploaded so far.`;
   $("overviewNarrative").textContent = workloadNarrative(overview);
 }
 
@@ -2058,6 +2089,16 @@ function renderUsageTrend(insights) {
       if (Number(item.snapshot_count || 0) > 0) {
         flags.push(
           `<span class="usage-flag snapshot" title="${escapeAttr(`${formatCount(item.snapshot_count)} config snapshot(s)`)}"></span>`,
+        );
+      }
+      if (Number(item.harness_pass_count || 0) > 0) {
+        flags.push(
+          `<span class="usage-flag harness-pass" title="${escapeAttr(`${formatCount(item.harness_pass_count)} harness pass run(s)`)}"></span>`,
+        );
+      }
+      if (Number(item.harness_fail_count || 0) > 0) {
+        flags.push(
+          `<span class="usage-flag harness-fail" title="${escapeAttr(`${formatCount(item.harness_fail_count)} harness fail run(s)`)}"></span>`,
         );
       }
       const meta = `${formatCount(item.session_count || 0)} sess`;
@@ -2198,6 +2239,17 @@ function renderTrendCoverage(insights) {
     0,
   );
   const topProvider = topInsightProvider(insights);
+  const harnessRuns = Number((insights && insights.harness_run_count) || 0);
+  const harnessFails = Number((insights && insights.harness_fail_count) || 0);
+  const latestHarnessStatus = String(
+    (insights && insights.latest_harness_status) || "",
+  ).trim();
+  const latestHarnessName = String(
+    (insights && insights.latest_harness_name) || "",
+  ).trim();
+  const lastFailingHarness = String(
+    (insights && insights.last_failing_harness_name) || "",
+  ).trim();
   const badges = [
     {
       label: "Model coverage",
@@ -2230,6 +2282,28 @@ function renderTrendCoverage(insights) {
         knownLatency > 0
           ? `${formatCount(knownLatency)} captured session(s)`
           : "Waiting for latency capture",
+    },
+    {
+      label: "Harness pass rate",
+      value:
+        harnessRuns > 0
+          ? formatPercent((insights && insights.harness_pass_rate) || 0)
+          : "None",
+      meta:
+        harnessRuns > 0
+          ? `${formatCount(harnessRuns - harnessFails)} pass / ${formatCount(harnessFails)} fail`
+          : "No harness runs uploaded yet",
+    },
+    {
+      label: "Latest harness",
+      value:
+        latestHarnessStatus && latestHarnessName
+          ? `${titleize(latestHarnessStatus)}`
+          : "None",
+      meta:
+        latestHarnessName
+          ? `${latestHarnessName}${lastFailingHarness && latestHarnessStatus === "failed" ? ` · latest failing: ${lastFailingHarness}` : ""}`
+          : "Repo-local harness state unavailable",
     },
   ];
 
@@ -4258,7 +4332,7 @@ async function load(options = {}) {
       requestJSON(
         `/api/v1/projects?org_id=${encodeURIComponent(orgID)}`,
         {},
-        "Failed to load the shared workspace.",
+        "Failed to load the connected project.",
       ),
       requestJSON(
         "/api/v1/auth/cli-tokens",
@@ -4402,7 +4476,7 @@ async function load(options = {}) {
     if (projectID) {
       const workspaceName =
         projects.find((item) => item.id === projectID)?.name ||
-        "Shared workspace";
+        "Connected project";
       setStatus(
         `Showing ${workspaceName}. Review your AI usage and approve recommended changes.`,
       );
