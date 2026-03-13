@@ -68,7 +68,7 @@ func waitForDashboardResearchStatus(
 func TestAnalyticsRouteLifecycle(t *testing.T) {
 	conf := newRouteResearchConfig(t)
 	conf.App.APIToken = "route-token"
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -318,7 +318,7 @@ func newRouteResearchConfig(t *testing.T) *configs.Config {
 
 func TestAnalyticsRouteLoginAndCLITokenFlow(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -401,7 +401,7 @@ func TestAnalyticsRouteLoginAndCLITokenFlow(t *testing.T) {
 func TestAnalyticsRouteDoesNotExposeLegacyAliasEndpoints(t *testing.T) {
 	conf := &configs.Config{}
 	conf.App.APIToken = "route-token"
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -431,7 +431,7 @@ func TestAnalyticsRouteDoesNotExposeLegacyAliasEndpoints(t *testing.T) {
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		req = req.WithContext(context.Background())
-		req.Header.Set("X-AgentOpt-Token", conf.App.APIToken)
+		req.Header.Set("X-Crux-Token", conf.App.APIToken)
 		rec := httptest.NewRecorder()
 		echo.ServeHTTP(rec, req)
 		require.Equal(t, http.StatusNotFound, rec.Code, "%s %s should be removed", tc.method, tc.path)
@@ -455,7 +455,7 @@ func postJSONRecorder(t *testing.T, handler http.Handler, token, method, path st
 	req = req.WithContext(context.Background())
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
-		req.Header.Set("X-AgentOpt-Token", token)
+		req.Header.Set("X-Crux-Token", token)
 	}
 	for _, cookie := range cookies {
 		if cookie != nil {
@@ -479,7 +479,7 @@ func getJSON[T any](t *testing.T, handler http.Handler, token, path string, quer
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	req = req.WithContext(context.Background())
 	if token != "" {
-		req.Header.Set("X-AgentOpt-Token", token)
+		req.Header.Set("X-Crux-Token", token)
 	}
 	for _, cookie := range cookies {
 		if cookie != nil {

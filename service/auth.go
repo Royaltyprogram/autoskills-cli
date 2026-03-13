@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	WebSessionCookieName = "agentopt_web_session"
+	WebSessionCookieName = "crux_web_session"
 
 	TokenKindCLI        = "cli"
 	TokenKindStatic     = "static"

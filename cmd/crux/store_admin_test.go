@@ -42,8 +42,8 @@ func TestStoreExportImportCommandsRoundTrip(t *testing.T) {
 	}()
 
 	svc := service.NewAnalyticsService(service.Options{
-		Config:                    conf,
-		AnalyticsStore:            sourceStore,
+		Config:            conf,
+		AnalyticsStore:    sourceStore,
 		ReportMinSessions: 1,
 	})
 	ctx := service.WithAuthIdentity(context.Background(), service.AuthIdentity{
@@ -111,8 +111,8 @@ func TestStoreExportImportCommandsRoundTrip(t *testing.T) {
 	}()
 
 	targetSvc := service.NewAnalyticsService(service.Options{
-		Config:                    targetConf,
-		AnalyticsStore:            targetStore,
+		Config:            targetConf,
+		AnalyticsStore:    targetStore,
 		ReportMinSessions: 1,
 	})
 	sessions, err := targetSvc.ListSessionSummaries(ctx, &request.SessionSummaryListReq{

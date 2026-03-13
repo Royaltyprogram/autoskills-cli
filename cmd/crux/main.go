@@ -50,7 +50,7 @@ const sharedWorkspaceName = "Shared workspace"
 const defaultServerURL = "http://127.0.0.1:8082"
 
 var (
-	errStateNotFound         = errors.New("agentopt state not found")
+	errStateNotFound         = errors.New("crux state not found")
 	errWorkspaceNotConnected = errors.New("shared workspace is not connected")
 )
 
@@ -184,17 +184,17 @@ func printDefaultSetupHint(serverURL string) {
 	if strings.TrimSpace(serverURL) != "" {
 		serverHint = strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	}
-	fmt.Println(`agentopt is not set up yet.
+	fmt.Println(`Crux is not set up yet.
 
 Next step:
-  agentopt setup --server ` + serverHint + `
+  crux setup --server ` + serverHint + `
 
 The CLI will prompt for the issued token.
-Use ` + "`agentopt help`" + ` for advanced commands.`)
+Use ` + "`crux help`" + ` for advanced commands.`)
 }
 
 func printUsage() {
-	fmt.Println(`agentopt quickstart:
+	fmt.Println(`Crux quickstart:
   setup             register this device, connect the current repo, upload initial local data, and enable background collection when supported
 
 Common commands:
@@ -217,7 +217,7 @@ Advanced commands:
 
 Install and onboard:
   curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-  agentopt setup --server ` + defaultServerURL)
+  crux setup --server ` + defaultServerURL)
 }
 
 func printVersion() {
@@ -225,13 +225,13 @@ func printVersion() {
 }
 
 func versionString() string {
-	return buildinfo.Summary("agentopt")
+	return buildinfo.Summary("crux")
 }
 
 func runLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	server := fs.String("server", defaultServerURL, "server base URL")
-	token := fs.String("token", os.Getenv("AGENTOPT_TOKEN"), "CLI token issued from the dashboard")
+	token := fs.String("token", os.Getenv("CRUX_TOKEN"), "CLI token issued from the dashboard")
 	device := fs.String("device", "", "device name")
 	hostname := fs.String("hostname", "", "hostname")
 	tools := fs.String("tools", "codex,claude-code", "comma separated tool names")
@@ -287,7 +287,7 @@ func runConnect(args []string) error {
 func runSetup(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	server := fs.String("server", defaultServerURL, "server base URL")
-	token := fs.String("token", os.Getenv("AGENTOPT_TOKEN"), "CLI token issued from the dashboard")
+	token := fs.String("token", os.Getenv("CRUX_TOKEN"), "CLI token issued from the dashboard")
 	repoPath := fs.String("repo-path", ".", "repo path to connect")
 	device := fs.String("device", "", "device name")
 	codexHome := fs.String("codex-home", "", "override Codex home used for initial session collection")
@@ -798,7 +798,7 @@ func (c *apiClient) doJSON(method, path string, body any, out any) error {
 		return err
 	}
 	if c.token != "" {
-		req.Header.Set("X-AgentOpt-Token", c.token)
+		req.Header.Set("X-Crux-Token", c.token)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -839,7 +839,7 @@ func loadState() (state, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return state{}, fmt.Errorf("%w; run `agentopt setup --server <url>` first", errStateNotFound)
+			return state{}, fmt.Errorf("%w; run `crux setup --server <url>` first", errStateNotFound)
 		}
 		return state{}, err
 	}
@@ -865,7 +865,7 @@ func loadWorkspaceState() (state, error) {
 		return state{}, err
 	}
 	if st.workspaceID() == "" {
-		return state{}, fmt.Errorf("%w; run `agentopt setup --server <url>` or `agentopt connect` first", errWorkspaceNotConnected)
+		return state{}, fmt.Errorf("%w; run `crux setup --server <url>` or `crux connect` first", errWorkspaceNotConnected)
 	}
 	return st, nil
 }
@@ -897,14 +897,14 @@ func saveState(st state) error {
 }
 
 func stateFilePath() (string, error) {
-	if root := os.Getenv("AGENTOPT_HOME"); root != "" {
+	if root := os.Getenv("CRUX_HOME"); root != "" {
 		return filepath.Join(root, "state.json"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".agentopt", "state.json"), nil
+	return filepath.Join(home, ".crux", "state.json"), nil
 }
 
 func normalizeRepoPath(path string) (string, error) {

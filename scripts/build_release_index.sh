@@ -24,7 +24,7 @@ release_dir = pathlib.Path(sys.argv[1])
 version_filter = sys.argv[2].strip()
 
 manifests = []
-for path in release_dir.glob("agentopt-*.json"):
+for path in release_dir.glob("crux-*.json"):
     if path.name.endswith(".release-index.json"):
         continue
     with open(path, "r", encoding="utf-8") as fh:
@@ -71,7 +71,7 @@ index = {
     "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "bundles": selected,
 }
-output_path = release_dir / f"agentopt-{version_filter}.release-index.json"
+output_path = release_dir / f"crux-{version_filter}.release-index.json"
 with open(output_path, "w", encoding="utf-8") as fh:
     json.dump(index, fh, indent=2)
     fh.write("\n")

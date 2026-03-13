@@ -29,7 +29,7 @@ type testEnvelope struct {
 func TestRequireAPITokenProtectsAnalyticsAPI(t *testing.T) {
 	conf := &configs.Config{}
 	conf.App.APIToken = "secret-token"
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -38,8 +38,8 @@ func TestRequireAPITokenProtectsAnalyticsAPI(t *testing.T) {
 	require.NoError(t, err)
 
 	analyticsSvc := service.NewAnalyticsService(service.Options{
-		Config:                    conf,
-		AnalyticsStore:            store,
+		Config:            conf,
+		AnalyticsStore:    store,
 		ReportMinSessions: 1,
 	})
 	healthSvc := service.NewHealthService(service.Options{
@@ -83,7 +83,7 @@ func TestRequireAPITokenProtectsAnalyticsAPI(t *testing.T) {
 	apiReq = httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", bytes.NewReader(payload))
 	apiReq = apiReq.WithContext(context.Background())
 	apiReq.Header.Set("Content-Type", "application/json")
-	apiReq.Header.Set("X-AgentOpt-Token", "secret-token")
+	apiReq.Header.Set("X-Crux-Token", "secret-token")
 	apiRec = httptest.NewRecorder()
 	echo.ServeHTTP(apiRec, apiReq)
 	require.Equal(t, http.StatusOK, apiRec.Code)
@@ -129,7 +129,7 @@ func TestRequireAPITokenDisablesStaticTokenByDefaultInProd(t *testing.T) {
 	conf := &configs.Config{}
 	conf.App.Mode = "prod"
 	conf.App.APIToken = "secret-token"
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 	conf.Auth.BootstrapUsers = []configs.BootstrapUser{{
 		ID:       "beta-user",
 		OrgID:    "beta-org",
@@ -146,8 +146,8 @@ func TestRequireAPITokenDisablesStaticTokenByDefaultInProd(t *testing.T) {
 	require.NoError(t, err)
 
 	analyticsSvc := service.NewAnalyticsService(service.Options{
-		Config:                    conf,
-		AnalyticsStore:            store,
+		Config:            conf,
+		AnalyticsStore:    store,
 		ReportMinSessions: 1,
 	})
 
@@ -170,7 +170,7 @@ func TestRequireAPITokenDisablesStaticTokenByDefaultInProd(t *testing.T) {
 	apiReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", bytes.NewReader(payload))
 	apiReq = apiReq.WithContext(context.Background())
 	apiReq.Header.Set("Content-Type", "application/json")
-	apiReq.Header.Set("X-AgentOpt-Token", "secret-token")
+	apiReq.Header.Set("X-Crux-Token", "secret-token")
 	apiRec := httptest.NewRecorder()
 	echo.ServeHTTP(apiRec, apiReq)
 	require.Equal(t, http.StatusUnauthorized, apiRec.Code)

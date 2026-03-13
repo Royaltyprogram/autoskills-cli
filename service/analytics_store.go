@@ -772,7 +772,7 @@ func applyDBPoolConfig(db *sql.DB, conf *configs.Config) {
 func defaultAnalyticsStoreDSN(storePath string) string {
 	storePath = strings.TrimSpace(storePath)
 	if storePath == "" {
-		return "file:agentopt-store?mode=memory&cache=shared&_fk=1"
+		return "file:crux-store?mode=memory&cache=shared&_fk=1"
 	}
 	ext := filepath.Ext(storePath)
 	if strings.EqualFold(ext, ".json") {

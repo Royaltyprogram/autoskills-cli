@@ -29,7 +29,7 @@ It has four runtime surfaces:
 ## High-Level Architecture
 
 ```text
-CLI agentopt
+CLI crux
   -> /api/v1/auth/cli/login
   -> /api/v1/agents/register
   -> /api/v1/projects/register
@@ -81,9 +81,9 @@ Dashboard
 
 ### CLI
 
-- [main.go](/Users/doyechan/Desktop/codes/aiops/cmd/agentopt/main.go)
-- [collect.go](/Users/doyechan/Desktop/codes/aiops/cmd/agentopt/collect.go)
-- [codex_collect.go](/Users/doyechan/Desktop/codes/aiops/cmd/agentopt/codex_collect.go)
+- [main.go](/Users/doyechan/Desktop/codes/aiops/cmd/crux/main.go)
+- [collect.go](/Users/doyechan/Desktop/codes/aiops/cmd/crux/collect.go)
+- [codex_collect.go](/Users/doyechan/Desktop/codes/aiops/cmd/crux/codex_collect.go)
 
 The CLI is now a collector and workspace client only. It does not apply config changes locally.
 
@@ -114,17 +114,17 @@ The CLI is now a collector and workspace client only. It does not apply config c
    - signs in at `/`
    - opens `/dashboard`
    - issues a scoped CLI token
-2. `agentopt setup`
+2. `crux setup`
    - authenticates a local CLI install with the issued token
    - connects the local repo to the org's shared workspace
    - uploads an initial snapshot plus the latest local Codex session when available
-3. `agentopt snapshot` / `agentopt session` / `agentopt collect`
+3. `crux snapshot` / `crux session` / `crux collect`
    - uploads config snapshots plus usage sessions
    - `session` and `collect` can auto-read recent Codex session JSONL files
 4. Report refresh
    - starts after enough sessions and raw-query evidence exist
    - runs asynchronously on the server
-6. `agentopt reports` / dashboard overview
+6. `crux reports` / dashboard overview
    - shows report-style feedback, strengths, frictions, and next steps
 7. Ongoing usage uploads
    - provide new evidence for later report refreshes

@@ -52,8 +52,8 @@ jobs:
 
       - name: Start local closed beta server
         run: |
-          APP_MODE=local ./output/server > /tmp/agentopt-server.log 2>&1 &
-          echo $! > /tmp/agentopt-server.pid
+          APP_MODE=local ./output/server > /tmp/crux-server.log 2>&1 &
+          echo $! > /tmp/crux-server.pid
 
       - name: Wait for liveness
         run: |
@@ -76,47 +76,47 @@ jobs:
         env:
           BETA_SMOKE_EMAIL: beta1@example.com
           BETA_SMOKE_PASSWORD: replace-me
-          SERVER_LOG_PATH: /tmp/agentopt-prod-server.log
+          SERVER_LOG_PATH: /tmp/crux-prod-server.log
         run: make closed-beta-prod-smoke
 
       - name: Upload beta binaries
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: agentopt-beta-binaries-${{ github.sha }}
+          name: crux-beta-binaries-${{ github.sha }}
           path: |
             output/server
-            output/agentopt
+            output/crux
           if-no-files-found: ignore
 
       - name: Stop local server
         if: always()
         run: |
-          if [ -f /tmp/agentopt-server.pid ]; then
-            kill "$(cat /tmp/agentopt-server.pid)" || true
+          if [ -f /tmp/crux-server.pid ]; then
+            kill "$(cat /tmp/crux-server.pid)" || true
           fi
 
       - name: Upload server log
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: agentopt-beta-server-log-${{ github.sha }}
-          path: /tmp/agentopt-server.log
+          name: crux-beta-server-log-${{ github.sha }}
+          path: /tmp/crux-server.log
           if-no-files-found: ignore
 
       - name: Upload prod server log
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: agentopt-beta-prod-server-log-${{ github.sha }}
-          path: /tmp/agentopt-prod-server.log
+          name: crux-beta-prod-server-log-${{ github.sha }}
+          path: /tmp/crux-prod-server.log
           if-no-files-found: ignore
 
       - name: Dump server log on failure
         if: failure()
         run: |
-          cat /tmp/agentopt-server.log || true
-          cat /tmp/agentopt-prod-server.log || true
+          cat /tmp/crux-server.log || true
+          cat /tmp/crux-prod-server.log || true
 
   bundle:
     needs: verify
@@ -155,7 +155,7 @@ jobs:
       - name: Upload beta bundle artifact
         uses: actions/upload-artifact@v6
         with:
-          name: agentopt-beta-bundle-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.sha }}
+          name: crux-beta-bundle-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.sha }}
           path: |
             output/release/*.tar.gz
             output/release/*.tar.gz.sha256
@@ -175,7 +175,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: output/release
-          pattern: agentopt-beta-bundle-*-${{ github.sha }}
+          pattern: crux-beta-bundle-*-${{ github.sha }}
           merge-multiple: true
 
       - name: Build release index
@@ -186,7 +186,7 @@ jobs:
       - name: Upload release index artifact
         uses: actions/upload-artifact@v6
         with:
-          name: agentopt-beta-release-index-${{ github.sha }}
+          name: crux-beta-release-index-${{ github.sha }}
           path: |
             output/release/*.release-index.json
             output/release/*.release-index.json.sha256
@@ -206,14 +206,14 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: output/release
-          pattern: agentopt-beta-bundle-*-${{ github.sha }}
+          pattern: crux-beta-bundle-*-${{ github.sha }}
           merge-multiple: true
 
       - name: Download release index artifact
         uses: actions/download-artifact@v7
         with:
           path: output/release
-          pattern: agentopt-beta-release-index-${{ github.sha }}
+          pattern: crux-beta-release-index-${{ github.sha }}
           merge-multiple: true
 
       - name: Publish GitHub Release

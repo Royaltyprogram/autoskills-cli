@@ -16,7 +16,7 @@ import (
 
 func TestLandingRouteServesLandingPage(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestLandingRouteServesLandingPage(t *testing.T) {
 
 func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "Issued CLI tokens")
 	require.Contains(t, rec.Body.String(), "Create CLI token")
 	require.Contains(t, rec.Body.String(), "curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh")
-	require.Contains(t, rec.Body.String(), "agentopt login --server")
+	require.Contains(t, rec.Body.String(), "crux login --server")
 	require.Contains(t, rec.Body.String(), `data-action="issue-cli-token"`)
 	require.Contains(t, rec.Body.String(), "Latest trace analysis")
 	require.Contains(t, rec.Body.String(), "Usage Analytics")
@@ -83,7 +83,7 @@ func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 
 func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)

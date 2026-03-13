@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentOpt — Understand What Your Codex Agent Actually Did</title>
+  <title>Crux — Understand What Your Codex Agent Actually Did</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -462,8 +462,8 @@
   <nav class="nav">
     <div class="nav-inner">
       <a class="nav-brand" href="/">
-        <img src="/assets/logo.svg" alt="AgentOpt" class="nav-logo">
-        <span class="nav-wordmark">AgentOpt</span>
+        <img src="/assets/logo.svg" alt="Crux" class="nav-logo">
+        <span class="nav-wordmark">Crux</span>
       </a>
       <ul class="nav-links">
         <li><a href="#how-it-works" class="nav-link-text">How It Works</a></li>
@@ -481,7 +481,7 @@
     </div>
     <h1>See what your Codex agent <em>actually understood</em>.</h1>
     <p class="hero-sub">
-      AgentOpt reads your Codex session traces and tells you <strong>what you asked for, how the model interpreted it, and where it went wrong</strong>.
+      Crux reads your Codex session traces and tells you <strong>what you asked for, how the model interpreted it, and where it went wrong</strong>.
       No guessing. No black box.
     </p>
     <div class="hero-actions">
@@ -497,7 +497,7 @@
     <div class="hero-visual">
       <div class="hero-visual-bar">
         <span class="hv-dot"></span><span class="hv-dot"></span><span class="hv-dot"></span>
-        <span class="hv-title">AgentOpt &mdash; Trace Analysis</span>
+        <span class="hv-title">Crux &mdash; Trace Analysis</span>
       </div>
       <div class="hero-visual-body">
         <div class="mock-agent-status">
@@ -595,7 +595,7 @@
 
       <div class="loop-feedback">
         <p class="loop-feedback-text">
-          <strong>Every session teaches something.</strong> AgentOpt finds the lesson so you don't have to re-read logs.
+          <strong>Every session teaches something.</strong> Crux finds the lesson so you don't have to re-read logs.
         </p>
       </div>
     </div>
@@ -714,7 +714,7 @@
   <section class="login-section wrap" id="login">
     <div class="login-copy">
       <h2>Stop guessing what your Codex agent did wrong</h2>
-      <p>Sign in and connect your Codex CLI. AgentOpt will read session traces and explain exactly where intent and execution diverged.</p>
+      <p>Sign in and connect your Codex CLI. Crux will read session traces and explain exactly where intent and execution diverged.</p>
       <ul class="login-features">
         <li>See what you asked vs. what the model actually understood</li>
         <li>Find the exact point where the model went off track</li>
@@ -748,7 +748,7 @@
 
   <footer class="footer">
     <div class="footer-inner">
-      <span class="footer-copy">AgentOpt &middot; Understand What Your Codex Agent Actually Did</span>
+      <span class="footer-copy">Crux &middot; Understand What Your Codex Agent Actually Did</span>
       <ul class="footer-links">
         <li><a href="https://github.com/Royaltyprogram/aiops" target="_blank" rel="noopener">GitHub</a></li>
         <li><a href="/healthz">Status</a></li>
@@ -758,10 +758,10 @@
 
   <script>
     const STORAGE_KEYS = {
-      sessionUser: "agentopt_session_user",
-      sessionOrg: "agentopt_session_org",
-      lastEmail: "agentopt_last_email",
-      activeTab: "agentopt_dashboard_tab"
+      sessionUser: "crux_session_user",
+      sessionOrg: "crux_session_org",
+      lastEmail: "crux_last_email",
+      activeTab: "crux_dashboard_tab"
     };
 
     const $ = (id) => document.getElementById(id);
@@ -819,10 +819,10 @@
     function restoreInputs() {
       $("email").value = readStorage(STORAGE_KEYS.lastEmail, "");
       try {
-        const notice = window.sessionStorage.getItem("agentopt_redirect_notice");
+        const notice = window.sessionStorage.getItem("crux_redirect_notice");
         if (notice) {
           setStatus(notice, false);
-          window.sessionStorage.removeItem("agentopt_redirect_notice");
+          window.sessionStorage.removeItem("crux_redirect_notice");
         }
       } catch (error) {
       }

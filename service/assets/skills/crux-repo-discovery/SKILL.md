@@ -1,5 +1,5 @@
 ---
-name: agentopt-repo-discovery
+name: crux-repo-discovery
 description: Use when a task starts in an unfamiliar repository or the user keeps asking to inspect control flow, locate files, compare nearby contracts, and finish with targeted verification.
 ---
 

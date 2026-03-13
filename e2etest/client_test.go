@@ -39,7 +39,7 @@ func NewClientFromEnv() *Client {
 	}
 	apiToken := strings.TrimSpace(os.Getenv("E2E_API_TOKEN"))
 	if apiToken == "" && (!ok || baseURL == "http://127.0.0.1:8082") {
-		apiToken = "agentopt-dev-token"
+		apiToken = "crux-dev-token"
 	}
 	jar, _ := cookiejar.New(nil)
 	return &Client{
@@ -73,8 +73,8 @@ func (c *Client) applyAuth(req *http.Request) {
 	if req == nil {
 		return
 	}
-	if strings.TrimSpace(req.Header.Get("X-AgentOpt-Token")) == "" && strings.TrimSpace(c.APIToken) != "" {
-		req.Header.Set("X-AgentOpt-Token", c.APIToken)
+	if strings.TrimSpace(req.Header.Get("X-Crux-Token")) == "" && strings.TrimSpace(c.APIToken) != "" {
+		req.Header.Set("X-Crux-Token", c.APIToken)
 	}
 }
 

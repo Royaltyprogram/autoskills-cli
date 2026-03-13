@@ -2,12 +2,12 @@ App:
   Addr: ":8082"
   Mode: local
   # Legacy JSON import path. DB.DSN is the primary runtime store.
-  StorePath: "data/agentopt-store.json"
-  APIToken: "agentopt-dev-token"
+  StorePath: "data/crux-store.json"
+  APIToken: "crux-dev-token"
 
 DB:
   Dialect: sqlite3
-  DSN: data/agentopt-local.db?_fk=1
+  DSN: data/crux-local.db?_fk=1
   MaxIdle: 2
   MaxActive: 4
   MaxLifetime: 300
@@ -29,7 +29,7 @@ Log:
 
 Jwt:
   Secret: "dev-secret"
-  Issuer: "agentopt.local"
+  Issuer: "crux.local"
 
 Auth:
   AllowDemoUser: true

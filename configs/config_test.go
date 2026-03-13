@@ -60,7 +60,7 @@ func TestApplyEnvOverridesLoadsSecretsFromFiles(t *testing.T) {
 	openAIAPIKeyFile := filepath.Join(root, "openai-api-key")
 
 	require.NoError(t, os.WriteFile(apiTokenFile, []byte("beta-static-token\n"), 0o644))
-	require.NoError(t, os.WriteFile(dbDSNFile, []byte("file:agentopt.db?_fk=1\n"), 0o644))
+	require.NoError(t, os.WriteFile(dbDSNFile, []byte("file:crux.db?_fk=1\n"), 0o644))
 	require.NoError(t, os.WriteFile(jwtSecretFile, []byte("super-secret\n"), 0o644))
 	require.NoError(t, os.WriteFile(openAIAPIKeyFile, []byte("openai-secret\n"), 0o644))
 
@@ -79,7 +79,7 @@ func TestApplyEnvOverridesLoadsSecretsFromFiles(t *testing.T) {
 	cfg := &Config{}
 	require.NoError(t, applyEnvOverrides(cfg))
 	require.Equal(t, "beta-static-token", cfg.App.APIToken)
-	require.Equal(t, "file:agentopt.db?_fk=1", cfg.DB.DSN)
+	require.Equal(t, "file:crux.db?_fk=1", cfg.DB.DSN)
 	require.Equal(t, "super-secret", cfg.Jwt.Secret)
 	require.Equal(t, "openai-secret", cfg.OpenAI.APIKey)
 	require.Equal(t, "https://example-proxy.invalid/v1", cfg.OpenAI.BaseURL)
@@ -110,12 +110,12 @@ func TestApplyEnvOverridesRejectsEmptySecretFiles(t *testing.T) {
 }
 
 func TestLookupEnvTrimsWhitespace(t *testing.T) {
-	require.NoError(t, os.Setenv("AGENTOPT_LOOKUP_ENV_TEST", "  value  "))
+	require.NoError(t, os.Setenv("CRUX_LOOKUP_ENV_TEST", "  value  "))
 	t.Cleanup(func() {
-		_ = os.Unsetenv("AGENTOPT_LOOKUP_ENV_TEST")
+		_ = os.Unsetenv("CRUX_LOOKUP_ENV_TEST")
 	})
 
-	value, ok := lookupEnv("AGENTOPT_LOOKUP_ENV_TEST")
+	value, ok := lookupEnv("CRUX_LOOKUP_ENV_TEST")
 	require.True(t, ok)
 	require.Equal(t, "value", value)
 }
@@ -137,7 +137,7 @@ func TestConfigValidateRejectsInvalidReleaseSecurityConfig(t *testing.T) {
 		},
 		DB: DB{
 			Dialect: "sqlite3",
-			DSN:     "data/agentopt.db?_fk=1",
+			DSN:     "data/crux.db?_fk=1",
 		},
 		Auth: Auth{
 			AllowDemoUser:      true,
@@ -160,7 +160,7 @@ func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
 		},
 		DB: DB{
 			Dialect: "sqlite3",
-			DSN:     "data/agentopt-local.db?_fk=1",
+			DSN:     "data/crux-local.db?_fk=1",
 		},
 		HTTP: HTTP{
 			AllowedCIDRs:      []string{"not-a-cidr"},
@@ -201,11 +201,11 @@ func TestConfigValidateAllowsLocalClosedBetaDefaults(t *testing.T) {
 	cfg := &Config{
 		App: App{
 			Mode:     "local",
-			APIToken: "agentopt-dev-token",
+			APIToken: "crux-dev-token",
 		},
 		DB: DB{
 			Dialect: "sqlite3",
-			DSN:     "data/agentopt-local.db?_fk=1",
+			DSN:     "data/crux-local.db?_fk=1",
 		},
 		Jwt: Jwt{
 			Secret: "dev-secret",

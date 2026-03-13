@@ -20,7 +20,7 @@ import pathlib
 import sys
 
 release_dir = pathlib.Path(sys.argv[1])
-archives = [p for p in release_dir.glob("agentopt-*.tar.gz") if p.is_file()]
+archives = [p for p in release_dir.glob("crux-*.tar.gz") if p.is_file()]
 if not archives:
     raise SystemExit("")
 archives.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -90,7 +90,7 @@ PY
 
 tar_listing="$(tar -tzf "$ARCHIVE_PATH")"
 required_entries=(
-  "$BUNDLE_NAME/agentopt"
+  "$BUNDLE_NAME/crux"
   "$BUNDLE_NAME/README.md"
 )
 for entry in "${required_entries[@]}"; do

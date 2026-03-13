@@ -40,7 +40,7 @@ func ensureLaunchdPlatform() error {
 	if runtime.GOOS == "darwin" {
 		return nil
 	}
-	if strings.TrimSpace(os.Getenv("AGENTOPT_LAUNCHCTL_BIN")) != "" {
+	if strings.TrimSpace(os.Getenv("CRUX_LAUNCHCTL_BIN")) != "" {
 		return nil
 	}
 	return errors.New("daemon is currently supported on macOS launchd only")
@@ -51,7 +51,7 @@ func launchdLoaded(label string) bool {
 }
 
 func runLaunchctl(args ...string) error {
-	bin := strings.TrimSpace(os.Getenv("AGENTOPT_LAUNCHCTL_BIN"))
+	bin := strings.TrimSpace(os.Getenv("CRUX_LAUNCHCTL_BIN"))
 	if bin == "" {
 		bin = "launchctl"
 	}
@@ -72,7 +72,7 @@ func resolveBackgroundBaseCommand() (backgroundBaseCommand, error) {
 	if err == nil && shouldUseStableExecutable(executable) {
 		return backgroundBaseCommand{Program: executable}, nil
 	}
-	if installed, ok := findInstalledAgentopt(); ok {
+	if installed, ok := findInstalledCrux(); ok {
 		return backgroundBaseCommand{Program: installed}, nil
 	}
 
@@ -88,11 +88,11 @@ func resolveBackgroundBaseCommand() (backgroundBaseCommand, error) {
 		}
 		return backgroundBaseCommand{
 			Program: goBin,
-			Args:    []string{"run", "./cmd/agentopt"},
+			Args:    []string{"run", "./cmd/crux"},
 			Workdir: repoRoot,
 		}, nil
 	}
-	return backgroundBaseCommand{}, errors.New("unable to infer a stable agentopt command for daemon; run from the repo root or use a built agentopt binary")
+	return backgroundBaseCommand{}, errors.New("unable to infer a stable crux command for daemon; run from the repo root or use a built crux binary")
 }
 
 func ensureBackgroundCollection(opts backgroundSetupOptions) backgroundSetupResp {
@@ -124,7 +124,7 @@ func ensureBackgroundCollection(opts backgroundSetupOptions) backgroundSetupResp
 	if !backgroundCommandIsStable(base) {
 		return backgroundSetupResp{
 			Status:   "manual_only",
-			Reason:   "automatic background setup is only enabled for installed or built agentopt binaries",
+			Reason:   "automatic background setup is only enabled for installed or built crux binaries",
 			Command:  command,
 			Interval: opts.Interval.String(),
 		}
@@ -144,7 +144,7 @@ func ensureBackgroundCollection(opts backgroundSetupOptions) backgroundSetupResp
 }
 
 func installLaunchdCollector(base backgroundBaseCommand, opts backgroundSetupOptions) (backgroundSetupResp, error) {
-	homeDir, err := agentoptHomeDir()
+	homeDir, err := cruxHomeDir()
 	if err != nil {
 		return backgroundSetupResp{}, err
 	}
@@ -198,8 +198,8 @@ func installLaunchdCollector(base backgroundBaseCommand, opts backgroundSetupOpt
 
 func backgroundEnvironment() map[string]string {
 	env := map[string]string{}
-	if value := strings.TrimSpace(os.Getenv("AGENTOPT_HOME")); value != "" {
-		env["AGENTOPT_HOME"] = value
+	if value := strings.TrimSpace(os.Getenv("CRUX_HOME")); value != "" {
+		env["CRUX_HOME"] = value
 	}
 	if value := strings.TrimSpace(os.Getenv("PATH")); value != "" {
 		env["PATH"] = value
@@ -231,14 +231,14 @@ func collectWatchArgs(codexHome string, recent int, interval time.Duration) []st
 }
 
 func manualBackgroundCollectCommand(codexHome string, recent int, interval time.Duration) string {
-	args := append([]string{"agentopt"}, collectWatchArgs(codexHome, recent, interval)...)
+	args := append([]string{"crux"}, collectWatchArgs(codexHome, recent, interval)...)
 	return joinShellArgs(args)
 }
 
 func backgroundLaunchdLabel(homeDir string) string {
 	hasher := fnv.New32a()
 	_, _ = hasher.Write([]byte(filepath.Clean(homeDir)))
-	return fmt.Sprintf("io.agentopt.collect.%08x", hasher.Sum32())
+	return fmt.Sprintf("io.crux.collect.%08x", hasher.Sum32())
 }
 
 func renderLaunchdPlist(label string, arguments []string, workdir, stdoutPath, stderrPath string, env map[string]string) string {
@@ -281,17 +281,17 @@ func renderLaunchdPlist(label string, arguments []string, workdir, stdoutPath, s
 	return builder.String()
 }
 
-func findInstalledAgentopt() (string, bool) {
-	if resolved, err := exec.LookPath("agentopt"); err == nil && shouldUseStableExecutable(resolved) {
+func findInstalledCrux() (string, bool) {
+	if resolved, err := exec.LookPath("crux"); err == nil && shouldUseStableExecutable(resolved) {
 		return filepath.Clean(resolved), true
 	}
 
 	var candidates []string
-	if binDir := strings.TrimSpace(os.Getenv("AGENTOPT_BIN_DIR")); binDir != "" {
-		candidates = append(candidates, filepath.Join(binDir, "agentopt"))
+	if binDir := strings.TrimSpace(os.Getenv("CRUX_BIN_DIR")); binDir != "" {
+		candidates = append(candidates, filepath.Join(binDir, "crux"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, ".local", "bin", "agentopt"))
+		candidates = append(candidates, filepath.Join(home, ".local", "bin", "crux"))
 	}
 	for _, candidate := range candidates {
 		if shouldUseStableExecutable(candidate) && fileExists(candidate) {
@@ -304,7 +304,7 @@ func findInstalledAgentopt() (string, bool) {
 func detectRepoRoot(start string) (string, bool) {
 	dir := filepath.Clean(start)
 	for {
-		if fileExists(filepath.Join(dir, "go.mod")) && fileExists(filepath.Join(dir, "cmd", "agentopt", "main.go")) {
+		if fileExists(filepath.Join(dir, "go.mod")) && fileExists(filepath.Join(dir, "cmd", "crux", "main.go")) {
 			return dir, true
 		}
 		parent := filepath.Dir(dir)
@@ -321,7 +321,7 @@ func shouldUseStableExecutable(path string) bool {
 	}
 	cleaned := filepath.Clean(path)
 	base := strings.ToLower(filepath.Base(cleaned))
-	if !strings.Contains(base, "agentopt") {
+	if !strings.Contains(base, "crux") {
 		return false
 	}
 	tempRoot := filepath.Clean(os.TempDir())
@@ -342,7 +342,7 @@ func durationToLaunchdSeconds(interval time.Duration) int {
 	return seconds
 }
 
-func agentoptHomeDir() (string, error) {
+func cruxHomeDir() (string, error) {
 	path, err := stateFilePath()
 	if err != nil {
 		return "", err

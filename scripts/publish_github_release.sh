@@ -11,11 +11,11 @@ NOTES_FILE="${RELEASE_NOTES_FILE:-}"
 DRAFT="${DRAFT:-0}"
 PRERELEASE="${PRERELEASE:-0}"
 LATEST_MODE="${LATEST_MODE:-}"
-GH_BIN="${AGENTOPT_GH_BIN:-gh}"
+GH_BIN="${CRUX_GH_BIN:-gh}"
 
 usage() {
   cat <<'EOF'
-Publish AgentOpt release assets to GitHub Releases.
+Publish Crux release assets to GitHub Releases.
 
 Usage:
   ./scripts/publish_github_release.sh [options]
@@ -78,9 +78,9 @@ detect_version() {
   fi
 
   local newest_index
-  newest_index="$(find "$RELEASE_DIR" -maxdepth 1 -name 'agentopt-*.release-index.json' -type f | sort | tail -n 1)"
+  newest_index="$(find "$RELEASE_DIR" -maxdepth 1 -name 'crux-*.release-index.json' -type f | sort | tail -n 1)"
   if [[ -n "$newest_index" ]]; then
-    basename "$newest_index" .release-index.json | sed 's/^agentopt-//'
+    basename "$newest_index" .release-index.json | sed 's/^crux-//'
     return
   fi
 
@@ -94,11 +94,11 @@ collect_assets() {
 
   shopt -s nullglob
   local assets=(
-    "$RELEASE_DIR"/agentopt-"$version"-*.tar.gz
-    "$RELEASE_DIR"/agentopt-"$version"-*.tar.gz.sha256
-    "$RELEASE_DIR"/agentopt-"$version"-*.json
-    "$RELEASE_DIR"/agentopt-"$version".release-index.json
-    "$RELEASE_DIR"/agentopt-"$version".release-index.json.sha256
+    "$RELEASE_DIR"/crux-"$version"-*.tar.gz
+    "$RELEASE_DIR"/crux-"$version"-*.tar.gz.sha256
+    "$RELEASE_DIR"/crux-"$version"-*.json
+    "$RELEASE_DIR"/crux-"$version".release-index.json
+    "$RELEASE_DIR"/crux-"$version".release-index.json.sha256
   )
   shopt -u nullglob
 
@@ -121,7 +121,7 @@ collect_assets() {
 
 default_title() {
   local version="$1"
-  printf 'AgentOpt %s\n' "$version"
+  printf 'Crux %s\n' "$version"
 }
 
 default_prerelease_for_version() {
@@ -140,13 +140,13 @@ generate_default_notes() {
   local raw_url="https://raw.githubusercontent.com/$REPO/$version/scripts/install.sh"
 
   cat <<EOF
-# AgentOpt $version
+# Crux $version
 
 One-command install:
 
 \`\`\`bash
 curl -fsSL $raw_url | sh
-AGENTOPT_VERSION=$version curl -fsSL $raw_url | sh
+CRUX_VERSION=$version curl -fsSL $raw_url | sh
 \`\`\`
 
 Included assets:
@@ -220,7 +220,7 @@ declare -a ASSETS=()
 collect_assets "$VERSION_LABEL"
 ASSETS=("${COLLECTED_ASSETS[@]}")
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/agentopt-release-notes.XXXXXX")"
+TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/crux-release-notes.XXXXXX")"
 cleanup() {
   rm -rf "$TMPDIR"
 }
