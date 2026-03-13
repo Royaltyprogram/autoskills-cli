@@ -18,7 +18,7 @@ import (
 
 func TestRunCollectUploadsSnapshotAndSession(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("AGENTOPT_HOME", root)
+	t.Setenv("CRUX_HOME", root)
 
 	codexHome := filepath.Join(root, ".codex")
 	sessionPath := filepath.Join(codexHome, "sessions", "2026", "03", "10", "latest.jsonl")
@@ -117,7 +117,7 @@ func TestRunCollectUploadsSnapshotAndSession(t *testing.T) {
 
 func TestRunCollectSkipsUnchangedSnapshotAndHandlesMissingSessions(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("AGENTOPT_HOME", root)
+	t.Setenv("CRUX_HOME", root)
 
 	require.NoError(t, saveState(state{
 		ServerURL:   "http://example.com",
@@ -177,8 +177,8 @@ func TestRunCollectSkipsUnchangedSnapshotAndHandlesMissingSessions(t *testing.T)
 	require.Equal(t, 0, postCount)
 }
 
-func TestResolveBackgroundBaseCommandPrefersInstalledAgentopt(t *testing.T) {
-	root, err := os.MkdirTemp(".", ".agentopt-bin-*")
+func TestResolveBackgroundBaseCommandPrefersInstalledCrux(t *testing.T) {
+	root, err := os.MkdirTemp(".", ".crux-bin-*")
 	require.NoError(t, err)
 	root, err = filepath.Abs(root)
 	require.NoError(t, err)
@@ -189,15 +189,15 @@ func TestResolveBackgroundBaseCommandPrefersInstalledAgentopt(t *testing.T) {
 	binDir := filepath.Join(root, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
 
-	agentoptPath := filepath.Join(binDir, "agentopt")
-	require.NoError(t, os.WriteFile(agentoptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	cruxPath := filepath.Join(binDir, "crux")
+	require.NoError(t, os.WriteFile(cruxPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
 
 	originalPath := os.Getenv("PATH")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+originalPath)
 
 	command, err := resolveBackgroundBaseCommand()
 	require.NoError(t, err)
-	require.Equal(t, agentoptPath, command.Program)
+	require.Equal(t, cruxPath, command.Program)
 	require.Empty(t, command.Args)
 	require.Empty(t, command.Workdir)
 }

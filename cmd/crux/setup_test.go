@@ -18,7 +18,7 @@ import (
 
 func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("AGENTOPT_HOME", root)
+	t.Setenv("CRUX_HOME", root)
 
 	repoPath := filepath.Join(root, "workspace")
 	require.NoError(t, os.MkdirAll(repoPath, 0o755))
@@ -42,7 +42,7 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
-			require.Equal(t, "setup-token", r.Header.Get("X-AgentOpt-Token"))
+			require.Equal(t, "setup-token", r.Header.Get("X-Crux-Token"))
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&loginReq))
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
 				Code: 0,
@@ -121,7 +121,7 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 	require.Equal(t, "uploaded", payload.Collect.SessionStatus)
 	require.Equal(t, 1, payload.Collect.SessionUploaded)
 	require.Equal(t, "disabled", payload.Background.Status)
-	require.Contains(t, payload.Background.Command, "agentopt")
+	require.Contains(t, payload.Background.Command, "crux")
 
 	require.NotEmpty(t, loginReq.DeviceName)
 	require.NotEmpty(t, loginReq.Platform)
@@ -141,9 +141,9 @@ func TestRunSetupEnablesBackgroundWhenInstalledBinaryAndLaunchctlAreAvailable(t 
 	homeDir := filepath.Join(root, "home")
 	require.NoError(t, os.MkdirAll(homeDir, 0o755))
 	t.Setenv("HOME", homeDir)
-	t.Setenv("AGENTOPT_HOME", filepath.Join(root, "agentopt-home"))
+	t.Setenv("CRUX_HOME", filepath.Join(root, "crux-home"))
 
-	binRoot, err := os.MkdirTemp(".", ".agentopt-installed-*")
+	binRoot, err := os.MkdirTemp(".", ".crux-installed-*")
 	require.NoError(t, err)
 	binRoot, err = filepath.Abs(binRoot)
 	require.NoError(t, err)
@@ -152,14 +152,14 @@ func TestRunSetupEnablesBackgroundWhenInstalledBinaryAndLaunchctlAreAvailable(t 
 	})
 	binDir := filepath.Join(binRoot, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
-	agentoptPath := filepath.Join(binDir, "agentopt")
-	require.NoError(t, os.WriteFile(agentoptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	cruxPath := filepath.Join(binDir, "crux")
+	require.NoError(t, os.WriteFile(cruxPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
 
 	launchctlLog := filepath.Join(root, "launchctl.log")
 	launchctlPath := filepath.Join(root, "launchctl")
 	require.NoError(t, os.WriteFile(launchctlPath, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$LAUNCHCTL_LOG\"\nexit 0\n"), 0o755))
 	t.Setenv("LAUNCHCTL_LOG", launchctlLog)
-	t.Setenv("AGENTOPT_LAUNCHCTL_BIN", launchctlPath)
+	t.Setenv("CRUX_LAUNCHCTL_BIN", launchctlPath)
 
 	originalPath := os.Getenv("PATH")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+originalPath)
@@ -225,7 +225,7 @@ func TestRunSetupEnablesBackgroundWhenInstalledBinaryAndLaunchctlAreAvailable(t 
 	plistData, err := os.ReadFile(payload.Background.PlistPath)
 	require.NoError(t, err)
 	plistText := string(plistData)
-	require.Contains(t, plistText, agentoptPath)
+	require.Contains(t, plistText, cruxPath)
 	require.Contains(t, plistText, "<string>collect</string>")
 	require.Contains(t, plistText, "<string>--watch</string>")
 	require.Contains(t, plistText, "<string>--interval</string>")
@@ -239,14 +239,14 @@ func TestRunSetupEnablesBackgroundWhenInstalledBinaryAndLaunchctlAreAvailable(t 
 }
 
 func TestDefaultCommandShowsSetupHintWhenUnconfigured(t *testing.T) {
-	t.Setenv("AGENTOPT_HOME", t.TempDir())
+	t.Setenv("CRUX_HOME", t.TempDir())
 
 	output := captureStdout(t, func() {
 		require.NoError(t, run(nil))
 	})
 
-	require.Contains(t, output, "agentopt is not set up yet.")
-	require.Contains(t, output, "agentopt setup --server <server-url>")
+	require.Contains(t, output, "Crux is not set up yet.")
+	require.Contains(t, output, "crux setup --server <server-url>")
 }
 
 func TestHelpHighlightsSetup(t *testing.T) {
@@ -254,17 +254,17 @@ func TestHelpHighlightsSetup(t *testing.T) {
 		require.NoError(t, run([]string{"help"}))
 	})
 
-	require.Contains(t, output, "agentopt quickstart:")
+	require.Contains(t, output, "Crux quickstart:")
 	require.Contains(t, output, "setup             register this device")
-	require.Contains(t, output, "agentopt setup --server http://127.0.0.1:8082")
+	require.Contains(t, output, "crux setup --server http://127.0.0.1:8082")
 }
 
 func TestRunWithoutArgsUsesSavedServerHintWhenWorkspaceMissing(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("AGENTOPT_HOME", root)
+	t.Setenv("CRUX_HOME", root)
 
 	require.NoError(t, saveState(state{
-		ServerURL: "https://agentopt.example.com",
+		ServerURL: "https://crux.example.com",
 		APIToken:  "token",
 		OrgID:     "org-1",
 		UserID:    "user-1",
@@ -275,12 +275,12 @@ func TestRunWithoutArgsUsesSavedServerHintWhenWorkspaceMissing(t *testing.T) {
 		require.NoError(t, run(nil))
 	})
 
-	require.Contains(t, output, "agentopt setup --server https://agentopt.example.com")
+	require.Contains(t, output, "crux setup --server https://crux.example.com")
 }
 
 func TestRunWithoutArgsShowsStatusWhenConfigured(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("AGENTOPT_HOME", root)
+	t.Setenv("CRUX_HOME", root)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

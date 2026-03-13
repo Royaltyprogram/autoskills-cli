@@ -6,15 +6,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8082}"
 EMAIL="${BETA_SMOKE_EMAIL:-}"
 PASSWORD="${BETA_SMOKE_PASSWORD:-}"
-CLI_BIN="${CLI_BIN:-$ROOT_DIR/output/agentopt}"
+CLI_BIN="${CLI_BIN:-$ROOT_DIR/output/crux}"
 EXPECT_RESEARCH_MODE="${EXPECT_RESEARCH_MODE:-}"
 COOKIE_JAR="$(mktemp)"
-AGENTOPT_HOME_DIR="$(mktemp -d)"
+CRUX_HOME_DIR="$(mktemp -d)"
 WORKSPACE_DIR="$(mktemp -d)"
 
 cleanup() {
   rm -f "$COOKIE_JAR"
-  rm -rf "$AGENTOPT_HOME_DIR" "$WORKSPACE_DIR"
+  rm -rf "$CRUX_HOME_DIR" "$WORKSPACE_DIR"
 }
 trap cleanup EXIT
 
@@ -24,7 +24,7 @@ if [[ -z "$EMAIL" || -z "$PASSWORD" ]]; then
 fi
 
 if [[ ! -x "$CLI_BIN" ]]; then
-  (cd "$ROOT_DIR" && go build -o output/agentopt ./cmd/agentopt)
+  (cd "$ROOT_DIR" && go build -o output/crux ./cmd/crux)
 fi
 
 curl -fsS "$BASE_URL/healthz" >/dev/null
@@ -69,7 +69,7 @@ print(token)
 PY
 )"
 
-export AGENTOPT_HOME="$AGENTOPT_HOME_DIR"
+export CRUX_HOME="$CRUX_HOME_DIR"
 
 "$CLI_BIN" login \
   --server "$BASE_URL" \

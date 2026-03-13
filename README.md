@@ -28,11 +28,11 @@ Detailed codebase documentation:
 - Reports are now read-only feedback reports instead of local patch plans
 - The dashboard now favors a user-facing report surface instead of an approval console
 - Session summaries now focus on token usage and raw query history for MVP research analysis
-- `agentopt setup` now compresses onboarding into one command: login, workspace connect, initial local upload, and background collection enrollment when supported
-- `agentopt session` auto-collects the latest local Codex session from `~/.codex/sessions` when `--file` is omitted
-- `agentopt session --recent N` uploads the most recent `N` local Codex sessions in chronological order
-- `agentopt collect` uploads session data now and can skip unchanged snapshots by default
-- `agentopt collect --watch` can keep background collection running during onboarding and beta usage
+- `crux setup` now compresses onboarding into one command: login, workspace connect, initial local upload, and background collection enrollment when supported
+- `crux session` auto-collects the latest local Codex session from `~/.codex/sessions` when `--file` is omitted
+- `crux session --recent N` uploads the most recent `N` local Codex sessions in chronological order
+- `crux collect` uploads session data now and can skip unchanged snapshots by default
+- `crux collect --watch` can keep background collection running during onboarding and beta usage
 - Feedback reports now wait until at least `10` uploaded sessions exist before the server publishes the first report
 
 ## Quickstart
@@ -51,28 +51,28 @@ In another shell:
 For source development:
 
 ```bash
-go run ./cmd/agentopt setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
-go run ./cmd/agentopt workspace
-go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
-go run ./cmd/agentopt session
-go run ./cmd/agentopt session --recent 5
-go run ./cmd/agentopt collect --watch --recent 1 --interval 30m
-go run ./cmd/agentopt reports
-go run ./cmd/agentopt audit
+go run ./cmd/crux setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
+go run ./cmd/crux workspace
+go run ./cmd/crux snapshot --file examples/config-snapshot.json
+go run ./cmd/crux session
+go run ./cmd/crux session --recent 5
+go run ./cmd/crux collect --watch --recent 1 --interval 30m
+go run ./cmd/crux reports
+go run ./cmd/crux audit
 ```
 
-For beta or production user machines, install the released CLI and run `agentopt` directly instead of `go run`:
+For beta or production user machines, install the released CLI and run `crux` directly instead of `go run`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-agentopt setup --server http://127.0.0.1:8082
+crux setup --server http://127.0.0.1:8082
 ```
 
-Release installs use a prebuilt binary, so Go is not required. If your shell cannot find `agentopt`, add `~/.local/bin` to `PATH`.
-On supported installed macOS environments, `agentopt setup` also enrolls background collection automatically. On other environments it prints the manual fallback command, typically `agentopt collect --watch --recent 1 --interval 30m`.
-After setup, plain `agentopt` now works as the default entrypoint: it shows the setup hint when the CLI is not configured yet, and otherwise prints the current shared-workspace status.
+Release installs use a prebuilt binary, so Go is not required. If your shell cannot find `crux`, add `~/.local/bin` to `PATH`.
+On supported installed macOS environments, `crux setup` also enrolls background collection automatically. On other environments it prints the manual fallback command, typically `crux collect --watch --recent 1 --interval 30m`.
+After setup, plain `crux` now works as the default entrypoint: it shows the setup hint when the CLI is not configured yet, and otherwise prints the current shared-workspace status.
 
-For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `agentopt setup --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted and automatically registers the device, connects the current repo, and uploads an initial snapshot plus the latest local Codex session.
+For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `crux setup --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted and automatically registers the device, connects the current repo, and uploads an initial snapshot plus the latest local Codex session.
 
 For closed beta or production, disable the demo path and seed named beta accounts through env:
 
@@ -87,9 +87,9 @@ If you would rather mount a secret file than inline JSON in env, you can use:
 
 ```bash
 APP_MODE=prod \
-JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
-OPENAI_API_KEY_FILE=/run/secrets/agentopt-openai-api-key \
+JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
+OPENAI_API_KEY_FILE=/run/secrets/crux-openai-api-key \
 go run .
 ```
 
@@ -98,17 +98,17 @@ Supported secret file envs now include `JWT_SECRET_FILE`, `DB_DSN_FILE`, `APP_AP
 
 Bootstrap users are now treated as managed closed beta identities: removing a user from the bootstrap file revokes their existing tokens, and rotating a bootstrap password revokes prior sessions so the new credential takes effect immediately.
 
-In this MVP every connected repository shares one workspace per organization. `agentopt setup` handles the first-time device registration and shared-workspace connection, while `agentopt connect` remains available when you need to reconnect a different repo manually. The generated report records are now user-facing feedback reports rather than executable patch queues.
+In this MVP every connected repository shares one workspace per organization. `crux setup` handles the first-time device registration and shared-workspace connection, while `crux connect` remains available when you need to reconnect a different repo manually. The generated report records are now user-facing feedback reports rather than executable patch queues.
 
 If you want to keep uploads flowing in the background, keep the collector running:
 
 ```bash
-agentopt collect --watch --recent 1 --interval 30m
+crux collect --watch --recent 1 --interval 30m
 ```
 
-Installed macOS release builds usually do this automatically during `agentopt setup`. Keep the manual command for source development, Linux hosts, or any environment where setup reports `background.status` as `manual_only` or `failed`.
+Installed macOS release builds usually do this automatically during `crux setup`. Keep the manual command for source development, Linux hosts, or any environment where setup reports `background.status` as `manual_only` or `failed`.
 
-If you want a one-off manual upload instead, keep using `agentopt collect --codex-home ~/.codex`.
+If you want a one-off manual upload instead, keep using `crux collect --codex-home ~/.codex`.
 
 For closed beta deployment checks, the server also exposes:
 
@@ -138,9 +138,9 @@ make closed-beta-prod-smoke
 To force that smoke test to use the ignored local secret files in `secrets/` and verify live OpenAI-backed feedback report generation:
 
 ```bash
-JWT_SECRET_FILE_OVERRIDE=secrets/agentopt-jwt-secret \
-AUTH_BOOTSTRAP_USERS_FILE_OVERRIDE=secrets/agentopt-beta-users.json \
-OPENAI_API_KEY_FILE_OVERRIDE=secrets/agentopt-openai-api-key \
+JWT_SECRET_FILE_OVERRIDE=secrets/crux-jwt-secret \
+AUTH_BOOTSTRAP_USERS_FILE_OVERRIDE=secrets/crux-beta-users.json \
+OPENAI_API_KEY_FILE_OVERRIDE=secrets/crux-openai-api-key \
 EXPECT_RESEARCH_MODE=openai_responses_api \
 make closed-beta-prod-smoke
 ```
@@ -154,9 +154,9 @@ VERSION_LABEL=0.1.0-beta.1 make beta-cli-bundle
 
 That command produces:
 
-- `output/release/agentopt-<version>-<os>-<arch>.tar.gz`
-- `output/release/agentopt-<version>-<os>-<arch>.tar.gz.sha256`
-- `output/release/agentopt-<version>-<os>-<arch>.json`
+- `output/release/crux-<version>-<os>-<arch>.tar.gz`
+- `output/release/crux-<version>-<os>-<arch>.tar.gz.sha256`
+- `output/release/crux-<version>-<os>-<arch>.json`
 
 And you can validate the latest bundle locally with:
 
@@ -194,22 +194,22 @@ make store-import INPUT=output/runtime-store-backup.json
 
 The bundle itself contains:
 
-- `agentopt`
+- `crux`
 
-The installed CLI answers `agentopt version`, and `make build` now embeds git version metadata into `output/agentopt`.
+The installed CLI answers `crux version`, and `make build` now embeds git version metadata into `output/crux`.
 
 For a one-command install from GitHub Releases:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-AGENTOPT_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
 ```
 
-The installer downloads the matching release bundle for the current platform, installs it under `~/.local/share/agentopt/<version>`, writes `~/.local/bin/agentopt`, does not require Go on the target machine, and installs a local Node.js runtime automatically when the machine does not already have a compatible one.
+The installer downloads the matching release bundle for the current platform, installs it under `~/.local/share/crux/<version>`, writes `~/.local/bin/crux`, does not require Go on the target machine, and installs a local Node.js runtime automatically when the machine does not already have a compatible one.
 After install, the shortest onboarding path is:
 
 ```bash
-agentopt setup --server http://127.0.0.1:8082
+crux setup --server http://127.0.0.1:8082
 ```
 
 ## Container Deploy
@@ -217,21 +217,21 @@ agentopt setup --server http://127.0.0.1:8082
 The container now defaults to:
 
 - `APP_MODE=prod`
-- SQLite state at `/app/data/agentopt.db`
-- legacy JSON import path at `data/agentopt-store.json` only if you are migrating old state
+- SQLite state at `/app/data/crux.db`
+- legacy JSON import path at `data/crux-store.json` only if you are migrating old state
 - stdout request/application logs
 
 Build and run it with a seeded beta account:
 
 ```bash
-docker build -t agentopt-beta .
+docker build -t crux-beta .
 docker run --rm -p 8082:8082 \
   -v "$PWD/.runtime-data:/app/data" \
-  -e JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
-  -v "$PWD/secrets/agentopt-jwt-secret:/run/secrets/agentopt-jwt-secret:ro" \
-  -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
-  agentopt-beta
+  -e JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
+  -v "$PWD/secrets/crux-jwt-secret:/run/secrets/crux-jwt-secret:ro" \
+  -v "$PWD/secrets/crux-beta-users.json:/run/secrets/crux-beta-users.json:ro" \
+  crux-beta
 ```
 
 For MySQL-backed deployment, override the DB env at runtime:
@@ -239,13 +239,13 @@ For MySQL-backed deployment, override the DB env at runtime:
 ```bash
 docker run --rm -p 8082:8082 \
   -e DB_DIALECT=mysql \
-  -e DB_DSN_FILE=/run/secrets/agentopt-db-dsn \
-  -e JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
-  -v "$PWD/secrets/agentopt-db-dsn:/run/secrets/agentopt-db-dsn:ro" \
-  -v "$PWD/secrets/agentopt-jwt-secret:/run/secrets/agentopt-jwt-secret:ro" \
-  -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
-  agentopt-beta
+  -e DB_DSN_FILE=/run/secrets/crux-db-dsn \
+  -e JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
+  -v "$PWD/secrets/crux-db-dsn:/run/secrets/crux-db-dsn:ro" \
+  -v "$PWD/secrets/crux-jwt-secret:/run/secrets/crux-jwt-secret:ro" \
+  -v "$PWD/secrets/crux-beta-users.json:/run/secrets/crux-beta-users.json:ro" \
+  crux-beta
 ```
 
 The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta`, executes both the local-mode and real `APP_MODE=prod` smoke flows, uploads the verified server binaries and logs, builds beta CLI bundles for `linux/amd64`, `darwin/amd64`, and `darwin/arm64` with matching checksum and manifest artifacts, and then publishes a consolidated release-index artifact.
@@ -258,7 +258,7 @@ HTTP_TRUSTED_PROXY_CIDRS='10.0.0.0/8' \
 go run .
 ```
 
-If `HTTP_TRUSTED_PROXY_CIDRS` is empty, AgentOpt only trusts the direct socket remote address and ignores forwarded IP headers.
+If `HTTP_TRUSTED_PROXY_CIDRS` is empty, Crux only trusts the direct socket remote address and ignores forwarded IP headers.
 
 `APP_MODE=prod` now fails fast during startup if critical closed beta settings are unsafe or incomplete, including a missing `JWT_SECRET`, invalid CIDR values, demo-user enablement, static token bypass enablement, or malformed bootstrap users.
 

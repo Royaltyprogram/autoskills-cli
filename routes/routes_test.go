@@ -34,7 +34,7 @@ func TestHealthzAndReadyzEndpoints(t *testing.T) {
 	})
 
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := service.NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestHealthzAndReadyzEndpoints(t *testing.T) {
 
 func TestNewEchoAppliesConfiguredCORSHeaders(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 	conf.HTTP.AllowedOrigins = []string{"https://beta.example.com"}
 
 	store, err := service.NewAnalyticsStore(conf)
@@ -90,8 +90,8 @@ func TestNewEchoAppliesConfiguredCORSHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	analyticsSvc := service.NewAnalyticsService(service.Options{
-		Config:                    conf,
-		AnalyticsStore:            store,
+		Config:            conf,
+		AnalyticsStore:    store,
 		ReportMinSessions: 1,
 	})
 	engine := NewHttpEngine(Options{
@@ -115,7 +115,7 @@ func TestNewEchoAppliesConfiguredCORSHeaders(t *testing.T) {
 
 func TestNewEchoRateLimitsAPIWhenConfigured(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 	conf.HTTP.RateLimitPerMinute = 1
 
 	store, err := service.NewAnalyticsStore(conf)
@@ -125,8 +125,8 @@ func TestNewEchoRateLimitsAPIWhenConfigured(t *testing.T) {
 	require.NoError(t, err)
 
 	analyticsSvc := service.NewAnalyticsService(service.Options{
-		Config:                    conf,
-		AnalyticsStore:            store,
+		Config:            conf,
+		AnalyticsStore:    store,
 		ReportMinSessions: 1,
 	})
 	engine := NewHttpEngine(Options{
@@ -159,7 +159,7 @@ func TestNewEchoRateLimitsAPIWhenConfigured(t *testing.T) {
 
 func TestNewEchoRejectsRequestsOutsideAllowedCIDRs(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 	conf.HTTP.AllowedCIDRs = []string{"10.0.0.0/8"}
 
 	store, err := service.NewAnalyticsStore(conf)
@@ -189,7 +189,7 @@ func TestNewEchoRejectsRequestsOutsideAllowedCIDRs(t *testing.T) {
 
 func TestNewEchoAllowsRequestsWithinAllowedCIDRs(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 	conf.HTTP.AllowedCIDRs = []string{"127.0.0.1/32"}
 
 	store, err := service.NewAnalyticsStore(conf)
@@ -219,7 +219,7 @@ func TestNewEchoAllowsRequestsWithinAllowedCIDRs(t *testing.T) {
 
 func TestNewEchoUsesTrustedProxyCIDRsForAllowlist(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 	conf.HTTP.AllowedCIDRs = []string{"203.0.113.0/24"}
 	conf.HTTP.TrustedProxyCIDRs = []string{"127.0.0.1/32"}
 

@@ -8,7 +8,7 @@ SMOKE_PORT="${SMOKE_PORT:-18082}"
 BASE_URL="${BASE_URL:-http://${SMOKE_HOST}:${SMOKE_PORT}}"
 SERVER_ADDR="${SERVER_ADDR:-:${SMOKE_PORT}}"
 SERVER_BIN="${SERVER_BIN:-$ROOT_DIR/output/server}"
-CLI_BIN="${CLI_BIN:-$ROOT_DIR/output/agentopt}"
+CLI_BIN="${CLI_BIN:-$ROOT_DIR/output/crux}"
 EMAIL="${BETA_SMOKE_EMAIL:-beta1@example.com}"
 PASSWORD="${BETA_SMOKE_PASSWORD:-replace-me}"
 JWT_SECRET_VALUE="${JWT_SECRET_VALUE:-closed-beta-prod-smoke-secret}"
@@ -37,7 +37,7 @@ trap cleanup EXIT
 mkdir -p "$DATA_DIR" "$SECRET_DIR"
 
 printf "%s\n" "$JWT_SECRET_VALUE" > "$SECRET_DIR/jwt-secret"
-printf "%s\n" "$DATA_DIR/agentopt-prod.db?_fk=1" > "$SECRET_DIR/db-dsn"
+printf "%s\n" "$DATA_DIR/crux-prod.db?_fk=1" > "$SECRET_DIR/db-dsn"
 cat > "$SECRET_DIR/bootstrap-users.json" <<EOF
 [
   {

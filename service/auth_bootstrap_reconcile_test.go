@@ -11,7 +11,7 @@ import (
 )
 
 func TestBootstrapUserRemovalRevokesExistingTokens(t *testing.T) {
-	storePath := filepath.Join(t.TempDir(), "agentopt-store.json")
+	storePath := filepath.Join(t.TempDir(), "crux-store.json")
 
 	conf := &configs.Config{}
 	conf.App.Mode = "prod"
@@ -64,7 +64,7 @@ func TestBootstrapUserRemovalRevokesExistingTokens(t *testing.T) {
 }
 
 func TestBootstrapUserPasswordRotationRevokesExistingTokens(t *testing.T) {
-	storePath := filepath.Join(t.TempDir(), "agentopt-store.json")
+	storePath := filepath.Join(t.TempDir(), "crux-store.json")
 
 	conf := &configs.Config{}
 	conf.App.Mode = "prod"

@@ -18,7 +18,7 @@ Start the local development server:
 
 ```bash
 make generate
-OPENAI_API_KEY_FILE=secrets/agentopt-openai-api-key make run
+OPENAI_API_KEY_FILE=secrets/crux-openai-api-key make run
 ```
 
 Open `http://127.0.0.1:8082/` and sign in with the local demo account:
@@ -29,43 +29,43 @@ Open `http://127.0.0.1:8082/` and sign in with the local demo account:
 From another shell, run the CLI against the local server. These commands are for source development:
 
 ```bash
-go run ./cmd/agentopt setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
-go run ./cmd/agentopt workspace
-go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
-go run ./cmd/agentopt session
-go run ./cmd/agentopt collect --watch --recent 1 --interval 30m
-go run ./cmd/agentopt reports
-go run ./cmd/agentopt audit
+go run ./cmd/crux setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
+go run ./cmd/crux workspace
+go run ./cmd/crux snapshot --file examples/config-snapshot.json
+go run ./cmd/crux session
+go run ./cmd/crux collect --watch --recent 1 --interval 30m
+go run ./cmd/crux reports
+go run ./cmd/crux audit
 ```
 
 Notes:
 
 - In the MVP, every connected repository rolls into one shared workspace per organization.
-- `agentopt setup` is the shortest onboarding path and includes the initial workspace connection automatically.
+- `crux setup` is the shortest onboarding path and includes the initial workspace connection automatically.
 - installed macOS beta machines also get background collection automatically when setup can register a launchd agent
-- `agentopt connect` remains available when you need to reconnect a different repo manually.
-- `agentopt collect --watch` keeps session and snapshot uploads flowing while the shared workspace is being observed.
+- `crux connect` remains available when you need to reconnect a different repo manually.
+- `crux collect --watch` keeps session and snapshot uploads flowing while the shared workspace is being observed.
 - Reports are now read-only feedback reports for the user; nothing is auto-applied.
 
 If you want a beta machine to keep uploading usage data without repeated manual CLI runs, keep a long-lived collector running:
 
 ```bash
-agentopt collect --watch --recent 1 --interval 30m
+crux collect --watch --recent 1 --interval 30m
 ```
 
 Notes:
 
-- Prefer the installed `agentopt` command for long-lived beta machine setup. On supported installed macOS environments, `agentopt setup --server ...` now enrolls that background collector automatically.
-- Keep `agentopt collect` without `--watch` for one-off manual uploads.
+- Prefer the installed `crux` command for long-lived beta machine setup. On supported installed macOS environments, `crux setup --server ...` now enrolls that background collector automatically.
+- Keep `crux collect` without `--watch` for one-off manual uploads.
 
 For beta users who should install from GitHub Releases instead of an unpacked bundle:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-AGENTOPT_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
 ```
 
-The installer downloads the matching release bundle, installs it under `~/.local/share/agentopt/<version>`, and writes a wrapper to `~/.local/bin/agentopt`.
+The installer downloads the matching release bundle, installs it under `~/.local/share/crux/<version>`, and writes a wrapper to `~/.local/bin/crux`.
 That release install uses a prebuilt binary, so Go is not required on the beta machine.
 
 ## 2. Local Verification
@@ -93,9 +93,9 @@ make closed-beta-prod-smoke
 Run the same smoke against the ignored local secret files under `secrets/` and require the research agent to use the live OpenAI path:
 
 ```bash
-JWT_SECRET_FILE_OVERRIDE=secrets/agentopt-jwt-secret \
-AUTH_BOOTSTRAP_USERS_FILE_OVERRIDE=secrets/agentopt-beta-users.json \
-OPENAI_API_KEY_FILE_OVERRIDE=secrets/agentopt-openai-api-key \
+JWT_SECRET_FILE_OVERRIDE=secrets/crux-jwt-secret \
+AUTH_BOOTSTRAP_USERS_FILE_OVERRIDE=secrets/crux-beta-users.json \
+OPENAI_API_KEY_FILE_OVERRIDE=secrets/crux-openai-api-key \
 EXPECT_RESEARCH_MODE=openai_responses_api \
 make closed-beta-prod-smoke
 ```
@@ -138,9 +138,9 @@ Run the server in `prod` mode with secret files:
 
 ```bash
 APP_MODE=prod \
-JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
-OPENAI_API_KEY_FILE=/run/secrets/agentopt-openai-api-key \
+JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
+OPENAI_API_KEY_FILE=/run/secrets/crux-openai-api-key \
 go run .
 ```
 
@@ -153,8 +153,8 @@ If you want to lock access down in-app during closed beta:
 
 ```bash
 APP_MODE=prod \
-JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
+JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
 HTTP_ALLOWED_CIDRS='203.0.113.10/32,198.51.100.0/24' \
 HTTP_TRUSTED_PROXY_CIDRS='10.0.0.0/8' \
 go run .
@@ -165,7 +165,7 @@ go run .
 Build the container:
 
 ```bash
-docker build -t agentopt-beta .
+docker build -t crux-beta .
 ```
 
 Run with SQLite-backed beta state:
@@ -173,11 +173,11 @@ Run with SQLite-backed beta state:
 ```bash
 docker run --rm -p 8082:8082 \
   -v "$PWD/.runtime-data:/app/data" \
-  -e JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
-  -v "$PWD/secrets/agentopt-jwt-secret:/run/secrets/agentopt-jwt-secret:ro" \
-  -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
-  agentopt-beta
+  -e JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
+  -v "$PWD/secrets/crux-jwt-secret:/run/secrets/crux-jwt-secret:ro" \
+  -v "$PWD/secrets/crux-beta-users.json:/run/secrets/crux-beta-users.json:ro" \
+  crux-beta
 ```
 
 Run with MySQL-backed beta state:
@@ -185,13 +185,13 @@ Run with MySQL-backed beta state:
 ```bash
 docker run --rm -p 8082:8082 \
   -e DB_DIALECT=mysql \
-  -e DB_DSN_FILE=/run/secrets/agentopt-db-dsn \
-  -e JWT_SECRET_FILE=/run/secrets/agentopt-jwt-secret \
-  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/agentopt-beta-users.json \
-  -v "$PWD/secrets/agentopt-db-dsn:/run/secrets/agentopt-db-dsn:ro" \
-  -v "$PWD/secrets/agentopt-jwt-secret:/run/secrets/agentopt-jwt-secret:ro" \
-  -v "$PWD/secrets/agentopt-beta-users.json:/run/secrets/agentopt-beta-users.json:ro" \
-  agentopt-beta
+  -e DB_DSN_FILE=/run/secrets/crux-db-dsn \
+  -e JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
+  -e AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
+  -v "$PWD/secrets/crux-db-dsn:/run/secrets/crux-db-dsn:ro" \
+  -v "$PWD/secrets/crux-jwt-secret:/run/secrets/crux-jwt-secret:ro" \
+  -v "$PWD/secrets/crux-beta-users.json:/run/secrets/crux-beta-users.json:ro" \
+  crux-beta
 ```
 
 ## 6. Release Candidate Build
@@ -208,11 +208,11 @@ VERSION_LABEL=0.1.0-beta.1 make publish-github-release
 
 Output:
 
-- `output/release/agentopt-<version>-<os>-<arch>.tar.gz`
-- `output/release/agentopt-<version>-<os>-<arch>.tar.gz.sha256`
-- `output/release/agentopt-<version>-<os>-<arch>.json`
-- `output/release/agentopt-<version>.release-index.json`
-- `output/release/agentopt-<version>.release-index.json.sha256`
+- `output/release/crux-<version>-<os>-<arch>.tar.gz`
+- `output/release/crux-<version>-<os>-<arch>.tar.gz.sha256`
+- `output/release/crux-<version>-<os>-<arch>.json`
+- `output/release/crux-<version>.release-index.json`
+- `output/release/crux-<version>.release-index.json.sha256`
 
 `publish-github-release` expects the `gh` CLI to be authenticated and uploads those assets to the matching GitHub Release tag.
 
@@ -223,7 +223,7 @@ For manual GitHub Actions runs, `workflow_dispatch` now accepts `version`, `draf
 If your working tree is dirty but you want a clean release candidate from `HEAD`, use a temporary worktree:
 
 ```bash
-tmpdir=$(mktemp -d /tmp/agentopt-release.XXXXXX)
+tmpdir=$(mktemp -d /tmp/crux-release.XXXXXX)
 git worktree add --detach "$tmpdir" HEAD
 cd "$tmpdir"
 make closed-beta-prod-smoke
@@ -257,9 +257,9 @@ Run this before handing the build to beta users:
 3. The dashboard shows workflow feedback reports instead of approval actions.
 4. `make closed-beta-prod-smoke` passes.
 5. `make beta-cli-bundle`, `make verify-beta-bundle`, and `make verify-install-script` pass.
-6. The release bundle contains `agentopt` and the generated `README.md`.
+6. The release bundle contains `crux` and the generated `README.md`.
 7. Runtime secrets are mounted from files, not hardcoded.
 8. `GET /healthz` and `GET /readyz` respond successfully in the target environment.
 9. A seeded beta user can log in on the dashboard and issue a CLI token.
-10. A beta machine can complete `agentopt setup` and `agentopt collect`.
-11. If background collection is part of the beta flow, `agentopt collect --watch --recent 1 --interval 30m` succeeds on the target machine.
+10. A beta machine can complete `crux setup` and `crux collect`.
+11. If background collection is part of the beta flow, `crux collect --watch --recent 1 --interval 30m` succeeds on the target machine.

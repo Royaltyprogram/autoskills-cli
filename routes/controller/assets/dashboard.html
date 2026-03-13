@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentOpt Workspace Dashboard</title>
+  <title>Crux Workspace Dashboard</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
 
 </head>
@@ -24,8 +24,8 @@
       </div>
 
       <div class="wizard-step wizard-step-center is-active" data-wizard-step="0">
-        <div class="wizard-title">Welcome to AgentOpt</div>
-        <div class="wizard-desc">AgentOpt reads your Codex session traces and explains what the model understood, where it went wrong, and what confused it. Clear analysis instead of a black box.</div>
+        <div class="wizard-title">Welcome to Crux</div>
+        <div class="wizard-desc">Crux reads your Codex session traces and explains what the model understood, where it went wrong, and what confused it. Clear analysis instead of a black box.</div>
         <div class="wizard-actions">
           <button class="primary-button" type="button" data-action="wizard-next">Get started</button>
         </div>
@@ -65,7 +65,7 @@
             <span class="command-label">Login command</span>
             <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="wizLoginCmd" data-copy-label="login command">Copy</button>
           </div>
-          <div class="command-shell" id="wizLoginCmd">agentopt login --server http://127.0.0.1:8082</div>
+          <div class="command-shell" id="wizLoginCmd">crux login --server http://127.0.0.1:8082</div>
         </div>
         <div class="wizard-actions">
           <button class="secondary-button" type="button" data-action="wizard-back">Back</button>
@@ -75,13 +75,13 @@
 
       <div class="wizard-step" data-wizard-step="3">
         <div class="wizard-title">Connect a workspace</div>
-        <div class="wizard-desc">Link a local repository so AgentOpt can start analyzing your Codex session traces and generating analysis reports.</div>
+        <div class="wizard-desc">Link a local repository so Crux can start analyzing your Codex session traces and generating analysis reports.</div>
         <div class="command-block">
           <div class="command-block-head">
             <span class="command-label">Connect command</span>
             <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="wizConnectCmd" data-copy-label="connect command">Copy</button>
           </div>
-          <div class="command-shell" id="wizConnectCmd">agentopt connect --repo-path .</div>
+          <div class="command-shell" id="wizConnectCmd">crux connect --repo-path .</div>
         </div>
         <div class="wizard-actions">
           <button class="secondary-button" type="button" data-action="wizard-back">Back</button>
@@ -96,7 +96,7 @@
   <main class="dashboard" id="mainDashboard">
     <header class="top-bar">
       <div class="top-bar-left">
-        <span class="top-bar-brand">AgentOpt</span>
+        <span class="top-bar-brand">Crux</span>
         <div class="top-bar-context">
           <div class="top-bar-sep"></div>
           <span id="topBarOrg">-</span>
@@ -117,14 +117,14 @@
 
       <div class="agent-status-bar" id="agentStatusBar">
         <div class="agent-status-dot"></div>
-        <span id="agentStatusText">AgentOpt is analyzing your Codex session traces...</span>
+        <span id="agentStatusText">Crux is analyzing your Codex session traces...</span>
       </div>
 
       <div class="loop-section" id="optimizationLoopSection">
         <div class="section-header">
           <div class="section-kicker">Trace analysis</div>
           <div class="section-title">Collect - Analyze - Explain - Improve</div>
-          <div class="section-desc" id="loopSummary">AgentOpt reads your Codex session traces to explain what the model understood, where it went wrong, and what confused it.</div>
+          <div class="section-desc" id="loopSummary">Crux reads your Codex session traces to explain what the model understood, where it went wrong, and what confused it.</div>
         </div>
         <div class="loop-stage-grid" id="loopStageGrid"></div>
         <div class="loop-focus-card" id="loopFocusCard"></div>
@@ -258,14 +258,14 @@
                   <span class="command-label">One-time manual backfill</span>
                   <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="coverageBackfillCmd" data-copy-label="backfill command">Copy</button>
                 </div>
-                <div class="command-shell" id="coverageBackfillCmd">agentopt collect --recent 30 --snapshot-mode skip</div>
+                <div class="command-shell" id="coverageBackfillCmd">crux collect --recent 30 --snapshot-mode skip</div>
               </div>
               <div class="command-block">
                 <div class="command-block-head">
                   <span class="command-label">Manual background fallback</span>
                   <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="coverageDaemonCmd" data-copy-label="daemon command">Copy</button>
                 </div>
-                <div class="command-shell" id="coverageDaemonCmd">agentopt collect --watch --recent 1 --interval 30m</div>
+                <div class="command-shell" id="coverageDaemonCmd">crux collect --watch --recent 1 --interval 30m</div>
               </div>
             </div>
           </div>

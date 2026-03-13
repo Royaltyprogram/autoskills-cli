@@ -1,13 +1,13 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-AGENTOPT_LDFLAGS = -X 'github.com/Royaltyprogram/aiops/pkg/buildinfo.Version=$(VERSION)' -X 'github.com/Royaltyprogram/aiops/pkg/buildinfo.Commit=$(GIT_COMMIT)' -X 'github.com/Royaltyprogram/aiops/pkg/buildinfo.Date=$(BUILD_DATE)'
+CRUX_LDFLAGS = -X 'github.com/Royaltyprogram/aiops/pkg/buildinfo.Version=$(VERSION)' -X 'github.com/Royaltyprogram/aiops/pkg/buildinfo.Commit=$(GIT_COMMIT)' -X 'github.com/Royaltyprogram/aiops/pkg/buildinfo.Date=$(BUILD_DATE)'
 
 run:
 	APP_MODE=local go run main.go wire_gen.go
 
 run-cli:
-	go run ./cmd/agentopt --help
+	go run ./cmd/crux --help
 
 E2E_BASE_URL ?= http://127.0.0.1:8082
 e2e:
@@ -45,16 +45,16 @@ publish-github-release:
 	./scripts/publish_github_release.sh
 
 store-export: build
-	./output/agentopt store-export --output "$(OUTPUT)"
+	./output/crux store-export --output "$(OUTPUT)"
 
 store-import: build
-	./output/agentopt store-import --input "$(INPUT)" --yes
+	./output/crux store-import --input "$(INPUT)" --yes
 
 print-version:
 	@echo $(VERSION)
 
 docker-build:
-	docker build -t agentopt-beta .
+	docker build -t crux-beta .
 
 generate:
 	go generate ./data
@@ -62,5 +62,5 @@ generate:
 
 build: generate
 	go mod tidy -v
-	go build -ldflags "$(AGENTOPT_LDFLAGS)" -o=output/server main.go wire_gen.go
-	go build -ldflags "$(AGENTOPT_LDFLAGS)" -o=output/agentopt ./cmd/agentopt
+	go build -ldflags "$(CRUX_LDFLAGS)" -o=output/server main.go wire_gen.go
+	go build -ldflags "$(CRUX_LDFLAGS)" -o=output/crux ./cmd/crux

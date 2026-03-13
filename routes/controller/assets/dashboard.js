@@ -1,10 +1,10 @@
 const STORAGE_KEYS = {
-  sessionUser: "agentopt_session_user",
-  sessionOrg: "agentopt_session_org",
-  activeTab: "agentopt_dashboard_tab",
-  activeReportPanel: "agentopt_dashboard_report_panel",
-  activeReportID: "agentopt_dashboard_report_id",
-  onboardingDone: "agentopt_onboarding_done",
+  sessionUser: "crux_session_user",
+  sessionOrg: "crux_session_org",
+  activeTab: "crux_dashboard_tab",
+  activeReportPanel: "crux_dashboard_report_panel",
+  activeReportID: "crux_dashboard_report_id",
+  onboardingDone: "crux_onboarding_done",
 };
 const TAB_IDS = ["overview", "trends", "sessions", "cli"];
 const REPORT_PANEL_IDS = ["actions", "history"];
@@ -119,7 +119,7 @@ function updateWizardCommands() {
   const origin = window.location.origin || "http://127.0.0.1:8082";
   const wizLogin = $("wizLoginCmd");
   if (wizLogin) {
-    wizLogin.textContent = `agentopt setup --server ${origin}`;
+    wizLogin.textContent = `crux setup --server ${origin}`;
   }
 }
 
@@ -335,7 +335,7 @@ function redirectToLanding(message) {
   clearSession();
   if (message) {
     try {
-      window.sessionStorage.setItem("agentopt_redirect_notice", message);
+      window.sessionStorage.setItem("crux_redirect_notice", message);
     } catch (error) {
       // Ignore sessionStorage failures and continue the redirect.
     }
@@ -1012,7 +1012,7 @@ function workloadNarrative(overview) {
   const combined = `${action} ${outcome} ${research}${tokenRead}`.trim();
   return (
     combined ||
-    "AgentOpt is collecting enough Codex session traces to produce its first analysis report."
+    "Crux is collecting enough Codex session traces to produce its first analysis report."
   );
 }
 
@@ -2867,7 +2867,7 @@ function renderOptimizationLoop(overview, reports) {
   if (reportCount === 0) {
     $("loopSummary").textContent =
       totalSessions > 0
-        ? "The loop is in observation mode. AgentOpt is digesting recent raw queries and response patterns before publishing the next report."
+        ? "The loop is in observation mode. Crux is digesting recent raw queries and response patterns before publishing the next report."
         : "The loop starts after the CLI uploads sessions and snapshots from your coding-agent workspace.";
     $("loopFocusCard").innerHTML = `
       <div class="loop-focus-empty">
@@ -3121,7 +3121,7 @@ function renderLifecycle(overview) {
     const emptySummary =
       lifecycleNarrative ||
       (totalSessions > 0
-        ? "Keep uploading Codex sessions so AgentOpt can compare user intent, model interpretation, and repeated friction."
+        ? "Keep uploading Codex sessions so Crux can compare user intent, model interpretation, and repeated friction."
         : "Connect the CLI and upload sessions from a workspace to start the analysis cycle.");
     const phaseLabel =
       researchState === "running"
@@ -3172,7 +3172,7 @@ function renderLifecycle(overview) {
       <article class="lifecycle-panel">
         <div class="lifecycle-panel-head">
           <div>
-            <div class="lifecycle-panel-kicker">What AgentOpt needs</div>
+            <div class="lifecycle-panel-kicker">What Crux needs</div>
             <div class="lifecycle-panel-title">Grounded evidence, not generic advice</div>
           </div>
           ${pill("Evidence first", "warn")}
@@ -3540,7 +3540,7 @@ function renderSessionSummaries(items) {
   if (!items.length) {
     $("sessionSummaryList").innerHTML = emptyState(
       "No sessions uploaded yet",
-      "Run `agentopt session --recent 5` from the CLI to upload your recent AI usage sessions.",
+      "Run `crux session --recent 5` from the CLI to upload your recent AI usage sessions.",
     );
     return;
   }
@@ -3701,8 +3701,8 @@ async function issueCLIToken() {
 
       $("issuedCliToken").textContent = data.token || "Token was issued.";
       $("cliTokenMeta").textContent = data.expires_at
-        ? `CLI token issued for ${data.label || "CLI setup"} and expires ${formatDateTime(data.expires_at)}. Paste it into \`agentopt setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the machine you want to connect.`
-        : `CLI token issued. Paste it into \`agentopt setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the machine you want to connect.`;
+        ? `CLI token issued for ${data.label || "CLI setup"} and expires ${formatDateTime(data.expires_at)}. Paste it into \`crux setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the machine you want to connect.`
+        : `CLI token issued. Paste it into \`crux setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the machine you want to connect.`;
 
       const wizOutput = $("wizTokenOutput");
       if (wizOutput) {
@@ -3716,7 +3716,7 @@ async function issueCLIToken() {
       );
       renderCLITokens(toArray(tokens.items));
       setStatus(
-        `CLI token issued. Paste it into \`agentopt setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the device you want to connect.`,
+        `CLI token issued. Paste it into \`crux setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the device you want to connect.`,
       );
     });
   } catch (error) {

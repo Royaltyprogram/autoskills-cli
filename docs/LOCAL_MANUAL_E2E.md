@@ -18,10 +18,10 @@ Assumptions:
 ## 1. Start Clean
 
 ```bash
-rm -rf .agentopt-dev .agentopt-live-daemon .agentopt-live-test .codex
-rm -f data/agentopt.db data/agentopt-local.db data/agentopt-store.json
+rm -rf .crux-dev .crux-live-daemon .crux-live-test .codex
+rm -f data/crux.db data/crux-local.db data/crux-store.json
 find secrets -maxdepth 1 -type f ! -name '.gitignore' ! -name '*.example' -delete
-rm -rf ~/.agentopt
+rm -rf ~/.crux
 ```
 
 Do not remove `~/.codex/sessions` if you still need older real Codex sessions for upload.
@@ -29,26 +29,26 @@ Do not remove `~/.codex/sessions` if you still need older real Codex sessions fo
 ## 2. Recreate Local Secrets
 
 ```bash
-cp secrets/agentopt-jwt-secret.example secrets/agentopt-jwt-secret
-cp secrets/agentopt-beta-users.json.example secrets/agentopt-beta-users.json
-cp secrets/agentopt-openai-api-key.example secrets/agentopt-openai-api-key
+cp secrets/crux-jwt-secret.example secrets/crux-jwt-secret
+cp secrets/crux-beta-users.json.example secrets/crux-beta-users.json
+cp secrets/crux-openai-api-key.example secrets/crux-openai-api-key
 ```
 
 Required contents:
 
-- `secrets/agentopt-jwt-secret`: one strong random string
-- `secrets/agentopt-beta-users.json`: at least one beta user entry
-- `secrets/agentopt-openai-api-key`: one real OpenAI API key if you want report generation
+- `secrets/crux-jwt-secret`: one strong random string
+- `secrets/crux-beta-users.json`: at least one beta user entry
+- `secrets/crux-openai-api-key`: one real OpenAI API key if you want report generation
 
 ## 3. Start The Server
 
 ```bash
 source myenv/bin/activate
 APP_MODE=prod \
-JWT_SECRET_FILE=secrets/agentopt-jwt-secret \
-AUTH_BOOTSTRAP_USERS_FILE=secrets/agentopt-beta-users.json \
-OPENAI_API_KEY_FILE=secrets/agentopt-openai-api-key \
-DB_DSN='data/agentopt.db?_fk=1' \
+JWT_SECRET_FILE=secrets/crux-jwt-secret \
+AUTH_BOOTSTRAP_USERS_FILE=secrets/crux-beta-users.json \
+OPENAI_API_KEY_FILE=secrets/crux-openai-api-key \
+DB_DSN='data/crux.db?_fk=1' \
 DB_DIALECT=sqlite3 \
 go run .
 ```
@@ -59,7 +59,7 @@ Keep this shell open.
 
 Open `http://127.0.0.1:8082/`.
 
-Sign in with the user you put into `secrets/agentopt-beta-users.json`.
+Sign in with the user you put into `secrets/crux-beta-users.json`.
 
 Issue a CLI token from the dashboard.
 
@@ -69,15 +69,15 @@ In another shell:
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
-go run ./cmd/agentopt workspace
+go run ./cmd/crux setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
+go run ./cmd/crux workspace
 ```
 
 ## 6. Upload A Snapshot
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
+go run ./cmd/crux snapshot --file examples/config-snapshot.json
 ```
 
 ## 7. Generate Real Local Usage Data
@@ -94,9 +94,9 @@ After that session exists under `~/.codex/sessions`, upload it:
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt collect --codex-home ~/.codex --recent 1 --snapshot-mode changed
-go run ./cmd/agentopt sessions --limit 5
-go run ./cmd/agentopt reports
+go run ./cmd/crux collect --codex-home ~/.codex --recent 1 --snapshot-mode changed
+go run ./cmd/crux sessions --limit 5
+go run ./cmd/crux reports
 ```
 
 If the server is configured with a research model and enough sessions have been uploaded, you should now see workflow feedback reports in the CLI and dashboard.
@@ -107,9 +107,9 @@ Those reports should now include `user_intent` and `model_interpretation`, and r
 Recommended places to inspect:
 
 - dashboard overview and latest report cards
-- `go run ./cmd/agentopt reports`
-- `go run ./cmd/agentopt status`
-- `go run ./cmd/agentopt audit`
+- `go run ./cmd/crux reports`
+- `go run ./cmd/crux status`
+- `go run ./cmd/crux audit`
 
 Expected report fields now include:
 
@@ -128,9 +128,9 @@ Create one or more more real Codex sessions after reading the first report, then
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt collect --codex-home ~/.codex --recent 2 --snapshot-mode skip
-go run ./cmd/agentopt reports
-go run ./cmd/agentopt status
+go run ./cmd/crux collect --codex-home ~/.codex --recent 2 --snapshot-mode skip
+go run ./cmd/crux reports
+go run ./cmd/crux status
 ```
 
 The next report refresh should reflect the newer usage pattern once the background research pass completes.
@@ -141,14 +141,14 @@ To keep usage uploads flowing during a manual session:
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt collect --watch --recent 1 --interval 30m
+go run ./cmd/crux collect --watch --recent 1 --interval 30m
 ```
 
 ## 11. Clean Up After The Run
 
 ```bash
-rm -rf .agentopt-dev .agentopt-live-daemon .agentopt-live-test .codex
-rm -f data/agentopt.db data/agentopt-local.db data/agentopt-store.json
+rm -rf .crux-dev .crux-live-daemon .crux-live-test .codex
+rm -f data/crux.db data/crux-local.db data/crux-store.json
 find secrets -maxdepth 1 -type f ! -name '.gitignore' ! -name '*.example' -delete
-rm -rf ~/.agentopt
+rm -rf ~/.crux
 ```

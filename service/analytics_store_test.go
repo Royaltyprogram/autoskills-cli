@@ -12,7 +12,7 @@ import (
 
 func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 
 func TestAnalyticsStoreCollapsesProjectsIntoSharedWorkspaceOnLoad(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestAnalyticsStoreCollapsesProjectsIntoSharedWorkspaceOnLoad(t *testing.T) 
 
 func TestAnalyticsStoreExportStateJSONUsesReportKeys(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestAnalyticsStoreExportStateJSONUsesReportKeys(t *testing.T) {
 
 func TestAnalyticsStoreImportStateJSONUsesReportKeys(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestAnalyticsStoreImportStateJSONUsesReportKeys(t *testing.T) {
 
 func TestAnalyticsStoreApplyLoadedRecordUsesReportRecordTypes(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)
@@ -210,7 +210,7 @@ func TestAnalyticsStoreApplyLoadedRecordUsesReportRecordTypes(t *testing.T) {
 
 func TestAnalyticsStoreImportStateJSONRejectsUnsupportedSchemaVersion(t *testing.T) {
 	conf := &configs.Config{}
-	conf.App.StorePath = filepath.Join(t.TempDir(), "agentopt-store.json")
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)

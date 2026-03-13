@@ -21,8 +21,8 @@ COPY --from=build --chown=nonroot:nonroot /app/runtime/data /app/data
 COPY --from=build --chown=nonroot:nonroot /app/runtime/log /app/log
 
 ENV APP_MODE=prod
-ENV APP_STORE_PATH=/app/data/agentopt.db
-ENV DB_DSN=/app/data/agentopt.db?_fk=1
+ENV APP_STORE_PATH=/app/data/crux.db
+ENV DB_DSN=/app/data/crux.db?_fk=1
 ENV HTTP_LOG_TO_STDOUT=true
 
 VOLUME ["/app/data", "/app/log"]

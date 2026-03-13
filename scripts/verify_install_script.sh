@@ -53,7 +53,7 @@ import pathlib
 import sys
 
 release_dir = pathlib.Path(sys.argv[1])
-archives = [p for p in release_dir.glob("agentopt-*.tar.gz") if p.is_file()]
+archives = [p for p in release_dir.glob("crux-*.tar.gz") if p.is_file()]
 if not archives:
     raise SystemExit("")
 archives.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -68,7 +68,7 @@ bundle_version() {
 import sys
 
 name = sys.argv[1]
-prefix = "agentopt-"
+prefix = "crux-"
 if not name.startswith(prefix):
     raise SystemExit("")
 raw = name[len(prefix):]
@@ -109,7 +109,7 @@ CHECKSUM_PATH="$BUNDLE_PATH.sha256"
   exit 1
 }
 
-TMPDIR_WORK="$(mktemp -d "${TMPDIR:-/tmp}/agentopt-install-verify.XXXXXX")"
+TMPDIR_WORK="$(mktemp -d "${TMPDIR:-/tmp}/crux-install-verify.XXXXXX")"
 cleanup() {
   rm -rf "$TMPDIR_WORK"
 }
@@ -123,20 +123,20 @@ mkdir -p "$STAGED_RELEASE_DIR" "$INSTALL_ROOT" "$BIN_DIR"
 cp "$BUNDLE_PATH" "$STAGED_RELEASE_DIR/"
 cp "$CHECKSUM_PATH" "$STAGED_RELEASE_DIR/"
 
-AGENTOPT_VERSION="$VERSION_LABEL" \
-AGENTOPT_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
-AGENTOPT_INSTALL_ROOT="$INSTALL_ROOT" \
-AGENTOPT_BIN_DIR="$BIN_DIR" \
-AGENTOPT_INSTALL_NODE=never \
+CRUX_VERSION="$VERSION_LABEL" \
+CRUX_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
+CRUX_INSTALL_ROOT="$INSTALL_ROOT" \
+CRUX_BIN_DIR="$BIN_DIR" \
+CRUX_INSTALL_NODE=never \
 sh "$ROOT_DIR/scripts/install.sh" >/dev/null
 
-[[ -x "$BIN_DIR/agentopt" ]] || {
-  echo "install script did not create wrapper: $BIN_DIR/agentopt" >&2
+[[ -x "$BIN_DIR/crux" ]] || {
+  echo "install script did not create wrapper: $BIN_DIR/crux" >&2
   exit 1
 }
 
-VERSION_OUTPUT="$("$BIN_DIR/agentopt" version)"
-[[ "$VERSION_OUTPUT" == agentopt\ "$VERSION_LABEL"* ]] || {
+VERSION_OUTPUT="$("$BIN_DIR/crux" version)"
+[[ "$VERSION_OUTPUT" == crux\ "$VERSION_LABEL"* ]] || {
   echo "unexpected version output: $VERSION_OUTPUT" >&2
   exit 1
 }
@@ -147,15 +147,15 @@ VERSION_OUTPUT="$("$BIN_DIR/agentopt" version)"
 }
 
 # Re-run install to verify idempotent upgrade behavior for the same version.
-AGENTOPT_VERSION="$VERSION_LABEL" \
-AGENTOPT_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
-AGENTOPT_INSTALL_ROOT="$INSTALL_ROOT" \
-AGENTOPT_BIN_DIR="$BIN_DIR" \
-AGENTOPT_INSTALL_NODE=never \
+CRUX_VERSION="$VERSION_LABEL" \
+CRUX_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
+CRUX_INSTALL_ROOT="$INSTALL_ROOT" \
+CRUX_BIN_DIR="$BIN_DIR" \
+CRUX_INSTALL_NODE=never \
 sh "$ROOT_DIR/scripts/install.sh" >/dev/null
 
-VERSION_OUTPUT="$("$BIN_DIR/agentopt" version)"
-[[ "$VERSION_OUTPUT" == agentopt\ "$VERSION_LABEL"* ]] || {
+VERSION_OUTPUT="$("$BIN_DIR/crux" version)"
+[[ "$VERSION_OUTPUT" == crux\ "$VERSION_LABEL"* ]] || {
   echo "unexpected version output after reinstall: $VERSION_OUTPUT" >&2
   exit 1
 }
@@ -184,13 +184,13 @@ chmod 755 "$NODE_STAGE_ROOT/$NODE_ARCHIVE_BASE/bin/node"
 tar -czf "$NODE_ARCHIVE_PATH" -C "$NODE_STAGE_ROOT" "$NODE_ARCHIVE_BASE"
 printf '%s  %s\n' "$(sha256_file "$NODE_ARCHIVE_PATH")" "$(basename "$NODE_ARCHIVE_PATH")" >"$NODE_CHECKSUM_PATH"
 
-AGENTOPT_VERSION="$VERSION_LABEL" \
-AGENTOPT_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
-AGENTOPT_INSTALL_ROOT="$FORCED_INSTALL_ROOT" \
-AGENTOPT_BIN_DIR="$FORCED_BIN_DIR" \
-AGENTOPT_INSTALL_NODE=always \
-AGENTOPT_NODE_VERSION="$NODE_VERSION_TAG" \
-AGENTOPT_NODE_DIST_BASE_URL="file://$NODE_DIST_ROOT" \
+CRUX_VERSION="$VERSION_LABEL" \
+CRUX_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
+CRUX_INSTALL_ROOT="$FORCED_INSTALL_ROOT" \
+CRUX_BIN_DIR="$FORCED_BIN_DIR" \
+CRUX_INSTALL_NODE=always \
+CRUX_NODE_VERSION="$NODE_VERSION_TAG" \
+CRUX_NODE_DIST_BASE_URL="file://$NODE_DIST_ROOT" \
 sh "$ROOT_DIR/scripts/install.sh" >/dev/null
 
 [[ -x "$FORCED_INSTALL_ROOT/node/current/bin/node" ]] || {
@@ -204,8 +204,8 @@ NODE_VERSION_OUTPUT="$("$FORCED_INSTALL_ROOT/node/current/bin/node" --version)"
   exit 1
 }
 
-grep -F "$FORCED_INSTALL_ROOT/node/current/bin" "$FORCED_BIN_DIR/agentopt" >/dev/null || {
-  echo "agentopt wrapper does not include local node path" >&2
+grep -F "$FORCED_INSTALL_ROOT/node/current/bin" "$FORCED_BIN_DIR/crux" >/dev/null || {
+  echo "crux wrapper does not include local node path" >&2
   exit 1
 }
 

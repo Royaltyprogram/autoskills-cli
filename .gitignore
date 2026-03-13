@@ -19,7 +19,7 @@
 log
 .idea
 output/
-.agentopt-dev/
+.crux-dev/
 data/
 
 configs/local.yaml

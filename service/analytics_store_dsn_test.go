@@ -11,16 +11,16 @@ import (
 )
 
 func TestDefaultAnalyticsStoreDSNUsesSQLiteFallback(t *testing.T) {
-	require.Equal(t, "file:agentopt-store?mode=memory&cache=shared&_fk=1", defaultAnalyticsStoreDSN(""))
-	require.Equal(t, "data/agentopt-store.db", defaultAnalyticsStoreDSN("data/agentopt-store.json"))
-	require.Equal(t, "data/agentopt-store.db", defaultAnalyticsStoreDSN("data/agentopt-store"))
-	require.Equal(t, "data/agentopt-local.db?_fk=1", defaultAnalyticsStoreDSN("data/agentopt-local.db?_fk=1"))
+	require.Equal(t, "file:crux-store?mode=memory&cache=shared&_fk=1", defaultAnalyticsStoreDSN(""))
+	require.Equal(t, "data/crux-store.db", defaultAnalyticsStoreDSN("data/crux-store.json"))
+	require.Equal(t, "data/crux-store.db", defaultAnalyticsStoreDSN("data/crux-store"))
+	require.Equal(t, "data/crux-local.db?_fk=1", defaultAnalyticsStoreDSN("data/crux-local.db?_fk=1"))
 }
 
 func TestOpenAnalyticsStoreDBAppliesConfiguredPoolSize(t *testing.T) {
 	conf := &configs.Config{}
 	conf.DB.Dialect = "sqlite3"
-	conf.DB.DSN = filepath.Join(t.TempDir(), "agentopt.db") + "?_fk=1"
+	conf.DB.DSN = filepath.Join(t.TempDir(), "crux.db") + "?_fk=1"
 	conf.DB.MaxIdle = 3
 	conf.DB.MaxActive = 7
 	conf.DB.MaxLifetime = 300
@@ -37,7 +37,7 @@ func TestOpenAnalyticsStoreDBAppliesConfiguredPoolSize(t *testing.T) {
 func TestAnalyticsStoreOnServerCloseClosesDB(t *testing.T) {
 	conf := &configs.Config{}
 	conf.DB.Dialect = "sqlite3"
-	conf.DB.DSN = filepath.Join(t.TempDir(), "agentopt.db") + "?_fk=1"
+	conf.DB.DSN = filepath.Join(t.TempDir(), "crux.db") + "?_fk=1"
 
 	store, err := NewAnalyticsStore(conf)
 	require.NoError(t, err)
