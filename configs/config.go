@@ -66,12 +66,14 @@ type BootstrapUser struct {
 	OrgName  string `json:"org_name" koanf:"OrgName"`
 	Email    string `json:"email" koanf:"Email"`
 	Name     string `json:"name" koanf:"Name"`
+	Role     string `json:"role" koanf:"Role"`
 	Password string `json:"password" koanf:"Password"`
 }
 
 type HTTP struct {
 	AllowedOrigins     []string `koanf:"AllowedOrigins"`
 	AllowedCIDRs       []string `koanf:"AllowedCIDRs"`
+	AdminAllowedCIDRs  []string `koanf:"AdminAllowedCIDRs"`
 	TrustedProxyCIDRs  []string `koanf:"TrustedProxyCIDRs"`
 	RateLimitPerMinute int      `koanf:"RateLimitPerMinute"`
 	LogToStdout        bool     `koanf:"LogToStdout"`
@@ -166,6 +168,7 @@ func (c *Config) Validate() error {
 		issues = append(issues, "HTTP.RateLimitPerMinute must be zero or greater")
 	}
 	issues = append(issues, validateCIDRList("HTTP.AllowedCIDRs", c.HTTP.AllowedCIDRs)...)
+	issues = append(issues, validateCIDRList("HTTP.AdminAllowedCIDRs", c.HTTP.AdminAllowedCIDRs)...)
 	issues = append(issues, validateCIDRList("HTTP.TrustedProxyCIDRs", c.HTTP.TrustedProxyCIDRs)...)
 	issues = append(issues, validateBootstrapUsers(c.Auth.BootstrapUsers)...)
 
@@ -273,6 +276,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if value, ok := lookupEnv("HTTP_ALLOWED_CIDRS"); ok {
 		cfg.HTTP.AllowedCIDRs = splitCSV(value)
+	}
+	if value, ok := lookupEnv("HTTP_ADMIN_ALLOWED_CIDRS"); ok {
+		cfg.HTTP.AdminAllowedCIDRs = splitCSV(value)
 	}
 	if value, ok := lookupEnv("HTTP_TRUSTED_PROXY_CIDRS"); ok {
 		cfg.HTTP.TrustedProxyCIDRs = splitCSV(value)
@@ -396,6 +402,9 @@ func validateBootstrapUsers(users []BootstrapUser) []string {
 		if name == "" {
 			issues = append(issues, prefix+".Name is required")
 		}
+		if role := normalizeBootstrapUserRole(user.Role); role == "" {
+			issues = append(issues, prefix+".Role must be one of: admin, member")
+		}
 		if password == "" {
 			issues = append(issues, prefix+".Password is required")
 		}
@@ -416,4 +425,15 @@ func validateBootstrapUsers(users []BootstrapUser) []string {
 	}
 
 	return issues
+}
+
+func normalizeBootstrapUserRole(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "member":
+		return "member"
+	case "admin":
+		return "admin"
+	default:
+		return ""
+	}
 }

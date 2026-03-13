@@ -344,11 +344,15 @@ func TestAnalyticsRouteLoginAndCLITokenFlow(t *testing.T) {
 	loginResp := decodeOK[response.LoginResp](t, loginRec)
 	require.Empty(t, loginResp.SessionToken)
 	require.Equal(t, "demo@example.com", loginResp.User.Email)
+	require.Equal(t, "admin", loginResp.User.Role)
+	require.Equal(t, "active", loginResp.User.Status)
 	sessionCookie := requireCookie(t, loginRec, service.WebSessionCookieName)
 
 	sessionResp := getJSON[response.AuthSessionResp](t, echo, "", "/api/v1/auth/me", nil, sessionCookie)
 	require.Equal(t, "demo-org", sessionResp.Organization.ID)
 	require.Equal(t, "demo-user", sessionResp.User.ID)
+	require.Equal(t, "admin", sessionResp.User.Role)
+	require.Equal(t, "active", sessionResp.User.Status)
 
 	cliTokenResp := postJSON[response.CLITokenIssueResp](t, echo, "", http.MethodPost, "/api/v1/auth/cli-tokens", request.IssueCLITokenReq{
 		Label: "CI Mac",
@@ -370,6 +374,8 @@ func TestAnalyticsRouteLoginAndCLITokenFlow(t *testing.T) {
 	require.Equal(t, "registered", cliLoginResp.Status)
 	require.Equal(t, "demo-org", cliLoginResp.OrgID)
 	require.Equal(t, "demo-user", cliLoginResp.UserID)
+	require.Equal(t, "admin", cliLoginResp.UserRole)
+	require.Equal(t, "active", cliLoginResp.UserStatus)
 
 	tokenListResp = getJSON[response.CLITokenListResp](t, echo, "", "/api/v1/auth/cli-tokens", nil, sessionCookie)
 	require.Len(t, tokenListResp.Items, 1)
@@ -396,6 +402,173 @@ func TestAnalyticsRouteLoginAndCLITokenFlow(t *testing.T) {
 	rec := httptest.NewRecorder()
 	echo.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestAnalyticsRouteRegisterAgentRejectsSpoofedUserID(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	})
+	route.RegisterRoute(echo.Group(""))
+
+	loginRec := postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "demo@example.com",
+		Password: "demo1234",
+	})
+	sessionCookie := requireCookie(t, loginRec, service.WebSessionCookieName)
+
+	rec := postJSONExpectCode(t, echo, "", http.MethodPost, "/api/v1/agents/register", request.RegisterAgentReq{
+		OrgID:      "demo-org",
+		UserID:     "spoofed-user",
+		DeviceName: "spoof-attempt",
+	}, http.StatusForbidden, sessionCookie)
+	var env envelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NotEqual(t, 0, env.Code)
+}
+
+func TestAnalyticsRouteAdminUserLifecycle(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	})
+	route.RegisterRoute(echo.Group(""))
+
+	loginRec := postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "demo@example.com",
+		Password: "demo1234",
+	})
+	adminCookie := requireCookie(t, loginRec, service.WebSessionCookieName)
+
+	createResp := postJSON[response.AdminUserCreateResp](t, echo, "", http.MethodPost, "/api/v1/admin/users", request.AdminUserCreateReq{
+		Email:    "member@example.com",
+		Name:     "Member User",
+		Role:     "member",
+		Password: "member-pass-1",
+	}, adminCookie)
+	require.Equal(t, "created", createResp.Status)
+	require.Equal(t, "member", createResp.User.Role)
+	require.Equal(t, "active", createResp.User.Status)
+
+	adminList := getJSON[response.AdminUserListResp](t, echo, "", "/api/v1/admin/users", url.Values{
+		"search": []string{"member@example.com"},
+	}, adminCookie)
+	require.Len(t, adminList.Items, 1)
+	require.Equal(t, createResp.User.ID, adminList.Items[0].ID)
+
+	memberLoginRec := postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "member@example.com",
+		Password: "member-pass-1",
+	})
+	memberCookie := requireCookie(t, memberLoginRec, service.WebSessionCookieName)
+
+	memberAdminRec := getJSONExpectCode(t, echo, "", "/api/v1/admin/users", nil, http.StatusForbidden, memberCookie)
+	var forbidden envelope
+	require.NoError(t, json.Unmarshal(memberAdminRec.Body.Bytes(), &forbidden))
+	require.NotEqual(t, 0, forbidden.Code)
+
+	resetResp := postJSON[response.AdminUserPasswordResetResp](t, echo, "", http.MethodPost, "/api/v1/admin/users/reset-password", request.AdminUserPasswordResetReq{
+		UserID:   createResp.User.ID,
+		Password: "member-pass-2",
+	}, adminCookie)
+	require.Equal(t, "password_reset", resetResp.Status)
+
+	memberSessionAfterReset := getJSONExpectCode(t, echo, "", "/api/v1/auth/me", nil, http.StatusUnauthorized, memberCookie)
+	require.Equal(t, http.StatusUnauthorized, memberSessionAfterReset.Code)
+
+	oldPasswordRec := postJSONExpectCode(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "member@example.com",
+		Password: "member-pass-1",
+	}, http.StatusUnauthorized)
+	require.Equal(t, http.StatusUnauthorized, oldPasswordRec.Code)
+
+	memberLoginRec = postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "member@example.com",
+		Password: "member-pass-2",
+	})
+	memberCookie = requireCookie(t, memberLoginRec, service.WebSessionCookieName)
+
+	deactivateResp := postJSON[response.AdminUserDeactivateResp](t, echo, "", http.MethodPost, "/api/v1/admin/users/deactivate", request.AdminUserDeactivateReq{
+		UserID: createResp.User.ID,
+	}, adminCookie)
+	require.Equal(t, "deactivated", deactivateResp.Status)
+
+	memberSessionAfterDeactivate := getJSONExpectCode(t, echo, "", "/api/v1/auth/me", nil, http.StatusUnauthorized, memberCookie)
+	require.Equal(t, http.StatusUnauthorized, memberSessionAfterDeactivate.Code)
+
+	deactivatedList := getJSON[response.AdminUserListResp](t, echo, "", "/api/v1/admin/users", url.Values{
+		"status": []string{"disabled"},
+	}, adminCookie)
+	require.Len(t, deactivatedList.Items, 1)
+	require.Equal(t, createResp.User.ID, deactivatedList.Items[0].ID)
+
+	deleteResp := postJSON[response.AdminUserDeleteResp](t, echo, "", http.MethodPost, "/api/v1/admin/users/delete", request.AdminUserDeleteReq{
+		UserID: createResp.User.ID,
+	}, adminCookie)
+	require.Equal(t, "deleted", deleteResp.Status)
+
+	defaultList := getJSON[response.AdminUserListResp](t, echo, "", "/api/v1/admin/users", url.Values{
+		"search": []string{"member@example.com"},
+	}, adminCookie)
+	require.Empty(t, defaultList.Items)
+
+	deletedList := getJSON[response.AdminUserListResp](t, echo, "", "/api/v1/admin/users", url.Values{
+		"search":          []string{"member@example.com"},
+		"include_deleted": []string{"true"},
+		"status":          []string{"deleted"},
+	}, adminCookie)
+	require.Len(t, deletedList.Items, 1)
+	require.Equal(t, "deleted", deletedList.Items[0].Status)
+
+	deletedLoginRec := postJSONExpectCode(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "member@example.com",
+		Password: "member-pass-2",
+	}, http.StatusUnauthorized)
+	require.Equal(t, http.StatusUnauthorized, deletedLoginRec.Code)
+
+	auditResp := getJSON[response.AuditListResp](t, echo, "", "/api/v1/audits", url.Values{
+		"org_id":         []string{"demo-org"},
+		"type":           []string{"admin.user_deleted"},
+		"target_user_id": []string{createResp.User.ID},
+		"limit":          []string{"1"},
+	}, adminCookie)
+	require.Len(t, auditResp.Items, 1)
+	require.Equal(t, "admin.user_deleted", auditResp.Items[0].Type)
+	require.Equal(t, "demo-user", auditResp.Items[0].ActorUserID)
+	require.Equal(t, "admin", auditResp.Items[0].ActorRole)
+	require.Equal(t, createResp.User.ID, auditResp.Items[0].TargetUserID)
+	require.NotEmpty(t, auditResp.Items[0].SourceIP)
+	require.Equal(t, "route-test-client", auditResp.Items[0].UserAgent)
+	require.Equal(t, "success", auditResp.Items[0].Result)
+	require.Equal(t, "managed user soft-deleted and sessions revoked", auditResp.Items[0].Reason)
 }
 
 func TestAnalyticsRouteDoesNotExposeLegacyAliasEndpoints(t *testing.T) {
@@ -454,6 +627,7 @@ func postJSONRecorder(t *testing.T, handler http.Handler, token, method, path st
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	req = req.WithContext(context.Background())
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "route-test-client")
 	if token != "" {
 		req.Header.Set("X-Crux-Token", token)
 	}
@@ -478,6 +652,7 @@ func getJSON[T any](t *testing.T, handler http.Handler, token, path string, quer
 	}
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	req = req.WithContext(context.Background())
+	req.Header.Set("User-Agent", "route-test-client")
 	if token != "" {
 		req.Header.Set("X-Crux-Token", token)
 	}
@@ -494,6 +669,31 @@ func getJSON[T any](t *testing.T, handler http.Handler, token, path string, quer
 	return decodeOK[T](t, rec)
 }
 
+func getJSONExpectCode(t *testing.T, handler http.Handler, token, path string, query url.Values, expectedCode int, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+
+	target := path
+	if encoded := query.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req = req.WithContext(context.Background())
+	req.Header.Set("User-Agent", "route-test-client")
+	if token != "" {
+		req.Header.Set("X-Crux-Token", token)
+	}
+	for _, cookie := range cookies {
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, expectedCode, rec.Code)
+	return rec
+}
+
 func decodeOK[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	t.Helper()
 
@@ -504,6 +704,31 @@ func decodeOK[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	var data T
 	require.NoError(t, json.Unmarshal(env.Data, &data))
 	return data
+}
+
+func postJSONExpectCode(t *testing.T, handler http.Handler, token, method, path string, payload any, expectedCode int, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req = req.WithContext(context.Background())
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "route-test-client")
+	if token != "" {
+		req.Header.Set("X-Crux-Token", token)
+	}
+	for _, cookie := range cookies {
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, expectedCode, rec.Code)
+	return rec
 }
 
 func requireCookie(t *testing.T, rec *httptest.ResponseRecorder, name string) *http.Cookie {

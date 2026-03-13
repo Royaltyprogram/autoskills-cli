@@ -39,6 +39,7 @@ Auth:
 HTTP:
   AllowedOrigins: []
   AllowedCIDRs: []
+  AdminAllowedCIDRs: []
   TrustedProxyCIDRs: []
   RateLimitPerMinute: 60
   LogToStdout: true

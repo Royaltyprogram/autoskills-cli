@@ -115,6 +115,37 @@ type ProjectListReq struct {
 }
 
 type AuditListReq struct {
-	OrgID     string `query:"org_id" validate:"required"`
-	ProjectID string `query:"project_id"`
+	OrgID        string `query:"org_id" validate:"required"`
+	ProjectID    string `query:"project_id"`
+	Type         string `query:"type"`
+	ActorUserID  string `query:"actor_user_id"`
+	TargetUserID string `query:"target_user_id"`
+	Limit        int    `query:"limit"`
+}
+
+type AdminUserListReq struct {
+	Search         string `query:"search"`
+	Role           string `query:"role"`
+	Status         string `query:"status"`
+	IncludeDeleted bool   `query:"include_deleted"`
+}
+
+type AdminUserCreateReq struct {
+	Email    string `json:"email" validate:"required,email"`
+	Name     string `json:"name" validate:"required"`
+	Role     string `json:"role"`
+	Password string `json:"password" validate:"required"`
+}
+
+type AdminUserPasswordResetReq struct {
+	UserID   string `json:"user_id" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
+
+type AdminUserDeactivateReq struct {
+	UserID string `json:"user_id" validate:"required"`
+}
+
+type AdminUserDeleteReq struct {
+	UserID string `json:"user_id" validate:"required"`
 }

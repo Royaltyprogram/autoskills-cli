@@ -62,15 +62,20 @@ type Organization struct {
 }
 
 type User struct {
-	ID           string
-	OrgID        string
-	Email        string
-	Name         string
-	Source       string
-	PasswordSalt string
-	PasswordHash string
-	CreatedAt    time.Time
-	LastLoginAt  *time.Time
+	ID                string
+	OrgID             string
+	Email             string
+	Name              string
+	Source            string
+	Role              string
+	Status            string
+	PasswordSalt      string
+	PasswordHash      string
+	CreatedAt         time.Time
+	PasswordChangedAt *time.Time
+	LastLoginAt       *time.Time
+	DisabledAt        *time.Time
+	DeletedAt         *time.Time
 }
 
 type Agent struct {
@@ -185,12 +190,19 @@ type ReportResearchStatus struct {
 }
 
 type AuditEvent struct {
-	ID        string
-	OrgID     string
-	ProjectID string
-	Type      string
-	Message   string
-	CreatedAt time.Time
+	ID           string
+	OrgID        string
+	ProjectID    string
+	Type         string
+	Message      string
+	ActorUserID  string
+	ActorRole    string
+	TargetUserID string
+	SourceIP     string
+	UserAgent    string
+	Result       string
+	Reason       string
+	CreatedAt    time.Time
 }
 
 const (

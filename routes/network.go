@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -57,6 +58,32 @@ func newIPAllowlistMiddleware(allowedCIDRs []string) (echo.MiddlewareFunc, error
 			return echo.NewHTTPError(http.StatusForbidden, "access denied")
 		}
 	}, nil
+}
+
+func newAdminIPAllowlistMiddleware(allowedCIDRs []string) (echo.MiddlewareFunc, error) {
+	if len(allowedCIDRs) == 0 {
+		return nil, nil
+	}
+
+	base, err := newIPAllowlistMiddleware(allowedCIDRs)
+	if err != nil {
+		return nil, fmt.Errorf("parse admin allowed cidrs: %w", err)
+	}
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		protected := base(next)
+		return func(c *echo.Context) error {
+			if !requiresAdminAllowlist(c.Request().URL.Path) {
+				return next(c)
+			}
+			return protected(c)
+		}
+	}, nil
+}
+
+func requiresAdminAllowlist(path string) bool {
+	path = strings.TrimSpace(path)
+	return path == "/admin" || path == "/api/v1/admin" || strings.HasPrefix(path, "/api/v1/admin/")
 }
 
 func parseCIDRs(values []string) ([]*net.IPNet, error) {

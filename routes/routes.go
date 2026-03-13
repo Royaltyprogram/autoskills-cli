@@ -38,6 +38,16 @@ func NewEcho(conf *configs.Config, logger *slog.Logger, store *service.Analytics
 	middlewareChain := []echo.MiddlewareFunc{
 		echoMiddleware.Recover(),
 		echoMiddleware.RequestLogger(),
+		func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c *echo.Context) error {
+				ctx := service.WithRequestMetadata(c.Request().Context(), service.RequestMetadata{
+					SourceIP:  c.RealIP(),
+					UserAgent: c.Request().UserAgent(),
+				})
+				c.SetRequest(c.Request().WithContext(ctx))
+				return next(c)
+			}
+		},
 	}
 	ipAllowlist, err := newIPAllowlistMiddleware(conf.HTTP.AllowedCIDRs)
 	if err != nil {
@@ -45,6 +55,13 @@ func NewEcho(conf *configs.Config, logger *slog.Logger, store *service.Analytics
 	}
 	if ipAllowlist != nil {
 		middlewareChain = append(middlewareChain, ipAllowlist)
+	}
+	adminIPAllowlist, err := newAdminIPAllowlistMiddleware(conf.HTTP.AdminAllowedCIDRs)
+	if err != nil {
+		return nil, err
+	}
+	if adminIPAllowlist != nil {
+		middlewareChain = append(middlewareChain, adminIPAllowlist)
 	}
 	if len(conf.HTTP.AllowedOrigins) > 0 {
 		middlewareChain = append(middlewareChain, echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{

@@ -117,6 +117,7 @@ Preferred runtime secret inputs:
 - `DB_DSN_FILE` if using MySQL
 - `OPENAI_API_KEY` or `OPENAI_API_KEY_FILE` for the cloud research agent
 - `HTTP_ALLOWED_CIDRS`
+- `HTTP_ADMIN_ALLOWED_CIDRS`
 - `HTTP_TRUSTED_PROXY_CIDRS`
 
 Supported file-based secret envs:
@@ -131,6 +132,7 @@ Bootstrap users are managed identities:
 
 - removing a bootstrap user revokes existing tokens
 - rotating a bootstrap password revokes prior sessions
+- seed at least one bootstrap user with `"role":"admin"` if you need the admin user-management APIs; omitted roles default to `member`
 
 ## 4. Local Prod-Like Run
 
@@ -156,6 +158,7 @@ APP_MODE=prod \
 JWT_SECRET_FILE=/run/secrets/crux-jwt-secret \
 AUTH_BOOTSTRAP_USERS_FILE=/run/secrets/crux-beta-users.json \
 HTTP_ALLOWED_CIDRS='203.0.113.10/32,198.51.100.0/24' \
+HTTP_ADMIN_ALLOWED_CIDRS='203.0.113.10/32' \
 HTTP_TRUSTED_PROXY_CIDRS='10.0.0.0/8' \
 go run .
 ```

@@ -79,7 +79,7 @@ For closed beta or production, disable the demo path and seed named beta account
 ```bash
 APP_MODE=prod \
 JWT_SECRET=replace-me \
-AUTH_BOOTSTRAP_USERS_JSON='[{"id":"beta-user-1","org_id":"beta-org","org_name":"Beta Org","email":"beta1@example.com","name":"Beta Operator","password":"replace-me"}]' \
+AUTH_BOOTSTRAP_USERS_JSON='[{"id":"beta-user-1","org_id":"beta-org","org_name":"Beta Org","email":"beta1@example.com","name":"Beta Operator","role":"admin","password":"replace-me"}]' \
 go run .
 ```
 
@@ -97,6 +97,7 @@ Supported secret file envs now include `JWT_SECRET_FILE`, `DB_DSN_FILE`, `APP_AP
 `OPENAI_API_KEY_FILE` is also supported for the cloud research agent.
 
 Bootstrap users are now treated as managed closed beta identities: removing a user from the bootstrap file revokes their existing tokens, and rotating a bootstrap password revokes prior sessions so the new credential takes effect immediately.
+Seed at least one bootstrap user with `"role":"admin"` if you want to use the new admin user-management APIs; omitted roles default to `member`.
 
 In this MVP every connected repository shares one workspace per organization. `crux setup` handles the first-time device registration and shared-workspace connection, while `crux connect` remains available when you need to reconnect a different repo manually. The generated report records are now user-facing feedback reports rather than executable patch queues.
 
@@ -254,11 +255,12 @@ For a stricter closed beta rollout, you can also restrict network access in-app:
 
 ```bash
 HTTP_ALLOWED_CIDRS='203.0.113.10/32,198.51.100.0/24' \
+HTTP_ADMIN_ALLOWED_CIDRS='203.0.113.10/32' \
 HTTP_TRUSTED_PROXY_CIDRS='10.0.0.0/8' \
 go run .
 ```
 
-If `HTTP_TRUSTED_PROXY_CIDRS` is empty, Crux only trusts the direct socket remote address and ignores forwarded IP headers.
+Use `HTTP_ADMIN_ALLOWED_CIDRS` if you want `/admin` and `/api/v1/admin/*` to be stricter than the rest of the app. If `HTTP_TRUSTED_PROXY_CIDRS` is empty, Crux only trusts the direct socket remote address and ignores forwarded IP headers.
 
 `APP_MODE=prod` now fails fast during startup if critical closed beta settings are unsafe or incomplete, including a missing `JWT_SECRET`, invalid CIDR values, demo-user enablement, static token bypass enablement, or malformed bootstrap users.
 

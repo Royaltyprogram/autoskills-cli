@@ -45,6 +45,8 @@ HTTP:
     - https://dashboard.example.com
   AllowedCIDRs:
     - 203.0.113.10/32
+  AdminAllowedCIDRs:
+    - 203.0.113.10/32
   TrustedProxyCIDRs:
     - 10.0.0.0/8
   RateLimitPerMinute: 60

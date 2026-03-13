@@ -20,6 +20,7 @@ func TestAnalyticsStoreExportImportRoundTrip(t *testing.T) {
 		OrgName:  "Beta Org",
 		Email:    "beta1@example.com",
 		Name:     "Beta Operator",
+		Role:     "member",
 		Password: "beta-secret",
 	}}
 

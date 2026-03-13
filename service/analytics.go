@@ -48,6 +48,17 @@ type reportRefreshJob struct {
 	triggeredAt      time.Time
 }
 
+type auditEventInput struct {
+	ProjectID    string
+	Type         string
+	Message      string
+	ActorUserID  string
+	ActorRole    string
+	TargetUserID string
+	Result       string
+	Reason       string
+}
+
 func (s *AnalyticsService) Login(ctx context.Context, req *request.LoginReq) (*response.LoginResp, error) {
 	_ = ctx
 
@@ -72,7 +83,14 @@ func (s *AnalyticsService) Login(ctx context.Context, req *request.LoginReq) (*r
 	}
 
 	user.LastLoginAt = &now
-	s.appendAuditLocked(user.OrgID, "", "auth.login", "dashboard session created")
+	s.appendAuditLocked(ctx, user.OrgID, auditEventInput{
+		Type:        "auth.login",
+		Message:     "dashboard session created",
+		ActorUserID: user.ID,
+		ActorRole:   normalizeUserRole(user.Role),
+		Result:      "success",
+		Reason:      "user authenticated with email and password",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -125,7 +143,12 @@ func (s *AnalyticsService) Logout(ctx context.Context) (*response.LogoutResp, er
 		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown token_id"))
 	}
 	record.RevokedAt = &now
-	s.appendAuditLocked(identity.OrgID, "", "auth.logout", "dashboard session revoked")
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:    "auth.logout",
+		Message: "dashboard session revoked",
+		Result:  "success",
+		Reason:  "user signed out from the dashboard",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -161,7 +184,12 @@ func (s *AnalyticsService) IssueCLIToken(ctx context.Context, req *request.Issue
 		return nil, err
 	}
 
-	s.appendAuditLocked(identity.OrgID, "", "auth.cli_token_issued", "cli token issued from dashboard")
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:    "auth.cli_token_issued",
+		Message: "cli token issued from dashboard",
+		Result:  "success",
+		Reason:  "user issued a new CLI token from the dashboard",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -232,7 +260,12 @@ func (s *AnalyticsService) RevokeCLIToken(ctx context.Context, req *request.Revo
 		return nil, ecode.Forbidden(1006, "token cannot be managed by this user")
 	}
 	record.RevokedAt = &now
-	s.appendAuditLocked(identity.OrgID, "", "auth.cli_token_revoked", "cli token revoked from dashboard")
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:    "auth.cli_token_revoked",
+		Message: "cli token revoked from dashboard",
+		Result:  "success",
+		Reason:  "user revoked a CLI token from the dashboard",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -290,7 +323,13 @@ func (s *AnalyticsService) AuthenticateCLI(ctx context.Context, req *request.CLI
 		RegisteredAt:  now,
 	}
 
-	s.appendAuditLocked(identity.OrgID, "", "device.registered", "local cli device registered")
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:         "device.registered",
+		Message:      "local cli device registered",
+		TargetUserID: user.ID,
+		Result:       "success",
+		Reason:       "cli device authenticated and registered",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -303,6 +342,8 @@ func (s *AnalyticsService) AuthenticateCLI(ctx context.Context, req *request.CLI
 		UserID:        user.ID,
 		UserName:      user.Name,
 		UserEmail:     user.Email,
+		UserRole:      normalizeUserRole(user.Role),
+		UserStatus:    normalizeUserStatus(user.Status),
 		Status:        "registered",
 		ConsentScopes: consentScopes,
 		RegisteredAt:  now,
@@ -318,6 +359,24 @@ func (s *AnalyticsService) requireUserIdentity(ctx context.Context, allowedKinds
 		return AuthIdentity{}, ecode.Forbidden(1004, "token type cannot access this route")
 	}
 	return identity, nil
+}
+
+func (s *AnalyticsService) requireAdminUserLocked(ctx context.Context) (AuthIdentity, *User, error) {
+	identity, err := s.requireUserIdentity(ctx, TokenKindWebSession)
+	if err != nil {
+		return AuthIdentity{}, nil, err
+	}
+	user, ok := s.AnalyticsStore.users[identity.UserID]
+	if !ok {
+		return AuthIdentity{}, nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown user_id"))
+	}
+	if !userCanAuthenticate(user) {
+		return AuthIdentity{}, nil, ecode.Forbidden(1008, "user account is not active")
+	}
+	if normalizeUserRole(user.Role) != userRoleAdmin {
+		return AuthIdentity{}, nil, ecode.Forbidden(1009, "admin access is required")
+	}
+	return identity, user, nil
 }
 
 func (s *AnalyticsService) authorizeOrg(ctx context.Context, orgID string) error {
@@ -392,8 +451,15 @@ func (s *AnalyticsService) RegisterAgent(ctx context.Context, req *request.Regis
 	s.AnalyticsStore.mu.Lock()
 	defer s.AnalyticsStore.mu.Unlock()
 
+	identity, hasIdentity := AuthIdentityFromContext(ctx)
 	if err := s.authorizeOrg(ctx, req.OrgID); err != nil {
 		return nil, err
+	}
+	if hasIdentity && identity.TokenKind != TokenKindStatic {
+		if req.UserID != "" && req.UserID != identity.UserID {
+			return nil, ecode.Forbidden(1007, "token cannot register a different user")
+		}
+		req.UserID = identity.UserID
 	}
 
 	deviceID := req.DeviceID
@@ -419,22 +485,39 @@ func (s *AnalyticsService) RegisterAgent(ctx context.Context, req *request.Regis
 	}
 
 	user := s.AnalyticsStore.users[req.UserID]
-	if user == nil {
+	if hasIdentity && identity.TokenKind != TokenKindStatic {
+		if user == nil {
+			return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown user_id"))
+		}
+		if !userCanAuthenticate(user) {
+			return nil, ecode.Forbidden(1008, "user account is not active")
+		}
+	} else if user == nil {
 		user = &User{
 			ID:        req.UserID,
 			OrgID:     req.OrgID,
 			Email:     req.UserEmail,
+			Role:      userRoleMember,
+			Status:    userStatusActive,
 			CreatedAt: now,
 		}
 		s.AnalyticsStore.users[req.UserID] = user
 	} else {
 		user.OrgID = req.OrgID
-		if strings.TrimSpace(req.UserEmail) != "" {
-			user.Email = req.UserEmail
+		if !hasIdentity || identity.TokenKind == TokenKindStatic {
+			if strings.TrimSpace(req.UserEmail) != "" {
+				user.Email = req.UserEmail
+			}
 		}
-		if user.CreatedAt.IsZero() {
-			user.CreatedAt = now
-		}
+	}
+	if user.Role == "" {
+		user.Role = userRoleMember
+	}
+	if user.Status == "" {
+		user.Status = userStatusActive
+	}
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = now
 	}
 	s.AnalyticsStore.agents[deviceID] = &Agent{
 		ID:            deviceID,
@@ -449,7 +532,13 @@ func (s *AnalyticsService) RegisterAgent(ctx context.Context, req *request.Regis
 		RegisteredAt:  now,
 	}
 
-	s.appendAuditLocked(req.OrgID, "", "device.registered", "local cli device registered")
+	s.appendAuditLocked(ctx, req.OrgID, auditEventInput{
+		Type:         "device.registered",
+		Message:      "local cli device registered",
+		TargetUserID: req.UserID,
+		Result:       "success",
+		Reason:       "collector registered a local cli device",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -505,7 +594,13 @@ func (s *AnalyticsService) RegisterProject(ctx context.Context, req *request.Reg
 	project.DefaultTool = req.DefaultTool
 	project.ConnectedAt = now
 
-	s.appendAuditLocked(req.OrgID, projectID, "workspace.connected", "shared workspace connected to aiops")
+	s.appendAuditLocked(ctx, req.OrgID, auditEventInput{
+		ProjectID: projectID,
+		Type:      "workspace.connected",
+		Message:   "shared workspace connected to aiops",
+		Result:    "success",
+		Reason:    "collector connected the shared workspace",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -557,7 +652,13 @@ func (s *AnalyticsService) UploadConfigSnapshot(ctx context.Context, req *reques
 	project.LastProfileID = profileID
 	project.LastIngestedAt = &capturedAt
 
-	s.appendAuditLocked(project.OrgID, req.ProjectID, "config.snapshot", "config snapshot uploaded from local collector")
+	s.appendAuditLocked(ctx, project.OrgID, auditEventInput{
+		ProjectID: req.ProjectID,
+		Type:      "config.snapshot",
+		Message:   "config snapshot uploaded from local collector",
+		Result:    "success",
+		Reason:    "collector uploaded a config snapshot",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		return nil, err
 	}
@@ -679,7 +780,13 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 		ids = append(ids, item.ID)
 	}
 
-	s.appendAuditLocked(project.OrgID, req.ProjectID, "session.ingested", "session summary uploaded from local collector")
+	s.appendAuditLocked(ctx, project.OrgID, auditEventInput{
+		ProjectID: req.ProjectID,
+		Type:      "session.ingested",
+		Message:   "session summary uploaded from local collector",
+		Result:    "success",
+		Reason:    "collector uploaded a session summary",
+	})
 	if err := s.AnalyticsStore.persistLocked(); err != nil {
 		s.AnalyticsStore.mu.Unlock()
 		return nil, err
@@ -1180,6 +1287,17 @@ func (s *AnalyticsService) AuditList(ctx context.Context, req *request.AuditList
 		return nil, err
 	}
 
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	typeFilter := strings.TrimSpace(req.Type)
+	actorFilter := strings.TrimSpace(req.ActorUserID)
+	targetFilter := strings.TrimSpace(req.TargetUserID)
+
 	items := make([]response.AuditEventResp, 0)
 	for i := len(s.AnalyticsStore.audits) - 1; i >= 0; i-- {
 		audit := s.AnalyticsStore.audits[i]
@@ -1189,20 +1307,270 @@ func (s *AnalyticsService) AuditList(ctx context.Context, req *request.AuditList
 		if req.ProjectID != "" && audit.ProjectID != req.ProjectID {
 			continue
 		}
+		if typeFilter != "" && audit.Type != typeFilter {
+			continue
+		}
+		if actorFilter != "" && audit.ActorUserID != actorFilter {
+			continue
+		}
+		if targetFilter != "" && audit.TargetUserID != targetFilter {
+			continue
+		}
 		items = append(items, response.AuditEventResp{
-			ID:        audit.ID,
-			OrgID:     audit.OrgID,
-			ProjectID: audit.ProjectID,
-			Type:      audit.Type,
-			Message:   audit.Message,
-			CreatedAt: audit.CreatedAt,
+			ID:           audit.ID,
+			OrgID:        audit.OrgID,
+			ProjectID:    audit.ProjectID,
+			Type:         audit.Type,
+			Message:      audit.Message,
+			ActorUserID:  audit.ActorUserID,
+			ActorRole:    audit.ActorRole,
+			TargetUserID: audit.TargetUserID,
+			SourceIP:     audit.SourceIP,
+			UserAgent:    audit.UserAgent,
+			Result:       firstNonEmpty(strings.TrimSpace(audit.Result), "success"),
+			Reason:       audit.Reason,
+			CreatedAt:    audit.CreatedAt,
 		})
-		if len(items) >= 20 {
+		if len(items) >= limit {
 			break
 		}
 	}
 
 	return &response.AuditListResp{Items: items}, nil
+}
+
+func (s *AnalyticsService) ListAdminUsers(ctx context.Context, req *request.AdminUserListReq) (*response.AdminUserListResp, error) {
+	s.AnalyticsStore.mu.RLock()
+	defer s.AnalyticsStore.mu.RUnlock()
+
+	identity, _, err := s.requireAdminUserLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	search := strings.ToLower(strings.TrimSpace(req.Search))
+	roleFilter := strings.TrimSpace(req.Role)
+	if roleFilter != "" {
+		role, ok := parseUserRole(roleFilter)
+		if !ok {
+			return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("invalid role"))
+		}
+		roleFilter = role
+	}
+	statusFilter := strings.ToLower(strings.TrimSpace(req.Status))
+	if statusFilter != "" {
+		switch statusFilter {
+		case userStatusActive, userStatusDisabled, userStatusDeleted:
+		default:
+			return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("invalid status"))
+		}
+	}
+
+	items := make([]response.AdminUserResp, 0)
+	for _, user := range s.AnalyticsStore.users {
+		if user == nil || user.OrgID != identity.OrgID {
+			continue
+		}
+		status := normalizeUserStatus(user.Status)
+		if status == userStatusDeleted && !req.IncludeDeleted {
+			continue
+		}
+		if roleFilter != "" && normalizeUserRole(user.Role) != roleFilter {
+			continue
+		}
+		if statusFilter != "" && status != statusFilter {
+			continue
+		}
+		if search != "" {
+			haystack := strings.ToLower(strings.Join([]string{user.ID, user.Email, user.Name}, "\n"))
+			if !strings.Contains(haystack, search) {
+				continue
+			}
+		}
+		items = append(items, toAdminUserResp(user))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Email == items[j].Email {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Email < items[j].Email
+	})
+
+	return &response.AdminUserListResp{Items: items}, nil
+}
+
+func (s *AnalyticsService) CreateAdminUser(ctx context.Context, req *request.AdminUserCreateReq) (*response.AdminUserCreateResp, error) {
+	now := time.Now().UTC()
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	identity, _, err := s.requireAdminUserLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	email := normalizeEmail(req.Email)
+	name := strings.TrimSpace(req.Name)
+	if email == "" {
+		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("email is required"))
+	}
+	if name == "" {
+		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("name is required"))
+	}
+	if existing := s.AnalyticsStore.findUserByEmailLocked(email); existing != nil {
+		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("email already exists"))
+	}
+	role, ok := parseUserRole(req.Role)
+	if !ok {
+		return nil, ecode.InvalidParams.WithCause(ecode.NewInvalidParamsErr("invalid role"))
+	}
+	salt, hash := hashPassword(req.Password, "")
+	user := &User{
+		ID:                s.AnalyticsStore.nextID("user"),
+		OrgID:             identity.OrgID,
+		Email:             email,
+		Name:              name,
+		Source:            userSourceManaged,
+		Role:              role,
+		Status:            userStatusActive,
+		PasswordSalt:      salt,
+		PasswordHash:      hash,
+		CreatedAt:         now,
+		PasswordChangedAt: cloneTime(&now),
+	}
+	s.AnalyticsStore.users[user.ID] = user
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:         "admin.user_created",
+		Message:      "admin created a managed user",
+		TargetUserID: user.ID,
+		Result:       "success",
+		Reason:       "managed user created from the admin console",
+	})
+	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		return nil, err
+	}
+
+	return &response.AdminUserCreateResp{
+		Status: "created",
+		User:   toAdminUserResp(user),
+	}, nil
+}
+
+func (s *AnalyticsService) ResetAdminUserPassword(ctx context.Context, req *request.AdminUserPasswordResetReq) (*response.AdminUserPasswordResetResp, error) {
+	now := time.Now().UTC()
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	identity, _, err := s.requireAdminUserLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.findAdminManagedUserLocked(identity.OrgID, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+	salt, hash := hashPassword(req.Password, "")
+	user.PasswordSalt = salt
+	user.PasswordHash = hash
+	user.PasswordChangedAt = cloneTime(&now)
+	s.AnalyticsStore.revokeUserTokensLocked(user.ID, now)
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:         "admin.user_password_reset",
+		Message:      "admin reset a user password",
+		TargetUserID: user.ID,
+		Result:       "success",
+		Reason:       "managed user password reset and sessions revoked",
+	})
+	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		return nil, err
+	}
+
+	return &response.AdminUserPasswordResetResp{
+		Status:            "password_reset",
+		UserID:            user.ID,
+		PasswordChangedAt: now,
+	}, nil
+}
+
+func (s *AnalyticsService) DeactivateAdminUser(ctx context.Context, req *request.AdminUserDeactivateReq) (*response.AdminUserDeactivateResp, error) {
+	now := time.Now().UTC()
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	identity, _, err := s.requireAdminUserLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.findAdminManagedUserLocked(identity.OrgID, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureUserCanLoseAccessLocked(user); err != nil {
+		return nil, err
+	}
+	user.Status = userStatusDisabled
+	user.DisabledAt = cloneTime(&now)
+	s.AnalyticsStore.revokeUserTokensLocked(user.ID, now)
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:         "admin.user_deactivated",
+		Message:      "admin deactivated a user",
+		TargetUserID: user.ID,
+		Result:       "success",
+		Reason:       "managed user disabled and sessions revoked",
+	})
+	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		return nil, err
+	}
+
+	return &response.AdminUserDeactivateResp{
+		Status:     "deactivated",
+		UserID:     user.ID,
+		DisabledAt: now,
+	}, nil
+}
+
+func (s *AnalyticsService) DeleteAdminUser(ctx context.Context, req *request.AdminUserDeleteReq) (*response.AdminUserDeleteResp, error) {
+	now := time.Now().UTC()
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	identity, _, err := s.requireAdminUserLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.findAdminManagedUserLocked(identity.OrgID, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureUserCanLoseAccessLocked(user); err != nil {
+		return nil, err
+	}
+	user.Status = userStatusDeleted
+	user.DeletedAt = cloneTime(&now)
+	if user.DisabledAt == nil {
+		user.DisabledAt = cloneTime(&now)
+	}
+	s.AnalyticsStore.revokeUserTokensLocked(user.ID, now)
+	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
+		Type:         "admin.user_deleted",
+		Message:      "admin deleted a user",
+		TargetUserID: user.ID,
+		Result:       "success",
+		Reason:       "managed user soft-deleted and sessions revoked",
+	})
+	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		return nil, err
+	}
+
+	return &response.AdminUserDeleteResp{
+		Status:    "deleted",
+		UserID:    user.ID,
+		DeletedAt: now,
+	}, nil
 }
 
 func (s *AnalyticsService) currentReportsLocked(projectID string) []*Report {
@@ -1490,15 +1858,87 @@ func countDevicesByOrg(devices map[string]*Agent, orgID string) int {
 	return total
 }
 
-func (s *AnalyticsService) appendAuditLocked(orgID, projectID, eventType, message string) {
+func (s *AnalyticsService) appendAuditLocked(ctx context.Context, orgID string, input auditEventInput) {
+	metadata, _ := RequestMetadataFromContext(ctx)
+	identity, hasIdentity := AuthIdentityFromContext(ctx)
+
+	actorUserID := strings.TrimSpace(input.ActorUserID)
+	actorRole := normalizeUserRole(input.ActorRole)
+	if actorRole == "" {
+		actorRole = userRoleMember
+	}
+	if actorUserID == "" && hasIdentity && identity.TokenKind != TokenKindStatic {
+		actorUserID = identity.UserID
+	}
+	if input.ActorRole == "" && hasIdentity && identity.TokenKind != TokenKindStatic {
+		actorRole = normalizeUserRole(identity.UserRole)
+	}
+	if actorUserID == "" {
+		actorRole = ""
+	}
+
+	result := strings.TrimSpace(input.Result)
+	if result == "" {
+		result = "success"
+	}
+
 	s.AnalyticsStore.audits = append(s.AnalyticsStore.audits, &AuditEvent{
-		ID:        s.AnalyticsStore.nextID("audit"),
-		OrgID:     orgID,
-		ProjectID: projectID,
-		Type:      eventType,
-		Message:   message,
-		CreatedAt: time.Now().UTC(),
+		ID:           s.AnalyticsStore.nextID("audit"),
+		OrgID:        orgID,
+		ProjectID:    strings.TrimSpace(input.ProjectID),
+		Type:         strings.TrimSpace(input.Type),
+		Message:      strings.TrimSpace(input.Message),
+		ActorUserID:  actorUserID,
+		ActorRole:    actorRole,
+		TargetUserID: strings.TrimSpace(input.TargetUserID),
+		SourceIP:     metadata.SourceIP,
+		UserAgent:    metadata.UserAgent,
+		Result:       result,
+		Reason:       strings.TrimSpace(input.Reason),
+		CreatedAt:    time.Now().UTC(),
 	})
+}
+
+func (s *AnalyticsService) findAdminManagedUserLocked(orgID, userID string) (*User, error) {
+	userID = strings.TrimSpace(userID)
+	user, ok := s.AnalyticsStore.users[userID]
+	if !ok || user == nil || user.OrgID != orgID {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown user_id"))
+	}
+	if normalizeUserStatus(user.Status) == userStatusDeleted {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown user_id"))
+	}
+	return user, nil
+}
+
+func (s *AnalyticsService) ensureUserCanLoseAccessLocked(target *User) error {
+	if target == nil {
+		return ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown user_id"))
+	}
+	if normalizeUserRole(target.Role) != userRoleAdmin || !userCanAuthenticate(target) {
+		return nil
+	}
+	if s.countActiveAdminsByOrgLocked(target.OrgID) <= 1 {
+		return ecode.Forbidden(1010, "cannot remove the last active admin")
+	}
+	return nil
+}
+
+func (s *AnalyticsService) countActiveAdminsByOrgLocked(orgID string) int {
+	total := 0
+	for _, user := range s.AnalyticsStore.users {
+		if user == nil || user.OrgID != orgID {
+			continue
+		}
+		if normalizeUserRole(user.Role) != userRoleAdmin {
+			continue
+		}
+		if !userCanAuthenticate(user) {
+			continue
+		}
+		total++
+	}
+	return total
 }
 
 func toSessionUser(user *User) response.AuthUserResp {
@@ -1506,9 +1946,31 @@ func toSessionUser(user *User) response.AuthUserResp {
 		return response.AuthUserResp{}
 	}
 	return response.AuthUserResp{
-		ID:    user.ID,
-		Name:  user.Name,
-		Email: user.Email,
+		ID:     user.ID,
+		Name:   user.Name,
+		Email:  user.Email,
+		Role:   normalizeUserRole(user.Role),
+		Status: normalizeUserStatus(user.Status),
+	}
+}
+
+func toAdminUserResp(user *User) response.AdminUserResp {
+	if user == nil {
+		return response.AdminUserResp{}
+	}
+	return response.AdminUserResp{
+		ID:                user.ID,
+		OrgID:             user.OrgID,
+		Email:             user.Email,
+		Name:              user.Name,
+		Source:            user.Source,
+		Role:              normalizeUserRole(user.Role),
+		Status:            normalizeUserStatus(user.Status),
+		CreatedAt:         user.CreatedAt,
+		PasswordChangedAt: cloneTime(user.PasswordChangedAt),
+		LastLoginAt:       cloneTime(user.LastLoginAt),
+		DisabledAt:        cloneTime(user.DisabledAt),
+		DeletedAt:         cloneTime(user.DeletedAt),
 	}
 }
 

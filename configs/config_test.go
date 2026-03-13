@@ -10,11 +10,13 @@ import (
 
 func TestApplyEnvOverridesSetsHTTPCIDRControls(t *testing.T) {
 	t.Setenv("HTTP_ALLOWED_CIDRS", "203.0.113.10/32,198.51.100.0/24")
+	t.Setenv("HTTP_ADMIN_ALLOWED_CIDRS", "203.0.113.42/32")
 	t.Setenv("HTTP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
 
 	cfg := &Config{}
 	require.NoError(t, applyEnvOverrides(cfg))
 	require.Equal(t, []string{"203.0.113.10/32", "198.51.100.0/24"}, cfg.HTTP.AllowedCIDRs)
+	require.Equal(t, []string{"203.0.113.42/32"}, cfg.HTTP.AdminAllowedCIDRs)
 	require.Equal(t, []string{"10.0.0.0/8"}, cfg.HTTP.TrustedProxyCIDRs)
 }
 
@@ -32,17 +34,18 @@ func TestApplyEnvOverridesRejectsInvalidRateLimit(t *testing.T) {
 func TestApplyEnvOverridesLoadsBootstrapUsersFromFile(t *testing.T) {
 	usersFile := filepath.Join(t.TempDir(), "bootstrap-users.json")
 	require.NoError(t, os.WriteFile(usersFile, []byte(`[
-		{
-			"id": "beta-user-1",
-			"org_id": "beta-org",
-			"org_name": "Beta Org",
-			"email": "beta@example.com",
-			"name": "Beta Operator",
-			"password": "secret"
-		}
-	]`), 0o644))
+			{
+				"id": "beta-user-1",
+				"org_id": "beta-org",
+				"org_name": "Beta Org",
+				"email": "beta@example.com",
+				"name": "Beta Operator",
+				"role": "admin",
+				"password": "secret"
+			}
+		]`), 0o644))
 
-	t.Setenv("AUTH_BOOTSTRAP_USERS_JSON", `[{"id":"beta-user-json","org_id":"json-org","org_name":"JSON Org","email":"json@example.com","name":"JSON User","password":"json-secret"}]`)
+	t.Setenv("AUTH_BOOTSTRAP_USERS_JSON", `[{"id":"beta-user-json","org_id":"json-org","org_name":"JSON Org","email":"json@example.com","name":"JSON User","role":"member","password":"json-secret"}]`)
 	t.Setenv("AUTH_BOOTSTRAP_USERS_FILE", usersFile)
 
 	cfg := &Config{}
@@ -50,6 +53,7 @@ func TestApplyEnvOverridesLoadsBootstrapUsersFromFile(t *testing.T) {
 	require.Len(t, cfg.Auth.BootstrapUsers, 1)
 	require.Equal(t, "beta-user-1", cfg.Auth.BootstrapUsers[0].ID)
 	require.Equal(t, "beta@example.com", cfg.Auth.BootstrapUsers[0].Email)
+	require.Equal(t, "admin", cfg.Auth.BootstrapUsers[0].Role)
 }
 
 func TestApplyEnvOverridesLoadsSecretsFromFiles(t *testing.T) {
@@ -164,6 +168,7 @@ func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
 		},
 		HTTP: HTTP{
 			AllowedCIDRs:      []string{"not-a-cidr"},
+			AdminAllowedCIDRs: []string{"bad-admin-cidr"},
 			TrustedProxyCIDRs: []string{"10.0.0.0/8", "also-bad"},
 		},
 		Auth: Auth{
@@ -181,6 +186,7 @@ func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
 					OrgName:  "Beta Org",
 					Email:    "beta@example.com",
 					Name:     "Beta Operator",
+					Role:     "owner",
 					Password: "secret",
 				},
 			},
@@ -190,9 +196,11 @@ func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
 	err := cfg.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `HTTP.AllowedCIDRs contains invalid CIDR "not-a-cidr"`)
+	require.Contains(t, err.Error(), `HTTP.AdminAllowedCIDRs contains invalid CIDR "bad-admin-cidr"`)
 	require.Contains(t, err.Error(), `HTTP.TrustedProxyCIDRs contains invalid CIDR "also-bad"`)
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[0].Name is required")
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[0].Password is required")
+	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].Role must be one of: admin, member")
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].ID must be unique")
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].Email must be unique")
 }
@@ -220,12 +228,14 @@ func TestConfigValidateAllowsLocalClosedBetaDefaults(t *testing.T) {
 					OrgName:  "Beta Org",
 					Email:    "beta@example.com",
 					Name:     "Beta Operator",
+					Role:     "admin",
 					Password: "secret",
 				},
 			},
 		},
 		HTTP: HTTP{
 			AllowedCIDRs:      []string{"127.0.0.1/32"},
+			AdminAllowedCIDRs: []string{"127.0.0.1/32"},
 			TrustedProxyCIDRs: []string{"10.0.0.0/8"},
 		},
 	}

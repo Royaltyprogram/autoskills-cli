@@ -29,6 +29,14 @@ const (
 
 	userSourceDemo      = "demo"
 	userSourceBootstrap = "bootstrap"
+	userSourceManaged   = "managed"
+
+	userRoleAdmin  = "admin"
+	userRoleMember = "member"
+
+	userStatusActive   = "active"
+	userStatusDisabled = "disabled"
+	userStatusDeleted  = "deleted"
 )
 
 type AccessToken struct {
@@ -50,6 +58,7 @@ type AuthIdentity struct {
 	TokenKind string
 	OrgID     string
 	UserID    string
+	UserRole  string
 }
 
 type authContextKey struct{}
@@ -112,6 +121,8 @@ func (s *AnalyticsStore) ensureDemoUserLocked(now time.Time) bool {
 			Email:        defaultDemoEmail,
 			Name:         defaultDemoUserName,
 			Source:       userSourceDemo,
+			Role:         userRoleAdmin,
+			Status:       userStatusActive,
 			PasswordSalt: salt,
 			PasswordHash: hash,
 			CreatedAt:    now,
@@ -135,6 +146,16 @@ func (s *AnalyticsStore) ensureDemoUserLocked(now time.Time) bool {
 		user.Source = userSourceDemo
 		modified = true
 	}
+	if normalizeUserRole(user.Role) != userRoleAdmin {
+		user.Role = userRoleAdmin
+		modified = true
+	}
+	if normalizeUserStatus(user.Status) != userStatusActive {
+		user.Status = userStatusActive
+		user.DisabledAt = nil
+		user.DeletedAt = nil
+		modified = true
+	}
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = now
 		modified = true
@@ -143,6 +164,7 @@ func (s *AnalyticsStore) ensureDemoUserLocked(now time.Time) bool {
 		salt, hash := hashPassword(defaultDemoPassword, "")
 		user.PasswordSalt = salt
 		user.PasswordHash = hash
+		user.PasswordChangedAt = cloneTime(&now)
 		modified = true
 	}
 
@@ -195,6 +217,10 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 	for _, item := range s.bootstrapUsers {
 		email := normalizeEmail(item.Email)
 		password := strings.TrimSpace(item.Password)
+		role := normalizeUserRole(item.Role)
+		if role == "" {
+			role = userRoleMember
+		}
 		if email == "" || password == "" {
 			continue
 		}
@@ -234,30 +260,33 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 		if user == nil {
 			salt, hash := hashPassword(password, "")
 			s.users[userID] = &User{
-				ID:           userID,
-				OrgID:        orgID,
-				Email:        email,
-				Name:         firstNonEmpty(strings.TrimSpace(item.Name), userID),
-				Source:       userSourceBootstrap,
-				PasswordSalt: salt,
-				PasswordHash: hash,
-				CreatedAt:    now,
+				ID:                userID,
+				OrgID:             orgID,
+				Email:             email,
+				Name:              firstNonEmpty(strings.TrimSpace(item.Name), userID),
+				Source:            userSourceBootstrap,
+				Role:              role,
+				Status:            userStatusActive,
+				PasswordSalt:      salt,
+				PasswordHash:      hash,
+				CreatedAt:         now,
+				PasswordChangedAt: cloneTime(&now),
 			}
 			modified = true
 			continue
 		}
 
-		credentialsChanged := false
+		accessChanged := false
 		if strings.TrimSpace(user.OrgID) == "" || user.OrgID != orgID {
 			if user.OrgID != "" && user.OrgID != orgID {
-				credentialsChanged = true
+				accessChanged = true
 			}
 			user.OrgID = orgID
 			modified = true
 		}
 		if normalizeEmail(user.Email) == "" || normalizeEmail(user.Email) != email {
 			if normalizeEmail(user.Email) != "" && normalizeEmail(user.Email) != email {
-				credentialsChanged = true
+				accessChanged = true
 			}
 			user.Email = email
 			modified = true
@@ -271,6 +300,18 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 			user.Source = userSourceBootstrap
 			modified = true
 		}
+		if normalizeUserRole(user.Role) != role {
+			user.Role = role
+			accessChanged = true
+			modified = true
+		}
+		if normalizeUserStatus(user.Status) != userStatusActive || user.DisabledAt != nil || user.DeletedAt != nil {
+			user.Status = userStatusActive
+			user.DisabledAt = nil
+			user.DeletedAt = nil
+			accessChanged = true
+			modified = true
+		}
 		if user.CreatedAt.IsZero() {
 			user.CreatedAt = now
 			modified = true
@@ -279,10 +320,11 @@ func (s *AnalyticsStore) ensureConfiguredUsersLocked(now time.Time) bool {
 		if user.PasswordSalt != salt || user.PasswordHash != hash {
 			user.PasswordSalt = salt
 			user.PasswordHash = hash
-			credentialsChanged = true
+			user.PasswordChangedAt = cloneTime(&now)
+			accessChanged = true
 			modified = true
 		}
-		if credentialsChanged && s.revokeUserTokensLocked(user.ID, now) {
+		if accessChanged && s.revokeUserTokensLocked(user.ID, now) {
 			modified = true
 		}
 	}
@@ -380,6 +422,9 @@ func (s *AnalyticsStore) ValidateAccessToken(token string) (*AuthIdentity, bool)
 	defer s.mu.RUnlock()
 
 	for _, record := range s.accessTokens {
+		if record == nil {
+			continue
+		}
 		if subtle.ConstantTimeCompare([]byte(record.TokenHash), []byte(secretHash)) != 1 {
 			continue
 		}
@@ -389,12 +434,17 @@ func (s *AnalyticsStore) ValidateAccessToken(token string) (*AuthIdentity, bool)
 		if record.ExpiresAt != nil && now.After(record.ExpiresAt.UTC()) {
 			return nil, false
 		}
+		user, ok := s.users[record.UserID]
+		if !ok || !userCanAuthenticate(user) {
+			return nil, false
+		}
 
 		return &AuthIdentity{
 			TokenID:   record.ID,
 			TokenKind: record.Kind,
 			OrgID:     record.OrgID,
 			UserID:    record.UserID,
+			UserRole:  normalizeUserRole(user.Role),
 		}, true
 	}
 
@@ -426,12 +476,50 @@ func hashPassword(password, salt string) (string, string) {
 }
 
 func verifyPassword(user *User, password string) bool {
-	if user == nil || user.PasswordSalt == "" || user.PasswordHash == "" {
+	if !userCanAuthenticate(user) || user.PasswordSalt == "" || user.PasswordHash == "" {
 		return false
 	}
 
 	_, hash := hashPassword(password, user.PasswordSalt)
 	return subtle.ConstantTimeCompare([]byte(hash), []byte(user.PasswordHash)) == 1
+}
+
+func userCanAuthenticate(user *User) bool {
+	if user == nil {
+		return false
+	}
+	return normalizeUserStatus(user.Status) == userStatusActive
+}
+
+func normalizeUserRole(value string) string {
+	if role, ok := parseUserRole(value); ok {
+		return role
+	}
+	return userRoleMember
+}
+
+func normalizeUserStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case userStatusDisabled:
+		return userStatusDisabled
+	case userStatusDeleted:
+		return userStatusDeleted
+	case "", userStatusActive:
+		return userStatusActive
+	default:
+		return userStatusActive
+	}
+}
+
+func parseUserRole(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", userRoleMember:
+		return userRoleMember, true
+	case userRoleAdmin:
+		return userRoleAdmin, true
+	default:
+		return "", false
+	}
 }
 
 func bootstrapUserID(email string) string {

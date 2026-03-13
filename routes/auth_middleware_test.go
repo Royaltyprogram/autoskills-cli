@@ -136,6 +136,7 @@ func TestRequireAPITokenDisablesStaticTokenByDefaultInProd(t *testing.T) {
 		OrgName:  "Beta Org",
 		Email:    "beta@example.com",
 		Name:     "Beta User",
+		Role:     "member",
 		Password: "beta-pass",
 	}}
 

@@ -3,9 +3,11 @@ package response
 import "time"
 
 type AuthUserResp struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	Status string `json:"status"`
 }
 
 type AuthOrganizationResp struct {
@@ -68,6 +70,8 @@ type CLILoginResp struct {
 	UserID        string    `json:"user_id"`
 	UserName      string    `json:"user_name"`
 	UserEmail     string    `json:"user_email"`
+	UserRole      string    `json:"user_role"`
+	UserStatus    string    `json:"user_status"`
 	Status        string    `json:"status"`
 	ConsentScopes []string  `json:"consent_scopes"`
 	RegisteredAt  time.Time `json:"registered_at"`
@@ -201,16 +205,65 @@ type ProjectListResp struct {
 }
 
 type AuditEventResp struct {
-	ID        string    `json:"id"`
-	OrgID     string    `json:"org_id"`
-	ProjectID string    `json:"project_id"`
-	Type      string    `json:"type"`
-	Message   string    `json:"message"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	OrgID        string    `json:"org_id"`
+	ProjectID    string    `json:"project_id"`
+	Type         string    `json:"type"`
+	Message      string    `json:"message"`
+	ActorUserID  string    `json:"actor_user_id"`
+	ActorRole    string    `json:"actor_role"`
+	TargetUserID string    `json:"target_user_id"`
+	SourceIP     string    `json:"source_ip"`
+	UserAgent    string    `json:"user_agent"`
+	Result       string    `json:"result"`
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type AuditListResp struct {
 	Items []AuditEventResp `json:"items"`
+}
+
+type AdminUserResp struct {
+	ID                string     `json:"id"`
+	OrgID             string     `json:"org_id"`
+	Email             string     `json:"email"`
+	Name              string     `json:"name"`
+	Source            string     `json:"source"`
+	Role              string     `json:"role"`
+	Status            string     `json:"status"`
+	CreatedAt         time.Time  `json:"created_at"`
+	PasswordChangedAt *time.Time `json:"password_changed_at"`
+	LastLoginAt       *time.Time `json:"last_login_at"`
+	DisabledAt        *time.Time `json:"disabled_at"`
+	DeletedAt         *time.Time `json:"deleted_at"`
+}
+
+type AdminUserListResp struct {
+	Items []AdminUserResp `json:"items"`
+}
+
+type AdminUserCreateResp struct {
+	Status string        `json:"status"`
+	User   AdminUserResp `json:"user"`
+}
+
+type AdminUserPasswordResetResp struct {
+	Status            string    `json:"status"`
+	UserID            string    `json:"user_id"`
+	PasswordChangedAt time.Time `json:"password_changed_at"`
+}
+
+type AdminUserDeactivateResp struct {
+	Status     string    `json:"status"`
+	UserID     string    `json:"user_id"`
+	DisabledAt time.Time `json:"disabled_at"`
+}
+
+type AdminUserDeleteResp struct {
+	Status    string    `json:"status"`
+	UserID    string    `json:"user_id"`
+	DeletedAt time.Time `json:"deleted_at"`
 }
 
 type ReportResearchStatusResp struct {

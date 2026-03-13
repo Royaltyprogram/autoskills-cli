@@ -22,6 +22,7 @@ func TestBootstrapUserRemovalRevokesExistingTokens(t *testing.T) {
 		OrgName:  "Beta Org",
 		Email:    "beta1@example.com",
 		Name:     "Beta Operator",
+		Role:     "member",
 		Password: "initial-secret",
 	}}
 
@@ -75,6 +76,7 @@ func TestBootstrapUserPasswordRotationRevokesExistingTokens(t *testing.T) {
 		OrgName:  "Beta Org",
 		Email:    "beta1@example.com",
 		Name:     "Beta Operator",
+		Role:     "member",
 		Password: "initial-secret",
 	}}
 
@@ -97,6 +99,7 @@ func TestBootstrapUserPasswordRotationRevokesExistingTokens(t *testing.T) {
 		OrgName:  "Beta Org Renamed",
 		Email:    "beta1@example.com",
 		Name:     "Renamed Operator",
+		Role:     "admin",
 		Password: "rotated-secret",
 	}}
 
@@ -112,6 +115,7 @@ func TestBootstrapUserPasswordRotationRevokesExistingTokens(t *testing.T) {
 	require.NotNil(t, user)
 	require.Equal(t, userSourceBootstrap, user.Source)
 	require.Equal(t, "Renamed Operator", user.Name)
+	require.Equal(t, userRoleAdmin, normalizeUserRole(user.Role))
 	require.True(t, verifyPassword(user, "rotated-secret"))
 	require.False(t, verifyPassword(user, "initial-secret"))
 	require.Equal(t, "Beta Org Renamed", reloaded.organizations["beta-org"].Name)

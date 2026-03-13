@@ -248,3 +248,99 @@ func TestNewEchoUsesTrustedProxyCIDRsForAllowlist(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestNewEchoRejectsAdminRoutesOutsideAdminAllowedCIDRs(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+	conf.HTTP.AdminAllowedCIDRs = []string{"10.0.0.0/8"}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := NewEcho(conf, slog.Default(), store)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+	engine := NewHttpEngine(Options{
+		Router: echo,
+		Conf:   conf,
+		Analytics: controller.NewAnalyticsRoute(controller.Options{
+			AnalyticsService: analyticsSvc,
+		}),
+	})
+	engine.RegisterRoute()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestNewEchoAllowsAdminRoutesWithinAdminAllowedCIDRs(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+	conf.HTTP.AdminAllowedCIDRs = []string{"127.0.0.1/32"}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := NewEcho(conf, slog.Default(), store)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+	engine := NewHttpEngine(Options{
+		Router: echo,
+		Conf:   conf,
+		Analytics: controller.NewAnalyticsRoute(controller.Options{
+			AnalyticsService: analyticsSvc,
+		}),
+	})
+	engine.RegisterRoute()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestNewEchoDoesNotApplyAdminAllowedCIDRsToHealthRoute(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+	conf.HTTP.AdminAllowedCIDRs = []string{"10.0.0.0/8"}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := NewEcho(conf, slog.Default(), store)
+	require.NoError(t, err)
+
+	healthSvc := service.NewHealthService(service.Options{
+		Config:         conf,
+		AnalyticsStore: store,
+	})
+	engine := NewHttpEngine(Options{
+		Router: echo,
+		Conf:   conf,
+		Health: controller.NewHealthRoute(controller.Options{HealthService: healthSvc}),
+	})
+	engine.RegisterRoute()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
