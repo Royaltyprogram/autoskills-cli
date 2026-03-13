@@ -2,16 +2,23 @@ const STORAGE_KEYS = {
   sessionUser: "agentopt_session_user",
   sessionOrg: "agentopt_session_org",
   activeTab: "agentopt_dashboard_tab",
+  activeReportPanel: "agentopt_dashboard_report_panel",
+  activeReportID: "agentopt_dashboard_report_id",
   onboardingDone: "agentopt_onboarding_done",
 };
 const TAB_IDS = ["overview", "trends", "sessions", "cli"];
+const REPORT_PANEL_IDS = ["actions", "history"];
 const WIZARD_STEPS = 4;
 
 const state = {
   busy: false,
   activeTab: "overview",
+  activeReportPanel: "actions",
+  activeReportID: "",
   selectedProjectID: "",
   reportIndex: new Map(),
+  reportItems: [],
+  sessionItemsFull: [],
   session: null,
   wizardStep: 0,
   sessionItems: [],
@@ -112,7 +119,7 @@ function updateWizardCommands() {
   const origin = window.location.origin || "http://127.0.0.1:8082";
   const wizLogin = $("wizLoginCmd");
   if (wizLogin) {
-    wizLogin.textContent = `agentopt login --server ${origin}`;
+    wizLogin.textContent = `agentopt setup --server ${origin}`;
   }
 }
 
@@ -136,6 +143,33 @@ function setActiveTab(nextTab) {
   });
 }
 
+function setActiveReportPanel(nextPanel) {
+  const panel = REPORT_PANEL_IDS.includes(nextPanel) ? nextPanel : "actions";
+  state.activeReportPanel = panel;
+  writeStorage(STORAGE_KEYS.activeReportPanel, panel);
+
+  document.querySelectorAll("[data-report-panel]").forEach((section) => {
+    const active = section.dataset.reportPanel === panel;
+    section.classList.toggle("is-active", active);
+    section.hidden = !active;
+  });
+  syncReportPanelToggle();
+}
+
+function syncReportPanelToggle() {
+  const button = $("reportPanelToggleBtn");
+  if (!button) {
+    return;
+  }
+  const viewingHistory = state.activeReportPanel === "history";
+  button.textContent = viewingHistory ? "Summary" : "History";
+  button.dataset.targetPanel = viewingHistory ? "actions" : "history";
+  button.setAttribute(
+    "aria-label",
+    viewingHistory ? "Go back to report summary" : "Open report history",
+  );
+}
+
 /* ── Session ── */
 
 function cacheSession(session) {
@@ -155,9 +189,14 @@ function clearSession() {
     STORAGE_KEYS.sessionUser,
     STORAGE_KEYS.sessionOrg,
     STORAGE_KEYS.activeTab,
+    STORAGE_KEYS.activeReportPanel,
+    STORAGE_KEYS.activeReportID,
   ].forEach((key) => writeStorage(key, ""));
   state.session = null;
   state.selectedProjectID = "";
+  state.activeReportID = "";
+  state.reportItems = [];
+  state.sessionItemsFull = [];
 }
 
 function renderSessionContext() {
@@ -185,7 +224,7 @@ function renderAgentStatus(overview, reports) {
     bar.dataset.state = "report";
     text.textContent =
       reportResearchNarrative(research) ||
-      "Analyzing uploaded sessions to build the next feedback report";
+      "Analyzing Codex traces to build the next analysis report";
   } else if (activeReports > 0) {
     bar.dataset.state = "report";
     text.textContent = `Feedback ready \u2014 ${activeReports} report${activeReports > 1 ? "s" : ""} available to review`;
@@ -276,6 +315,11 @@ async function requestJSON(
 
 function restorePreferences() {
   state.activeTab = readStorage(STORAGE_KEYS.activeTab, "overview");
+  state.activeReportPanel = readStorage(
+    STORAGE_KEYS.activeReportPanel,
+    "actions",
+  );
+  state.activeReportID = readStorage(STORAGE_KEYS.activeReportID, "");
   state.session = {
     user: readJSONStorage(STORAGE_KEYS.sessionUser, {}) || {},
     organization: readJSONStorage(STORAGE_KEYS.sessionOrg, {}) || {},
@@ -727,7 +771,43 @@ function reportSummaryLine(item) {
   if (nextSteps.length > 0) {
     return nextSteps[0];
   }
-  return "A workflow feedback report is ready to review.";
+  return "A trace analysis report is ready to review.";
+}
+
+function latestSessionRequestSummary(items) {
+  for (const item of toArray(items)) {
+    const request = sessionPrimaryRequest(item);
+    if (request) {
+      return request;
+    }
+  }
+  return "";
+}
+
+function latestReasoningTraceSummary(items) {
+  for (const item of toArray(items)) {
+    const summaries = sessionFullReasoningSummaries(item);
+    if (summaries.length > 0) {
+      return truncateText(summaries.slice(-2).join(" "), 320);
+    }
+  }
+  return "";
+}
+
+function resolveActiveReport(reports) {
+  const items = toArray(reports);
+  if (!items.length) {
+    return null;
+  }
+  const selected = items.find(
+    (item) => String(item && item.id ? item.id : "") === state.activeReportID,
+  );
+  return selected || items[0];
+}
+
+function setActiveReportID(reportID) {
+  state.activeReportID = String(reportID || "");
+  writeStorage(STORAGE_KEYS.activeReportID, state.activeReportID);
 }
 
 function rawReportOutputBlock(rawOutput) {
@@ -777,76 +857,79 @@ function reportDetailsBlock(item) {
     return "";
   }
 
-  if (
-    userIntent ||
-    modelInterpretation ||
-    reason ||
-    explanation ||
-    expectedBenefit ||
-    risk ||
-    expectedImpact ||
-    confidence ||
-    score > 0
-  ) {
-    const metricsHTML = [];
-    if (score > 0) {
-      const pct = Math.round(score * 100);
-      metricsHTML.push(`<span class="report-metric">Score <span class="report-score-track"><span class="report-score-fill" style="width:${pct}%"></span></span> ${pct}%</span>`);
-    }
-    if (expectedImpact) {
-      metricsHTML.push(`<span class="report-metric">${escapeHTML(expectedImpact)}</span>`);
-    }
-    if (confidence) {
-      metricsHTML.push(`<span class="report-metric">Confidence: ${escapeHTML(titleize(confidence))}</span>`);
-    }
-    if (risk) {
-      metricsHTML.push(`<span class="report-metric">${escapeHTML(risk)}</span>`);
-    }
-    if (metricsHTML.length) {
-      sections.push(`<div class="report-metrics-row">${metricsHTML.join("")}</div>`);
-    }
+  const metricsHTML = [];
+  if (score > 0) {
+    const pct = Math.round(score * 100);
+    metricsHTML.push(`<span class="report-metric">Score <span class="report-score-track"><span class="report-score-fill" style="width:${pct}%"></span></span> ${pct}%</span>`);
+  }
+  if (confidence) {
+    metricsHTML.push(`<span class="report-metric">Confidence: ${escapeHTML(titleize(confidence))}</span>`);
+  }
+  if (expectedImpact) {
+    metricsHTML.push(`<span class="report-metric">${escapeHTML(expectedImpact)}</span>`);
+  }
+  if (metricsHTML.length) {
+    sections.push(`<div class="report-metrics-row">${metricsHTML.join("")}</div>`);
+  }
 
-    if (userIntent) {
-      sections.push(`<div class="report-field"><div class="report-field-label">User intent</div><div class="report-field-value">${escapeHTML(userIntent)}</div></div>`);
-    }
-    if (modelInterpretation) {
-      sections.push(`<div class="report-field"><div class="report-field-label">Model interpretation</div><div class="report-field-value">${escapeHTML(modelInterpretation)}</div></div>`);
-    }
-    if (reason) {
-      sections.push(`<div class="report-field"><div class="report-field-label">Reason</div><div class="report-field-value">${escapeHTML(reason)}</div></div>`);
-    }
-    if (explanation) {
-      sections.push(`<div class="report-field"><div class="report-field-label">Explanation</div><div class="report-field-value">${escapeHTML(explanation)}</div></div>`);
-    }
-    if (expectedBenefit) {
-      sections.push(`<div class="report-field"><div class="report-field-label">Expected benefit</div><div class="report-field-value">${escapeHTML(expectedBenefit)}</div></div>`);
-    }
+  if (userIntent || modelInterpretation) {
+    const intentCard = userIntent
+      ? `<div class="report-comparison-card report-comparison-card--intent">
+          <div class="report-comparison-label">What you intended</div>
+          <div class="report-comparison-text">${escapeHTML(userIntent)}</div>
+        </div>`
+      : "";
+    const modelCard = modelInterpretation
+      ? `<div class="report-comparison-card report-comparison-card--model">
+          <div class="report-comparison-label">What the model understood</div>
+          <div class="report-comparison-text">${escapeHTML(modelInterpretation)}</div>
+        </div>`
+      : "";
+    sections.push(`<div class="report-comparison">${intentCard}${modelCard}</div>`);
+  }
+
+  const analysisText = [reason, explanation].filter(Boolean).join(" ");
+  if (analysisText) {
+    sections.push(`<div class="report-analysis-section">
+      <div class="report-analysis-label">Why this happened</div>
+      <div class="report-analysis-text">${escapeHTML(analysisText)}</div>
+    </div>`);
+  }
+
+  if (expectedBenefit || risk) {
+    const combined = [expectedBenefit, risk].filter(Boolean).join(" &mdash; ");
+    sections.push(`<div class="report-analysis-section">
+      <div class="report-analysis-label">What to expect</div>
+      <div class="report-analysis-text">${combined}</div>
+    </div>`);
   }
 
   if (strengths.length) {
     const items = strengths
-      .map((entry) => `<div class="report-evidence-item">${escapeHTML(entry)}</div>`)
+      .map((entry) => `<div class="report-evidence-item report-evidence-item--good">${escapeHTML(entry)}</div>`)
       .join("");
-    sections.push(`<div class="report-field"><div class="report-field-label">Strengths</div><div class="report-evidence-list">${items}</div></div>`);
+    sections.push(`<div class="report-list-section"><div class="report-list-label report-list-label--good">What worked well</div><div class="report-evidence-list">${items}</div></div>`);
   }
 
   if (frictions.length) {
     const items = frictions
-      .map((entry) => `<div class="report-evidence-item">${escapeHTML(entry)}</div>`)
+      .map((entry) => `<div class="report-evidence-item report-evidence-item--warn">${escapeHTML(entry)}</div>`)
       .join("");
-    sections.push(`<div class="report-field"><div class="report-field-label">Friction points</div><div class="report-evidence-list">${items}</div></div>`);
+    sections.push(`<div class="report-list-section"><div class="report-list-label report-list-label--warn">Where it went wrong</div><div class="report-evidence-list">${items}</div></div>`);
   }
 
   if (nextSteps.length) {
     const items = nextSteps
-      .map((entry) => `<div class="report-evidence-item">${escapeHTML(entry)}</div>`)
+      .map((entry) => `<div class="report-evidence-item report-evidence-item--next">${escapeHTML(entry)}</div>`)
       .join("");
-    sections.push(`<div class="report-field"><div class="report-field-label">What to try next</div><div class="report-evidence-list">${items}</div></div>`);
+    sections.push(`<div class="report-list-section"><div class="report-list-label report-list-label--next">What to try next</div><div class="report-evidence-list">${items}</div></div>`);
   }
 
   if (evidence.length) {
-    const evidenceItems = evidence.map((e) => `<div class="report-evidence-item">${escapeHTML(e)}</div>`).join("");
-    sections.push(`<div class="report-field"><div class="report-field-label">Evidence (${evidence.length})</div><div class="report-evidence-list">${evidenceItems}</div></div>`);
+    const evidenceItems = evidence
+      .map((e) => `<div class="report-evidence-item report-evidence-item--evidence">${escapeHTML(e)}</div>`)
+      .join("");
+    sections.push(`<div class="report-list-section"><div class="report-list-label report-list-label--evidence">Evidence from sessions (${evidence.length})</div><div class="report-evidence-list">${evidenceItems}</div></div>`);
   }
 
   if (rawOutput) {
@@ -859,7 +942,7 @@ function reportDetailsBlock(item) {
 
   return `
     <div class="report-detail">
-      <button class="report-detail-toggle" type="button" data-action="toggle-report-detail"><span class="toggle-icon">&#9654;</span> View full report details</button>
+      <button class="report-detail-toggle" type="button" data-action="toggle-report-detail"><span class="toggle-icon">&#9654;</span> View full analysis</button>
       <div class="report-detail-body">${sections.join("")}</div>
     </div>
   `;
@@ -929,7 +1012,7 @@ function workloadNarrative(overview) {
   const combined = `${action} ${outcome} ${research}${tokenRead}`.trim();
   return (
     combined ||
-    "AgentOpt is collecting enough setup and session context to produce steadier feedback reports."
+    "AgentOpt is collecting enough Codex session traces to produce its first analysis report."
   );
 }
 
@@ -947,7 +1030,7 @@ function reportResearchNarrative(status) {
     return "OpenAI-backed feedback analysis is disabled on this server.";
   }
   if (state === "running") {
-    return "Preparing the next feedback report while the server analyzes uploaded sessions.";
+    return "Analyzing Codex session traces. The next report will be ready soon.";
   }
   if (
     state === "succeeded" ||
@@ -1335,7 +1418,7 @@ function sessionSummaryLines(item) {
     );
   } else {
     lines.push(
-      "More raw queries will make the next feedback report more specific.",
+      "More session traces will make the next analysis report more specific.",
     );
   }
 
@@ -1801,7 +1884,7 @@ function coverageActionState(insights) {
     return {
       visible: true,
       summary:
-        "No workspace sessions are visible yet. Enable the daemon with bootstrap to seed the charts from existing local sessions, then keep them current automatically.",
+        "No workspace sessions are visible yet. Run setup on the target machine first. If setup did not enroll background collection, use the manual fallback below to seed the charts from existing local sessions and keep them current automatically.",
     };
   }
   if (unknownModels <= 0 && unknownProviders <= 0 && unknownLatency <= 0) {
@@ -1861,8 +1944,8 @@ function renderOverview(overview) {
   $("activeReportsMeta").textContent =
     activeReports === 0
       ? reportResearchNarrative(research) ||
-        "No reports yet. Upload more sessions to generate workflow feedback."
-      : `${formatCount(activeReports)} feedback report(s) from the analysis engine.`;
+        "No reports yet. Upload more Codex sessions to generate trace analysis."
+      : `${formatCount(activeReports)} trace analysis report(s) from your Codex sessions.`;
   $("totalSessionsMeta").textContent =
     totalSessions === 0
       ? "Upload sessions from the CLI to start tracking AI usage."
@@ -1911,7 +1994,7 @@ function renderUsageTrend(insights) {
       const activityNotes = [];
       if (Number(item.report_count || 0) > 0) {
         flags.push(
-          `<span class="usage-flag report" title="${escapeAttr(`${formatCount(item.report_count)} feedback report(s)`)}"></span>`,
+          `<span class="usage-flag report" title="${escapeAttr(`${formatCount(item.report_count)} analysis report(s)`)}"></span>`,
         );
         activityNotes.push(`${formatCount(item.report_count)} report(s)`);
       }
@@ -2748,7 +2831,7 @@ function renderOptimizationLoop(overview, reports) {
       value: formatCount(reportCount),
       meta:
         reportCount > 0
-          ? `${formatCount(reportCount)} feedback report(s) ready`
+          ? `${formatCount(reportCount)} analysis report(s) ready`
           : "No report published yet",
     },
     {
@@ -2807,7 +2890,7 @@ function renderOptimizationLoop(overview, reports) {
   $("loopSummary").textContent =
     researchState === "running"
       ? "A new analysis pass is running. The report will refresh after the server finishes reading the latest sessions."
-      : "Each report combines raw queries, assistant responses, reasoning summaries, tool signals, and recent config state into user-facing feedback.";
+      : "Each report analyzes Codex session traces to explain what the model understood, where it went wrong, and what you can do differently.";
 
   $("loopFocusCard").innerHTML = `
     <div class="loop-focus-top">
@@ -2829,74 +2912,437 @@ function renderOptimizationLoop(overview, reports) {
   `;
 }
 
-function renderLifecycle() {
+function confidenceTone(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("high")) {
+    return "good";
+  }
+  if (raw.includes("low")) {
+    return "warn";
+  }
+  return "sky";
+}
+
+function lifecycleStat(label, value) {
+  return `
+    <div class="lifecycle-stat">
+      <div class="lifecycle-stat-label">${escapeHTML(label)}</div>
+      <div class="lifecycle-stat-value">${escapeHTML(value)}</div>
+    </div>
+  `;
+}
+
+function lifecycleBullets(items, emptyText) {
+  const entries = toArray(items)
+    .map((item) => normalizeInlineText(item))
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!entries.length) {
+    return `<div class="lifecycle-empty-note">${escapeHTML(emptyText)}</div>`;
+  }
+  return `<ul class="lifecycle-bullet-list">${entries.map((entry) => `<li>${escapeHTML(entry)}</li>`).join("")}</ul>`;
+}
+
+function lifecycleListBlock(label, items, emptyText, tone) {
+  const toneAttr = tone ? ` data-tone="${escapeAttr(tone)}"` : "";
+  return `
+    <div class="lifecycle-list-block"${toneAttr}>
+      <div class="lifecycle-list-label">${escapeHTML(label)}</div>
+      ${lifecycleBullets(items, emptyText)}
+    </div>
+  `;
+}
+
+function actionLane(label, items, emptyText, tone) {
+  const entries = toArray(items)
+    .map((item) => normalizeInlineText(item))
+    .filter(Boolean)
+    .slice(0, 4);
+  const body = entries.length
+    ? `<ul class="action-lane-list">${entries
+        .map((entry) => `<li>${escapeHTML(entry)}</li>`)
+        .join("")}</ul>`
+    : `<div class="action-lane-empty">${escapeHTML(emptyText)}</div>`;
+  return `
+    <div class="action-lane" data-tone="${escapeAttr(tone)}">
+      <div class="action-lane-label">${escapeHTML(label)}</div>
+      <div class="action-lane-body">${body}</div>
+    </div>
+  `;
+}
+
+function lifecycleChipList(items, emptyText) {
+  const entries = toArray(items)
+    .map((item) => normalizeInlineText(item))
+    .filter(Boolean)
+    .slice(0, 6);
+  if (!entries.length) {
+    return `<div class="lifecycle-empty-note">${escapeHTML(emptyText)}</div>`;
+  }
+  return `<div class="lifecycle-chip-list">${entries.map((entry) => `<span class="lifecycle-chip">${escapeHTML(entry)}</span>`).join("")}</div>`;
+}
+
+function lifecycleStageCard(stage) {
+  return `
+    <article class="lifecycle-stage-card" data-state="${escapeAttr(stage.state)}">
+      <div class="lifecycle-stage-top">
+        <div class="lifecycle-stage-index">${escapeHTML(stage.step)}</div>
+        <div class="lifecycle-stage-state" aria-hidden="true"></div>
+      </div>
+      <div class="lifecycle-stage-label">${escapeHTML(stage.label)}</div>
+      <div class="lifecycle-stage-title">${escapeHTML(stage.title)}</div>
+      <div class="lifecycle-stage-copy">${escapeHTML(stage.copy)}</div>
+      <div class="lifecycle-stage-meta">${escapeHTML(stage.meta)}</div>
+    </article>
+  `;
+}
+
+function renderLifecycle(overview) {
   const section = $("lifecycleSection");
   const reports = Array.from(state.reportIndex.values());
   const latest = reports[0] || null;
+  const totalSessions = Number((overview && overview.total_sessions) || 0);
+  const reportCount = reports.length;
+  const research = overview && overview.research_status;
+  const researchState = String((research && research.state) || "")
+    .trim()
+    .toLowerCase();
+  const lifecycleNarrative = reportResearchNarrative(research);
+
+  $("lifecycleTitle").textContent = "Current analysis cycle";
+  $("lifecycleDesc").textContent = latest
+    ? "Read the latest report at a glance, then review what the model understood and what should change next."
+    : "Follow the path from captured sessions to the first readable report. This view stays visible even before the first report exists.";
+
+  const activeStep =
+    totalSessions === 0
+      ? "capture"
+      : researchState === "running" || !latest
+        ? "analyze"
+        : "revisit";
+  const latestTitle = String((latest && latest.title) || "").trim();
+  const latestSummary = normalizeInlineText(latest && latest.summary);
+  const firstNextStep = normalizeInlineText(
+    latest && toArray(latest.next_steps).find(Boolean),
+  );
+
+  const stages = [
+    {
+      step: "01",
+      label: "Capture",
+      state:
+        totalSessions > 0
+          ? "done"
+          : activeStep === "capture"
+            ? "active"
+            : "pending",
+      title:
+        totalSessions > 0
+          ? `${formatCount(totalSessions)} session${totalSessions > 1 ? "s" : ""} captured`
+          : "Waiting for session uploads",
+      copy:
+        totalSessions > 0
+          ? "Recent Codex traces are available for review."
+          : "Run the CLI inside a workspace to start the cycle.",
+      meta:
+        totalSessions > 0
+          ? `${formatCount(totalSessions)} session trace${totalSessions > 1 ? "s are" : " is"} already in the dataset`
+          : "The first upload unlocks analysis.",
+    },
+    {
+      step: "02",
+      label: "Analyze",
+      state:
+        latest && researchState !== "running"
+          ? "done"
+          : activeStep === "analyze"
+            ? "active"
+            : "pending",
+      title:
+        researchState === "running"
+          ? "Analysis pass is running"
+          : latest
+            ? "Latest pass finished"
+            : "Queued for analysis",
+      copy:
+        researchState === "running"
+          ? "The research engine is reading recent sessions now."
+          : latest
+            ? "The server finished the last pass and produced the report below."
+            : "The next pass starts after enough grounded evidence is available.",
+      meta:
+        researchState === "running"
+          ? lifecycleNarrative || "A fresh report is being assembled."
+          : latest && research && research.last_duration_ms
+            ? `Last refresh took ${formatLatency(research.last_duration_ms)}`
+            : latest
+              ? "The last analysis pass completed successfully."
+              : "The first pass waits on enough recent session evidence.",
+    },
+    {
+      step: "03",
+      label: "Report",
+      state: latest ? "done" : "pending",
+      title: latest ? "Latest report published" : "No report published yet",
+      copy: latest
+        ? "The current workflow report is ready to review."
+        : "The first report appears here after the analysis pass finishes.",
+      meta: latest
+        ? `${latestTitle || "Workflow report"} · ${formatDateTime(latest.created_at)}`
+        : "This card turns live as soon as the first report is created.",
+    },
+    {
+      step: "04",
+      label: "Revisit",
+      state: activeStep === "revisit" ? "active" : "pending",
+      title: latest
+        ? "Use the feedback in the next session"
+        : "Follow-up starts after the first report",
+      copy: latest
+        ? "Apply the guidance, then upload more traces to refresh the cycle."
+        : "The next loop will compare future sessions against the first report.",
+      meta: latest
+        ? firstNextStep || "The next refresh will look for changes in behavior."
+        : "New sessions and snapshots will make the next cycle more specific.",
+    },
+  ];
+
+  $("lifecycleStepper").innerHTML = stages.map(lifecycleStageCard).join("");
 
   if (!latest) {
     section.dataset.empty = "true";
-    $("lifecycleTitle").textContent = "Current observation cycle";
-    $("lifecycleDesc").textContent =
-      "Track where the current feedback cycle stands, from captured sessions to the latest report.";
-    $("lifecycleStepper").innerHTML = `
-      <div class="lifecycle-step done"><div class="lifecycle-step-label">Capture</div><div class="lifecycle-step-time"></div></div>
-      <div class="lifecycle-step pending"><div class="lifecycle-step-label">Analyze</div><div class="lifecycle-step-time"></div></div>
-      <div class="lifecycle-step pending"><div class="lifecycle-step-label">Report</div><div class="lifecycle-step-time"></div></div>
-      <div class="lifecycle-step pending"><div class="lifecycle-step-label">Revisit</div><div class="lifecycle-step-time"></div></div>
-    `;
-    $("lifecycleGrid").innerHTML = `
-      <div class="lc-card">
-        <div class="lc-card-header"><div class="lc-card-title">Status</div>${pill("Observing", "sky")}</div>
-        <div class="lc-card-body">
-          <div class="lc-card-reason">No feedback report has been published yet. Keep uploading sessions and snapshots.</div>
+
+    const emptyHeadline =
+      researchState === "running"
+        ? "The first report is being assembled from recent sessions."
+        : totalSessions > 0
+          ? "The system is still building enough evidence for the first report."
+          : "No session traces have been uploaded yet.";
+    const emptySummary =
+      lifecycleNarrative ||
+      (totalSessions > 0
+        ? "Keep uploading Codex sessions so AgentOpt can compare user intent, model interpretation, and repeated friction."
+        : "Connect the CLI and upload sessions from a workspace to start the analysis cycle.");
+    const phaseLabel =
+      researchState === "running"
+        ? "Analyzing"
+        : totalSessions > 0
+          ? "Observing"
+          : "Setup";
+
+    $("lifecycleOverview").innerHTML = `
+      <article class="lifecycle-overview-card is-empty">
+        <div class="lifecycle-overview-main">
+          <div class="lifecycle-pill-row">
+            ${pill(phaseLabel, researchState === "running" ? "sky" : totalSessions > 0 ? "sky" : "warn")}
+            ${reportCount > 0 ? pill(`${formatCount(reportCount)} report${reportCount > 1 ? "s" : ""}`, "good") : ""}
+          </div>
+          <div class="lifecycle-overview-headline">${escapeHTML(emptyHeadline)}</div>
+          <div class="lifecycle-overview-copy">${escapeHTML(emptySummary)}</div>
         </div>
-      </div>
+        <div class="lifecycle-overview-meta">
+          ${lifecycleStat("Sessions captured", formatCount(totalSessions))}
+          ${lifecycleStat("Reports ready", formatCount(reportCount))}
+          ${lifecycleStat("Current phase", phaseLabel)}
+          ${lifecycleStat("Next milestone", totalSessions > 0 ? "First report" : "First upload")}
+        </div>
+      </article>
+    `;
+
+    $("lifecycleGrid").innerHTML = `
+      <article class="lifecycle-panel lifecycle-panel-wide">
+        <div class="lifecycle-panel-head">
+          <div>
+            <div class="lifecycle-panel-kicker">What this section will show</div>
+            <div class="lifecycle-panel-title">The first report will make the intent gap visible.</div>
+          </div>
+          ${pill("Coming next", "sky")}
+        </div>
+        <div class="lifecycle-compare">
+          <div class="lifecycle-compare-card" data-tone="intent">
+            <div class="lifecycle-compare-label">What you intended</div>
+            <div class="lifecycle-empty-note">The report will summarize what you were actually trying to accomplish across recent sessions.</div>
+          </div>
+          <div class="lifecycle-compare-card" data-tone="model">
+            <div class="lifecycle-compare-label">What the model understood</div>
+            <div class="lifecycle-empty-note">The report will explain how the model appears to have framed the request and where it drifted.</div>
+          </div>
+        </div>
+      </article>
+      <article class="lifecycle-panel">
+        <div class="lifecycle-panel-head">
+          <div>
+            <div class="lifecycle-panel-kicker">What AgentOpt needs</div>
+            <div class="lifecycle-panel-title">Grounded evidence, not generic advice</div>
+          </div>
+          ${pill("Evidence first", "warn")}
+        </div>
+        <div class="lifecycle-panel-copy">Reports only become useful when they are anchored to recent raw sessions and repeated patterns.</div>
+        <div class="lifecycle-chip-list">
+          <span class="lifecycle-chip">Recent sessions</span>
+          <span class="lifecycle-chip">Raw query evidence</span>
+          <span class="lifecycle-chip">Repeated patterns</span>
+        </div>
+      </article>
+      <article class="lifecycle-panel">
+        <div class="lifecycle-panel-head">
+          <div>
+            <div class="lifecycle-panel-kicker">What happens after that</div>
+            <div class="lifecycle-panel-title">Readable feedback instead of logs</div>
+          </div>
+          ${pill("First report", "good")}
+        </div>
+        <div class="lifecycle-list-grid lifecycle-list-grid-triple">
+          ${lifecycleListBlock("Strengths", [], "Good habits will be highlighted once the first report is published.", "good")}
+          ${lifecycleListBlock("Frictions", [], "Repeated confusion and missed intent will show up here.", "warn")}
+          ${lifecycleListBlock("Next steps", [], "The report will suggest concrete prompting changes to try next.", "accent")}
+        </div>
+      </article>
     `;
     return;
   }
 
   section.dataset.empty = "false";
-  $("lifecycleTitle").textContent = latest.title || "Current workflow report";
-  $("lifecycleDesc").textContent =
-    latest.summary ||
-    "The latest report summarizes how the agent has been used recently.";
-  $("lifecycleStepper").innerHTML = `
-    <div class="lifecycle-step done"><div class="lifecycle-step-label">Capture</div><div class="lifecycle-step-time">${escapeHTML(formatShortDate(latest.created_at))}</div></div>
-    <div class="lifecycle-step done"><div class="lifecycle-step-label">Analyze</div><div class="lifecycle-step-time">${escapeHTML(titleize(latest.confidence || "low"))}</div></div>
-    <div class="lifecycle-step done"><div class="lifecycle-step-label">Report</div><div class="lifecycle-step-time">${escapeHTML(formatShortDate(latest.created_at))}</div></div>
-    <div class="lifecycle-step pending"><div class="lifecycle-step-label">Revisit</div><div class="lifecycle-step-time">After more sessions</div></div>
+
+  const evidence = toArray(latest.evidence).filter(Boolean);
+  const strengths = toArray(latest.strengths).filter(Boolean);
+  const frictions = toArray(latest.frictions).filter(Boolean);
+  const nextSteps = toArray(latest.next_steps).filter(Boolean);
+  const leadStrength = normalizeInlineText(strengths[0]);
+  const leadFriction = normalizeInlineText(frictions[0]);
+  const leadNextStep = normalizeInlineText(nextSteps[0]);
+  const reason = String(latest.reason || "").trim();
+  const explanation = String(latest.explanation || "").trim();
+  const expectedBenefit = String(latest.expected_benefit || "").trim();
+  const expectedImpact = String(latest.expected_impact || "").trim();
+  const risk = String(latest.risk || "").trim();
+  const userIntent = String(latest.user_intent || "").trim();
+  const modelInterpretation = String(latest.model_interpretation || "").trim();
+  const score = Number(latest.score || 0);
+  const analysisText = [reason, explanation]
+    .filter(Boolean)
+    .join(" ");
+  const rationaleText = expectedBenefit
+    ? [analysisText, `Expected benefit: ${expectedBenefit}`]
+        .filter(Boolean)
+        .join(" ")
+    : analysisText;
+  const insightMetrics = [];
+  if (score > 0) {
+    insightMetrics.push(`Score ${Math.round(score * 100)}%`);
+  }
+  if (expectedImpact) {
+    insightMetrics.push(expectedImpact);
+  }
+  if (risk) {
+    insightMetrics.push(risk);
+  }
+
+  $("lifecycleOverview").innerHTML = `
+    <article class="lifecycle-overview-card">
+      <div class="lifecycle-overview-main">
+        <div class="lifecycle-pill-row">
+          ${pill("Report ready", "good")}
+          ${pill(reportKindLabel(latest.kind), reportKindTone(latest.kind))}
+          ${pill(titleize(latest.confidence || "low"), confidenceTone(latest.confidence))}
+        </div>
+        <div class="lifecycle-overview-headline">${escapeHTML(latestTitle || "Latest workflow report")}</div>
+        <div class="lifecycle-overview-copy">${escapeHTML(latestSummary || "The latest report summarizes how recent Codex sessions behaved.")}</div>
+        ${
+          reason
+            ? `<div class="lifecycle-overview-note">${escapeHTML(reason)}</div>`
+            : ""
+        }
+        <div class="lifecycle-overview-caption">${escapeHTML(lifecycleNarrative || (researchState === "running" ? "A fresh analysis pass is already running on the newest sessions." : "Upload more sessions to refresh this report."))}</div>
+      </div>
+      <div class="lifecycle-overview-meta">
+        ${lifecycleStat("Published", formatDateTime(latest.created_at))}
+        ${lifecycleStat("Sessions observed", formatCount(totalSessions))}
+        ${lifecycleStat("Evidence captured", formatCount(evidence.length))}
+        ${lifecycleStat("Next refresh", researchState === "running" ? "In progress" : "After more sessions")}
+      </div>
+    </article>
   `;
+
   $("lifecycleGrid").innerHTML = `
-    <div class="lc-card">
-      <div class="lc-card-header"><div class="lc-card-title">Observation scope</div>${pill("Live", "good")}</div>
-      <div class="lc-card-body">
-        <div class="lc-detail"><span class="lc-detail-label">Report created</span><span class="lc-detail-value">${escapeHTML(formatDateTime(latest.created_at))}</span></div>
-        ${latest.confidence ? `<div class="lc-detail"><span class="lc-detail-label">Confidence</span><span class="lc-detail-value">${escapeHTML(titleize(latest.confidence))}</span></div>` : ""}
-        ${latest.reason ? `<div class="lc-card-reason">${escapeHTML(latest.reason)}</div>` : ""}
+    <article class="lifecycle-panel lifecycle-panel-wide">
+      <div class="lifecycle-panel-head">
+        <div>
+          <div class="lifecycle-panel-kicker">Intent read</div>
+          <div class="lifecycle-panel-title">How the report read the request</div>
+        </div>
+        ${pill("Intent gap", "sky")}
       </div>
-    </div>
-    <div class="lc-card">
-      <div class="lc-card-header"><div class="lc-card-title">Intent read</div>${pill("Report lens", "sky")}</div>
-      <div class="lc-card-body">
-        <div class="lc-detail"><span class="lc-detail-label">User intent</span><span class="lc-detail-value">${escapeHTML(String(latest.user_intent || "").trim() || "Not called out in this report")}</span></div>
-        <div class="lc-detail"><span class="lc-detail-label">Model interpretation</span><span class="lc-detail-value">${escapeHTML(String(latest.model_interpretation || "").trim() || "Not called out in this report")}</span></div>
+      <div class="lifecycle-compare">
+        <div class="lifecycle-compare-card" data-tone="intent">
+          <div class="lifecycle-compare-label">What you intended</div>
+          ${
+            userIntent
+              ? `<div class="lifecycle-compare-text">${escapeHTML(userIntent)}</div>`
+              : `<div class="lifecycle-empty-note">This report did not call out the user intent explicitly.</div>`
+          }
+        </div>
+        <div class="lifecycle-compare-card" data-tone="model">
+          <div class="lifecycle-compare-label">What the model understood</div>
+          ${
+            modelInterpretation
+              ? `<div class="lifecycle-compare-text">${escapeHTML(modelInterpretation)}</div>`
+              : `<div class="lifecycle-empty-note">This report did not describe the model interpretation explicitly.</div>`
+          }
+        </div>
       </div>
-    </div>
-    <div class="lc-card">
-      <div class="lc-card-header"><div class="lc-card-title">What stood out</div>${pill(formatCount(toArray(latest.evidence).length), "sky")}</div>
-      <div class="lc-card-body">
-        <div class="lc-detail"><span class="lc-detail-label">Strengths</span><span class="lc-detail-value">${escapeHTML(toArray(latest.strengths).slice(0, 2).join(" · ") || "None highlighted yet")}</span></div>
-        <div class="lc-detail"><span class="lc-detail-label">Frictions</span><span class="lc-detail-value">${escapeHTML(toArray(latest.frictions).slice(0, 2).join(" · ") || "None highlighted yet")}</span></div>
-        <div class="lc-detail"><span class="lc-detail-label">Next steps</span><span class="lc-detail-value">${escapeHTML(toArray(latest.next_steps).slice(0, 2).join(" · ") || "Keep collecting sessions")}</span></div>
+    </article>
+    <article class="lifecycle-panel">
+      <div class="lifecycle-panel-head">
+        <div>
+          <div class="lifecycle-panel-kicker">Report rationale</div>
+          <div class="lifecycle-panel-title">Why this cycle matters</div>
+        </div>
+        ${pill(`${formatCount(evidence.length)} evidence`, "sky")}
       </div>
-    </div>
+      <div class="lifecycle-panel-copy">${escapeHTML(rationaleText || "The report did not include additional explanation text.")}</div>
+      ${
+        insightMetrics.length
+          ? `<div class="lifecycle-inline-metrics">${insightMetrics.map((item) => `<span class="lifecycle-inline-metric">${escapeHTML(item)}</span>`).join("")}</div>`
+          : ""
+      }
+      <div class="lifecycle-subtitle">Evidence from sessions</div>
+      ${lifecycleChipList(evidence, "Evidence snippets will appear here once the report captures grounded observations.")}
+    </article>
+    <article class="lifecycle-panel">
+      <div class="lifecycle-panel-head">
+        <div>
+          <div class="lifecycle-panel-kicker">Action focus</div>
+          <div class="lifecycle-panel-title">What should change next</div>
+        </div>
+        ${pill("Act on this", "warn")}
+      </div>
+      <div class="lifecycle-panel-copy">${escapeHTML(expectedImpact || "These are the most actionable parts of the current report.")}</div>
+      <div class="lifecycle-summary-stack">
+        <div class="lifecycle-summary-row" data-tone="good">
+          <div class="lifecycle-summary-label">Keep</div>
+          <div class="lifecycle-summary-value">${escapeHTML(leadStrength || "No specific strength was highlighted in the latest report.")}</div>
+        </div>
+        <div class="lifecycle-summary-row" data-tone="warn">
+          <div class="lifecycle-summary-label">Fix</div>
+          <div class="lifecycle-summary-value">${escapeHTML(leadFriction || "No concrete friction point was highlighted in the latest report.")}</div>
+        </div>
+        <div class="lifecycle-summary-row" data-tone="accent">
+          <div class="lifecycle-summary-label">Try next</div>
+          <div class="lifecycle-summary-value">${escapeHTML(leadNextStep || "Upload more sessions to surface the next concrete experiment.")}</div>
+        </div>
+      </div>
+      <div class="lifecycle-empty-note">Open the Summary tab for the full checklist from this report.</div>
+    </article>
   `;
 }
 
 function renderActionItems(reports) {
-  const html = reports.slice(0, 5).map((item) => `
-          <div class="item">
+  const html = reports.slice(0, 5).map((item) => {
+    const isActive =
+      String(item && item.id ? item.id : "") === String(state.activeReportID);
+    return `
+          <div class="item report-history-item${isActive ? " is-selected" : ""}">
             <div class="item-top">
               <div class="item-title">
                 ${escapeHTML(item.title)}
@@ -2910,9 +3356,13 @@ function renderActionItems(reports) {
             <div class="step-list">
               <div class="step-line">${escapeHTML(reportSummaryLine(item))}</div>
             </div>
+            <div class="action-row">
+              <button class="expand-link" type="button" data-action="open-report" data-report-id="${escapeAttr(item.id)}">Open in Summary</button>
+            </div>
             ${reportDetailsBlock(item)}
           </div>
-        `);
+        `;
+  });
 
   const section = $("activeReportSection");
   if (html.length > 0) {
@@ -2921,10 +3371,119 @@ function renderActionItems(reports) {
   } else {
     section.dataset.empty = "true";
     $("actionItemList").innerHTML = emptyState(
-      "No feedback reports yet",
-      "Upload more sessions from the CLI and the next report will appear here.",
+      "No analysis reports yet",
+      "Upload more Codex sessions from the CLI and the next trace analysis will appear here.",
     );
   }
+}
+
+function renderActionFocus(reports, sessions) {
+  const target = $("actionFocusCard");
+  const reportItems = toArray(reports);
+  const activeReport = resolveActiveReport(reportItems);
+  if (!activeReport) {
+    target.innerHTML = emptyState(
+      "No report summary yet",
+      "Upload more Codex sessions and the latest report will summarize the user request, the model interpretation, and the reasoning path here.",
+    );
+    return;
+  }
+
+  const activeIndex = Math.max(
+    0,
+    reportItems.findIndex((item) => item === activeReport),
+  );
+  const previousReport = reportItems[activeIndex - 1] || null;
+  const nextReport = reportItems[activeIndex + 1] || null;
+  const summary =
+    normalizeInlineText(activeReport.summary) || reportSummaryLine(activeReport);
+  const reason = normalizeInlineText(activeReport.reason);
+  const explanation = normalizeInlineText(activeReport.explanation);
+  const expectedImpact = normalizeInlineText(activeReport.expected_impact);
+  const expectedBenefit = normalizeInlineText(activeReport.expected_benefit);
+  const strengths = toArray(activeReport.strengths).filter(Boolean);
+  const frictions = toArray(activeReport.frictions).filter(Boolean);
+  const nextSteps = toArray(activeReport.next_steps).filter(Boolean);
+  const supportingNote = [reason, explanation].filter(Boolean).join(" ");
+  const evidenceCount = toArray(activeReport.evidence).filter(Boolean).length;
+  const userRequest =
+    normalizeInlineText(activeReport.user_intent) ||
+    latestSessionRequestSummary(sessions) ||
+    summary;
+  const modelInterpretation =
+    normalizeInlineText(activeReport.model_interpretation) ||
+    reason ||
+    "The report did not spell out how the model framed the request.";
+  const reasoningTrace =
+    latestReasoningTraceSummary(sessions) ||
+    explanation ||
+    reason ||
+    "No reasoning summary has been captured yet from recent sessions.";
+
+  target.innerHTML = `
+    <article class="action-focus-card">
+      <div class="action-focus-nav">
+        <div class="action-focus-nav-copy">
+          <div class="action-focus-nav-label">Report navigation</div>
+          <div class="action-focus-nav-meta">Showing report ${escapeHTML(String(activeIndex + 1))} of ${escapeHTML(String(reportItems.length))}${activeReport.created_at ? ` · ${escapeHTML(formatShortDate(activeReport.created_at))}` : ""}</div>
+        </div>
+        <div class="action-focus-nav-buttons">
+          <button class="action-focus-nav-btn" type="button" data-action="cycle-report" data-direction="prev"${previousReport ? "" : " disabled"}>Previous</button>
+          <button class="action-focus-nav-btn" type="button" data-action="cycle-report" data-direction="next"${nextReport ? "" : " disabled"}>Next</button>
+        </div>
+      </div>
+      <div class="action-focus-report-strip">
+        ${reportItems
+          .map((item, index) => {
+            const isActive = item === activeReport;
+            const label = truncateText(item.title || `Report ${index + 1}`, 34);
+            return `<button class="action-focus-report-chip${isActive ? " is-active" : ""}" type="button" data-action="select-report" data-report-id="${escapeAttr(item.id)}" aria-pressed="${isActive ? "true" : "false"}">${escapeHTML(label)}</button>`;
+          })
+          .join("")}
+      </div>
+      <div class="action-focus-head">
+        <div class="action-focus-copy">
+          <div class="action-focus-kicker">Selected report lens</div>
+          <div class="action-focus-title">${escapeHTML(activeReport.title || "Current report")}</div>
+          <div class="action-focus-summary">${escapeHTML(summary)}</div>
+        </div>
+        <div class="action-focus-pills">
+          ${pill(reportKindLabel(activeReport.kind), reportKindTone(activeReport.kind))}
+          ${pill(titleize(activeReport.confidence || "low"), confidenceTone(activeReport.confidence))}
+          ${evidenceCount > 0 ? pill(`${formatCount(evidenceCount)} evidence`, "sky") : ""}
+        </div>
+      </div>
+      <div class="action-focus-insight-grid">
+        <article class="action-focus-insight-card" data-tone="request">
+          <div class="action-focus-insight-label">User requested problem-solving</div>
+          <div class="action-focus-insight-text">${escapeHTML(userRequest)}</div>
+        </article>
+        <article class="action-focus-insight-card" data-tone="model">
+          <div class="action-focus-insight-label">How the model understood it</div>
+          <div class="action-focus-insight-text">${escapeHTML(modelInterpretation)}</div>
+        </article>
+        <article class="action-focus-insight-card" data-tone="reasoning">
+          <div class="action-focus-insight-label">How the model tried to solve it</div>
+          <div class="action-focus-insight-text">${escapeHTML(reasoningTrace)}</div>
+        </article>
+      </div>
+      ${
+        expectedImpact || expectedBenefit
+          ? `<div class="action-focus-highlight">${escapeHTML(expectedImpact || expectedBenefit)}</div>`
+          : ""
+      }
+      <div class="action-lane-group">
+        ${actionLane("Keep", strengths, "No strengths were highlighted in this report yet.", "good")}
+        ${actionLane("Fix", frictions, "No concrete friction points were highlighted in this report yet.", "warn")}
+        ${actionLane("Try next", nextSteps, "Upload more sessions to surface the next concrete experiment.", "accent")}
+      </div>
+      ${
+        supportingNote
+          ? `<div class="action-focus-footnote">${escapeHTML(supportingNote)}</div>`
+          : ""
+      }
+    </article>
+  `;
 }
 
 function renderImpactTimeline(reports) {
@@ -2933,7 +3492,7 @@ function renderImpactTimeline(reports) {
   if (!reportItems.length) {
     target.innerHTML = emptyState(
       "No reports yet",
-      "When the research engine finishes analyzing recent sessions, the latest feedback reports will appear here.",
+      "When the analysis engine finishes reading your Codex traces, the latest reports will appear here.",
     );
     return;
   }
@@ -2944,9 +3503,11 @@ function renderImpactTimeline(reports) {
       const createdAt = formatDateTime(item.created_at);
       const confidence = String(item.confidence || "").trim();
       const firstNextStep = toArray(item.next_steps).find(Boolean) || "";
+      const isActive =
+        String(item && item.id ? item.id : "") === String(state.activeReportID);
 
       return `
-          <div class="item">
+          <div class="item report-history-item${isActive ? " is-selected" : ""}">
             <div class="item-top">
               <div class="item-title">
                 ${escapeHTML(item.title || "Feedback report")}
@@ -2958,10 +3519,19 @@ function renderImpactTimeline(reports) {
               <div class="step-line">${escapeHTML(`Generated ${createdAt}`)}</div>
               ${firstNextStep ? `<div class="step-line">${escapeHTML(firstNextStep)}</div>` : ""}
             </div>
+            <div class="action-row">
+              <button class="expand-link" type="button" data-action="open-report" data-report-id="${escapeAttr(item.id)}">Open in Summary</button>
+            </div>
           </div>
         `;
     })
     .join("");
+}
+
+function rerenderReportViews() {
+  renderActionFocus(state.reportItems, state.sessionItemsFull);
+  renderActionItems(state.reportItems);
+  renderImpactTimeline(state.reportItems);
 }
 
 function renderSessionSummaries(items) {
@@ -3123,7 +3693,7 @@ async function issueCLIToken() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            label: "CLI login token",
+            label: "CLI setup token",
           }),
         },
         "Failed to issue a CLI token.",
@@ -3131,8 +3701,8 @@ async function issueCLIToken() {
 
       $("issuedCliToken").textContent = data.token || "Token was issued.";
       $("cliTokenMeta").textContent = data.expires_at
-        ? `CLI token issued for ${data.label || "CLI login"} and expires ${formatDateTime(data.expires_at)}. Paste it into \`agentopt login\` on the machine you want to connect.`
-        : "CLI token issued. Paste it into `agentopt login` on the machine you want to connect.";
+        ? `CLI token issued for ${data.label || "CLI setup"} and expires ${formatDateTime(data.expires_at)}. Paste it into \`agentopt setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the machine you want to connect.`
+        : `CLI token issued. Paste it into \`agentopt setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the machine you want to connect.`;
 
       const wizOutput = $("wizTokenOutput");
       if (wizOutput) {
@@ -3146,7 +3716,7 @@ async function issueCLIToken() {
       );
       renderCLITokens(toArray(tokens.items));
       setStatus(
-        "CLI token issued. Paste it into `agentopt login` on the device you want to connect.",
+        `CLI token issued. Paste it into \`agentopt setup --server ${window.location.origin || "http://127.0.0.1:8082"}\` on the device you want to connect.`,
       );
     });
   } catch (error) {
@@ -3326,9 +3896,22 @@ async function load(options = {}) {
       });
     }
 
+    state.reportItems = reports.slice();
+    state.sessionItemsFull = sessions.slice();
+    if (!reports.length) {
+      setActiveReportID("");
+    } else if (
+      !state.activeReportID ||
+      !reports.some(
+        (item) => String(item && item.id ? item.id : "") === state.activeReportID,
+      )
+    ) {
+      setActiveReportID(reports[0].id);
+    }
+
     renderAgentStatus(overview, reports);
     renderOptimizationLoop(overview, reports);
-    renderLifecycle();
+    renderActionFocus(reports, sessions);
     renderActionItems(reports);
     renderImpactTimeline(reports);
     renderUsageTrend(insights);
@@ -3360,7 +3943,7 @@ async function load(options = {}) {
         projects.find((item) => item.id === projectID)?.name ||
         "Shared workspace";
       setStatus(
-        `Showing ${workspaceName}. Review the latest AI usage feedback reports.`,
+        `Showing ${workspaceName}. Review the latest Codex trace analysis reports.`,
       );
     } else {
       setStatus(
@@ -3431,6 +4014,37 @@ function handleActionClick(event) {
     case "switch-tab":
       setActiveTab(button.dataset.tab || "overview");
       break;
+    case "switch-report-panel":
+      setActiveReportPanel(button.dataset.reportPanel || "actions");
+      break;
+    case "toggle-report-panel":
+      setActiveReportPanel(button.dataset.targetPanel || "history");
+      break;
+    case "select-report":
+      setActiveReportID(button.dataset.reportId || "");
+      rerenderReportViews();
+      break;
+    case "open-report":
+      setActiveReportID(button.dataset.reportId || "");
+      setActiveReportPanel("actions");
+      rerenderReportViews();
+      break;
+    case "cycle-report": {
+      const reports = state.reportItems;
+      const activeReport = resolveActiveReport(reports);
+      const activeIndex = Math.max(
+        0,
+        reports.findIndex((item) => item === activeReport),
+      );
+      const nextIndex =
+        button.dataset.direction === "prev" ? activeIndex - 1 : activeIndex + 1;
+      const nextReport = reports[nextIndex] || null;
+      if (nextReport) {
+        setActiveReportID(nextReport.id);
+        rerenderReportViews();
+      }
+      break;
+    }
     case "copy-command":
       copyCommand(
         button.dataset.copyTarget || "",
@@ -3495,6 +4109,7 @@ async function boot() {
   restorePreferences();
   updateWizardCommands();
   setActiveTab(state.activeTab);
+  setActiveReportPanel(state.activeReportPanel);
   syncBusyUI();
 
   $("onboardingWizard").classList.add("is-hidden");

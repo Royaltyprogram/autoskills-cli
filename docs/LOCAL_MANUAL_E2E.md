@@ -63,14 +63,13 @@ Sign in with the user you put into `secrets/agentopt-beta-users.json`.
 
 Issue a CLI token from the dashboard.
 
-## 5. Register The Local CLI
+## 5. Setup The Local CLI
 
 In another shell:
 
 ```bash
 source myenv/bin/activate
-go run ./cmd/agentopt login --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
-go run ./cmd/agentopt connect --repo-path .
+go run ./cmd/agentopt setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
 go run ./cmd/agentopt workspace
 ```
 

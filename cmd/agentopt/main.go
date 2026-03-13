@@ -47,6 +47,12 @@ type stateDisk struct {
 }
 
 const sharedWorkspaceName = "Shared workspace"
+const defaultServerURL = "http://127.0.0.1:8082"
+
+var (
+	errStateNotFound         = errors.New("agentopt state not found")
+	errWorkspaceNotConnected = errors.New("shared workspace is not connected")
+)
 
 type envelope struct {
 	Code    int             `json:"code"`
@@ -65,6 +71,39 @@ type apiClient struct {
 	http    *http.Client
 }
 
+type loginOptions struct {
+	ServerURL  string
+	Token      string
+	DeviceName string
+	Hostname   string
+	Tools      string
+	Platform   string
+	Consent    string
+	CLIVersion string
+}
+
+type connectOptions struct {
+	RepoHash    string
+	RepoPath    string
+	DefaultTool string
+	LanguageMix string
+}
+
+type setupResp struct {
+	ServerURL     string                           `json:"server_url"`
+	OrgID         string                           `json:"org_id"`
+	UserID        string                           `json:"user_id"`
+	AgentID       string                           `json:"agent_id"`
+	DeviceName    string                           `json:"device_name"`
+	WorkspaceID   string                           `json:"workspace_id"`
+	WorkspaceName string                           `json:"workspace_name"`
+	RepoPath      string                           `json:"repo_path"`
+	Login         response.CLILoginResp            `json:"login"`
+	Connect       response.ProjectRegistrationResp `json:"connect"`
+	Collect       *collectRunResp                  `json:"collect,omitempty"`
+	Background    backgroundSetupResp              `json:"background"`
+}
+
 const defaultAPIClientTimeout = 90 * time.Second
 
 func main() {
@@ -76,14 +115,15 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		printUsage()
-		return nil
+		return runDefaultCommand()
 	}
 
 	switch args[0] {
 	case "version", "--version", "-v":
 		printVersion()
 		return nil
+	case "setup":
+		return runSetup(args[1:])
 	case "login":
 		return runLogin(args[1:])
 	case "connect":
@@ -118,22 +158,66 @@ func run(args []string) error {
 	}
 }
 
+func runDefaultCommand() error {
+	_, err := loadWorkspaceState()
+	if err == nil {
+		return runStatus(nil)
+	}
+	if errors.Is(err, errStateNotFound) {
+		printDefaultSetupHint("")
+		return nil
+	}
+	if errors.Is(err, errWorkspaceNotConnected) {
+		st, stateErr := loadState()
+		if stateErr == nil {
+			printDefaultSetupHint(st.ServerURL)
+			return nil
+		}
+		printDefaultSetupHint("")
+		return nil
+	}
+	return err
+}
+
+func printDefaultSetupHint(serverURL string) {
+	serverHint := "<server-url>"
+	if strings.TrimSpace(serverURL) != "" {
+		serverHint = strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	}
+	fmt.Println(`agentopt is not set up yet.
+
+Next step:
+  agentopt setup --server ` + serverHint + `
+
+The CLI will prompt for the issued token.
+Use ` + "`agentopt help`" + ` for advanced commands.`)
+}
+
 func printUsage() {
-	fmt.Println(`agentopt commands:
+	fmt.Println(`agentopt quickstart:
+  setup             register this device, connect the current repo, upload initial local data, and enable background collection when supported
+
+Common commands:
+  status            print org overview and shared workspace feedback reports
+  reports           list active feedback reports for the shared workspace
+  collect           upload local usage data now and optionally keep collecting on an interval
+  sessions          list recent session summaries for the shared workspace
+  snapshots         list config snapshots for the shared workspace
+
+Advanced commands:
   version           print the CLI build version
   login             authenticate with an issued CLI token and register this device
   connect           connect a local repo to the shared workspace for the current org
   snapshot          upload a config snapshot from a JSON file
   session           upload one or more session summaries from a JSON file or local Codex session files
-  collect           upload local usage data now and optionally keep collecting on an interval
-  snapshots         list config snapshots for the shared workspace
-  sessions          list recent session summaries for the shared workspace
-  reports           list active feedback reports for the shared workspace
-  status            print org overview and shared workspace feedback reports
   workspace         show the shared workspace connected to the current org
   audit             list recent audit events for the current org and shared workspace
   store-export      export the runtime analytics store from the configured database
-  store-import      import a runtime analytics store backup into the configured database`)
+  store-import      import a runtime analytics store backup into the configured database
+
+Install and onboard:
+  curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+  agentopt setup --server ` + defaultServerURL)
 }
 
 func printVersion() {
@@ -146,7 +230,7 @@ func versionString() string {
 
 func runLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
-	server := fs.String("server", "http://127.0.0.1:8082", "server base URL")
+	server := fs.String("server", defaultServerURL, "server base URL")
 	token := fs.String("token", os.Getenv("AGENTOPT_TOKEN"), "CLI token issued from the dashboard")
 	device := fs.String("device", "", "device name")
 	hostname := fs.String("hostname", "", "hostname")
@@ -158,55 +242,17 @@ func runLogin(args []string) error {
 		return err
 	}
 
-	host := strings.TrimSpace(*hostname)
-	if host == "" {
-		var err error
-		host, err = os.Hostname()
-		if err != nil {
-			host = "unknown-host"
-		}
-	}
-	deviceName := strings.TrimSpace(*device)
-	if deviceName == "" {
-		deviceName = host
-	}
-
-	cliToken := strings.TrimSpace(*token)
-	if cliToken == "" {
-		prompted, err := promptInput("CLI token")
-		if err != nil {
-			return err
-		}
-		cliToken = prompted
-	}
-	if cliToken == "" {
-		return errors.New("login requires a CLI token issued from the dashboard")
-	}
-
-	client := newAPIClient(*server, cliToken)
-	req := request.CLILoginReq{
-		DeviceName:    deviceName,
-		Hostname:      host,
-		Platform:      defaultString(*platform, runtimePlatform()),
-		CLIVersion:    *cliVersion,
-		Tools:         splitComma(*tools),
-		ConsentScopes: splitComma(*consent),
-	}
-	var resp response.CLILoginResp
-	if err := client.doJSON(http.MethodPost, "/api/v1/auth/cli/login", req, &resp); err != nil {
-		return err
-	}
-
-	st := state{
-		ServerURL:  strings.TrimRight(*server, "/"),
-		APIToken:   cliToken,
-		OrgID:      resp.OrgID,
-		UserID:     resp.UserID,
-		AgentID:    firstNonEmpty(resp.DeviceID, resp.AgentID),
-		DeviceName: deviceName,
-		Hostname:   host,
-	}
-	if err := saveState(st); err != nil {
+	_, resp, err := loginAndSaveState(loginOptions{
+		ServerURL:  *server,
+		Token:      *token,
+		DeviceName: *device,
+		Hostname:   *hostname,
+		Tools:      *tools,
+		Platform:   *platform,
+		Consent:    *consent,
+		CLIVersion: *cliVersion,
+	})
+	if err != nil {
 		return err
 	}
 	return prettyPrint(resp)
@@ -226,37 +272,108 @@ func runConnect(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.APIToken)
+	_, resp, _, err := connectAndSaveWorkspace(st, connectOptions{
+		RepoHash:    *repoHash,
+		RepoPath:    *repoPath,
+		DefaultTool: *tool,
+		LanguageMix: *languageMix,
+	})
+	if err != nil {
+		return err
+	}
+	return prettyPrint(resp)
+}
 
-	repoRoot, err := normalizeRepoPath(*repoPath)
+func runSetup(args []string) error {
+	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
+	server := fs.String("server", defaultServerURL, "server base URL")
+	token := fs.String("token", os.Getenv("AGENTOPT_TOKEN"), "CLI token issued from the dashboard")
+	repoPath := fs.String("repo-path", ".", "repo path to connect")
+	device := fs.String("device", "", "device name")
+	codexHome := fs.String("codex-home", "", "override Codex home used for initial session collection")
+	recent := fs.Int("recent", 1, "number of recent local Codex session JSONL files to upload during setup")
+	upload := fs.Bool("upload", true, "upload an initial snapshot and recent local session after connecting")
+	background := fs.Bool("background", true, "enable background collection automatically when supported")
+	backgroundInterval := fs.Duration("background-interval", 30*time.Minute, "poll interval for background collection")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *recent < 1 {
+		return errors.New("setup --recent must be at least 1")
+	}
+	if *backgroundInterval <= 0 {
+		return errors.New("setup --background-interval must be greater than zero")
+	}
+
+	fmt.Fprintf(os.Stderr, "Registering this device with %s\n", strings.TrimRight(*server, "/"))
+	st, loginResp, err := loginAndSaveState(loginOptions{
+		ServerURL:  *server,
+		Token:      *token,
+		DeviceName: *device,
+		Tools:      "codex,claude-code",
+		Consent:    "config_snapshot,session_summary,execution_result",
+		CLIVersion: buildinfo.Version,
+	})
 	if err != nil {
 		return err
 	}
 
-	hash := strings.TrimSpace(*repoHash)
-	if hash == "" {
-		hash = sanitizeID(repoRoot)
-	}
-
-	req := request.RegisterProjectReq{
-		OrgID:       st.OrgID,
-		AgentID:     st.AgentID,
-		Name:        sharedWorkspaceName,
-		RepoHash:    hash,
-		RepoPath:    repoRoot,
-		LanguageMix: parseLanguageMix(*languageMix),
-		DefaultTool: *tool,
-	}
-	var resp response.ProjectRegistrationResp
-	if err := client.doJSON(http.MethodPost, "/api/v1/projects/register", req, &resp); err != nil {
+	fmt.Fprintf(os.Stderr, "Connecting %s to the shared workspace\n", firstNonEmpty(strings.TrimSpace(*repoPath), "."))
+	st, connectResp, repoRoot, err := connectAndSaveWorkspace(st, connectOptions{
+		RepoPath:    *repoPath,
+		DefaultTool: "codex",
+		LanguageMix: "go=1.0",
+	})
+	if err != nil {
 		return err
 	}
 
-	st.setWorkspaceID(resp.ProjectID)
-	if err := saveState(st); err != nil {
-		return err
+	var collectResp *collectRunResp
+	if *upload {
+		fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the latest local Codex session")
+		client := newAPIClient(st.ServerURL, st.APIToken)
+		resp, err := runCollectOnce(st, client, "", "default", "codex", "", *codexHome, *recent, collectSnapshotModeChanged)
+		if err != nil {
+			return err
+		}
+		collectResp = &resp
 	}
-	return prettyPrint(resp)
+
+	fmt.Fprintln(os.Stderr, "Configuring background collection")
+	backgroundResp := ensureBackgroundCollection(backgroundSetupOptions{
+		Enabled:   *background,
+		CodexHome: *codexHome,
+		Recent:    *recent,
+		Interval:  *backgroundInterval,
+	})
+	switch backgroundResp.Status {
+	case "enabled":
+		fmt.Fprintf(os.Stderr, "Background collection enabled every %s\n", backgroundResp.Interval)
+	case "disabled":
+		fmt.Fprintf(os.Stderr, "Background collection disabled. Manual command: %s\n", backgroundResp.Command)
+	default:
+		if strings.TrimSpace(backgroundResp.Reason) != "" {
+			fmt.Fprintf(os.Stderr, "Background collection not enabled: %s\n", backgroundResp.Reason)
+		}
+		if strings.TrimSpace(backgroundResp.Command) != "" {
+			fmt.Fprintf(os.Stderr, "Manual fallback: %s\n", backgroundResp.Command)
+		}
+	}
+
+	return prettyPrint(setupResp{
+		ServerURL:     st.ServerURL,
+		OrgID:         st.OrgID,
+		UserID:        st.UserID,
+		AgentID:       st.AgentID,
+		DeviceName:    st.DeviceName,
+		WorkspaceID:   st.workspaceID(),
+		WorkspaceName: sharedWorkspaceName,
+		RepoPath:      repoRoot,
+		Login:         loginResp,
+		Connect:       connectResp,
+		Collect:       collectResp,
+		Background:    backgroundResp,
+	})
 }
 
 func runSnapshot(args []string) error {
@@ -559,6 +676,103 @@ func runStoreImport(args []string) error {
 	})
 }
 
+func loginAndSaveState(opts loginOptions) (state, response.CLILoginResp, error) {
+	host := strings.TrimSpace(opts.Hostname)
+	if host == "" {
+		var err error
+		host, err = os.Hostname()
+		if err != nil {
+			host = "unknown-host"
+		}
+	}
+
+	deviceName := strings.TrimSpace(opts.DeviceName)
+	if deviceName == "" {
+		deviceName = host
+	}
+
+	cliToken := strings.TrimSpace(opts.Token)
+	if cliToken == "" {
+		prompted, err := promptInput("CLI token")
+		if err != nil {
+			return state{}, response.CLILoginResp{}, err
+		}
+		cliToken = prompted
+	}
+	if cliToken == "" {
+		return state{}, response.CLILoginResp{}, errors.New("login requires a CLI token issued from the dashboard")
+	}
+
+	serverURL := strings.TrimSpace(opts.ServerURL)
+	if serverURL == "" {
+		serverURL = defaultServerURL
+	}
+
+	client := newAPIClient(serverURL, cliToken)
+	req := request.CLILoginReq{
+		DeviceName:    deviceName,
+		Hostname:      host,
+		Platform:      defaultString(opts.Platform, runtimePlatform()),
+		CLIVersion:    opts.CLIVersion,
+		Tools:         splitComma(opts.Tools),
+		ConsentScopes: splitComma(opts.Consent),
+	}
+
+	var resp response.CLILoginResp
+	if err := client.doJSON(http.MethodPost, "/api/v1/auth/cli/login", req, &resp); err != nil {
+		return state{}, response.CLILoginResp{}, err
+	}
+
+	st := state{
+		ServerURL:  strings.TrimRight(serverURL, "/"),
+		APIToken:   cliToken,
+		OrgID:      resp.OrgID,
+		UserID:     resp.UserID,
+		AgentID:    firstNonEmpty(resp.DeviceID, resp.AgentID),
+		DeviceName: deviceName,
+		Hostname:   host,
+	}
+	if err := saveState(st); err != nil {
+		return state{}, response.CLILoginResp{}, err
+	}
+	return st, resp, nil
+}
+
+func connectAndSaveWorkspace(st state, opts connectOptions) (state, response.ProjectRegistrationResp, string, error) {
+	client := newAPIClient(st.ServerURL, st.APIToken)
+
+	repoRoot, err := normalizeRepoPath(opts.RepoPath)
+	if err != nil {
+		return state{}, response.ProjectRegistrationResp{}, "", err
+	}
+
+	hash := strings.TrimSpace(opts.RepoHash)
+	if hash == "" {
+		hash = sanitizeID(repoRoot)
+	}
+
+	req := request.RegisterProjectReq{
+		OrgID:       st.OrgID,
+		AgentID:     st.AgentID,
+		Name:        sharedWorkspaceName,
+		RepoHash:    hash,
+		RepoPath:    repoRoot,
+		LanguageMix: parseLanguageMix(opts.LanguageMix),
+		DefaultTool: opts.DefaultTool,
+	}
+
+	var resp response.ProjectRegistrationResp
+	if err := client.doJSON(http.MethodPost, "/api/v1/projects/register", req, &resp); err != nil {
+		return state{}, response.ProjectRegistrationResp{}, "", err
+	}
+
+	st.setWorkspaceID(resp.ProjectID)
+	if err := saveState(st); err != nil {
+		return state{}, response.ProjectRegistrationResp{}, "", err
+	}
+	return st, resp, repoRoot, nil
+}
+
 func newAPIClient(baseURL, token string) *apiClient {
 	return &apiClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -625,7 +839,7 @@ func loadState() (state, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return state{}, errors.New("agentopt state not found; run `agentopt login` first")
+			return state{}, fmt.Errorf("%w; run `agentopt setup --server <url>` first", errStateNotFound)
 		}
 		return state{}, err
 	}
@@ -651,7 +865,7 @@ func loadWorkspaceState() (state, error) {
 		return state{}, err
 	}
 	if st.workspaceID() == "" {
-		return state{}, errors.New("shared workspace is not connected; run `agentopt connect` first")
+		return state{}, fmt.Errorf("%w; run `agentopt setup --server <url>` or `agentopt connect` first", errWorkspaceNotConnected)
 	}
 	return st, nil
 }

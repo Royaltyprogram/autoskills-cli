@@ -74,6 +74,7 @@ func TestApplyEnvOverridesLoadsSecretsFromFiles(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY_FILE", openAIAPIKeyFile)
 	t.Setenv("OPENAI_BASE_URL", "https://example-proxy.invalid/v1")
 	t.Setenv("OPENAI_RESPONSES_MODEL", "gpt-5.4")
+	t.Setenv("OPENAI_REPORT_PROMPT_VARIANT", "ko-test")
 
 	cfg := &Config{}
 	require.NoError(t, applyEnvOverrides(cfg))
@@ -83,6 +84,7 @@ func TestApplyEnvOverridesLoadsSecretsFromFiles(t *testing.T) {
 	require.Equal(t, "openai-secret", cfg.OpenAI.APIKey)
 	require.Equal(t, "https://example-proxy.invalid/v1", cfg.OpenAI.BaseURL)
 	require.Equal(t, "gpt-5.4", cfg.OpenAI.ResponsesModel)
+	require.Equal(t, "ko-test", cfg.OpenAI.ReportPromptVariant)
 }
 
 func TestApplyEnvOverridesRejectsInvalidBootstrapUsersFile(t *testing.T) {

@@ -78,9 +78,10 @@ type HTTP struct {
 }
 
 type OpenAI struct {
-	APIKey         string `koanf:"APIKey"`
-	BaseURL        string `koanf:"BaseURL"`
-	ResponsesModel string `koanf:"ResponsesModel"`
+	APIKey              string `koanf:"APIKey"`
+	BaseURL             string `koanf:"BaseURL"`
+	ResponsesModel      string `koanf:"ResponsesModel"`
+	ReportPromptVariant string `koanf:"ReportPromptVariant"`
 }
 
 func (c *Config) IsDebugMode() bool {
@@ -305,6 +306,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if value, ok := lookupEnv("OPENAI_RESPONSES_MODEL"); ok {
 		cfg.OpenAI.ResponsesModel = value
+	}
+	if value, ok := lookupEnv("OPENAI_REPORT_PROMPT_VARIANT"); ok {
+		cfg.OpenAI.ReportPromptVariant = value
 	}
 	return nil
 }

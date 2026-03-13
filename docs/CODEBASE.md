@@ -114,14 +114,14 @@ The CLI is now a collector and workspace client only. It does not apply config c
    - signs in at `/`
    - opens `/dashboard`
    - issues a scoped CLI token
-2. `agentopt login`
+2. `agentopt setup`
    - authenticates a local CLI install with the issued token
-3. `agentopt connect`
    - connects the local repo to the org's shared workspace
-4. `agentopt snapshot` / `agentopt session` / `agentopt collect`
+   - uploads an initial snapshot plus the latest local Codex session when available
+3. `agentopt snapshot` / `agentopt session` / `agentopt collect`
    - uploads config snapshots plus usage sessions
    - `session` and `collect` can auto-read recent Codex session JSONL files
-5. Report refresh
+4. Report refresh
    - starts after enough sessions and raw-query evidence exist
    - runs asynchronously on the server
 6. `agentopt reports` / dashboard overview

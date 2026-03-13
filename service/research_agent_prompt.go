@@ -8,12 +8,22 @@ import (
 	"text/template"
 )
 
-//go:embed prompts/research_agent_reports_prompt.md
+const (
+	researchReportPromptVariantDefault = ""
+	researchReportPromptVariantKOTest  = "ko-test"
+)
+
+//go:embed prompts/research_agent_reports_prompt.md prompts/research_agent_reports_prompt_ko_test.md
 var researchAgentPromptFS embed.FS
 
 var researchAgentReportsPromptTemplate = template.Must(template.New("research_agent_reports_prompt.md").ParseFS(
 	researchAgentPromptFS,
 	"prompts/research_agent_reports_prompt.md",
+))
+
+var researchAgentReportsPromptKOTestTemplate = template.Must(template.New("research_agent_reports_prompt_ko_test.md").ParseFS(
+	researchAgentPromptFS,
+	"prompts/research_agent_reports_prompt_ko_test.md",
 ))
 
 type researchAgentReportPromptData struct {
@@ -25,7 +35,7 @@ type researchAgentReportPromptData struct {
 	RecentSessionsPrompt      string
 }
 
-func renderResearchAgentReportsPrompt(project *Project, sampledQueries []string, interactionSamples []researchInteractionSample, usageSummary researchUsageSummary) (string, error) {
+func renderResearchAgentReportsPrompt(variant string, project *Project, sampledQueries []string, interactionSamples []researchInteractionSample, usageSummary researchUsageSummary) (string, error) {
 	data := researchAgentReportPromptData{
 		SampledQueryCount:         len(sampledQueries),
 		SampledQueriesPrompt:      formatSampledQueriesForPrompt(sampledQueries),
@@ -37,11 +47,21 @@ func renderResearchAgentReportsPrompt(project *Project, sampledQueries []string,
 		data.ProjectName = strings.TrimSpace(project.Name)
 	}
 
+	promptTemplate := researchAgentReportsPromptTemplate
+	switch normalizeResearchReportPromptVariant(variant) {
+	case researchReportPromptVariantKOTest:
+		promptTemplate = researchAgentReportsPromptKOTestTemplate
+	}
+
 	var buf bytes.Buffer
-	if err := researchAgentReportsPromptTemplate.Execute(&buf, data); err != nil {
+	if err := promptTemplate.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("render research agent prompt: %w", err)
 	}
 	return strings.TrimSpace(buf.String()), nil
+}
+
+func normalizeResearchReportPromptVariant(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func formatSampledQueriesForPrompt(sampledQueries []string) string {

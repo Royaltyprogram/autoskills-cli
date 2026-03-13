@@ -113,7 +113,7 @@ func TestCloudResearchAgentAnalyzeProjectRequiresOpenAIForReports(t *testing.T) 
 }
 
 func TestBuildReportsPromptLoadsTemplate(t *testing.T) {
-	prompt, err := buildReportsPrompt(&Project{Name: "demo-workspace"}, []string{
+	prompt, err := buildReportsPrompt("", &Project{Name: "demo-workspace"}, []string{
 		"Inspect the analytics route.",
 		"List the exact verification steps.",
 	}, []researchInteractionSample{{
@@ -161,8 +161,8 @@ func TestBuildReportsPromptLoadsTemplate(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Contains(t, prompt, "coding-agent product researcher and workflow analyst")
-	require.Contains(t, prompt, "You are not the coding agent serving the user's task directly.")
+	require.Contains(t, prompt, "analyzing a user's real Codex coding-agent sessions")
+	require.Contains(t, prompt, "You are not the coding agent.")
 	require.Contains(t, prompt, "## Requirements")
 	require.Contains(t, prompt, "report-feedback.v1")
 	require.Contains(t, prompt, "## Project")
@@ -177,6 +177,39 @@ func TestBuildReportsPromptLoadsTemplate(t *testing.T) {
 	require.Contains(t, prompt, "## Raw Queries (2)")
 	require.Contains(t, prompt, "sample_query_1: Inspect the analytics route.")
 	require.Contains(t, prompt, "sample_query_2: List the exact verification steps.")
+}
+
+func TestBuildReportsPromptLoadsKoreanTestTemplate(t *testing.T) {
+	prompt, err := buildReportsPrompt("ko-test", &Project{Name: "demo-workspace"}, []string{
+		"Inspect the analytics route.",
+	}, []researchInteractionSample{{
+		TimestampLabel: "2026-03-10T08:00:00Z",
+		Tool:           "codex",
+		Queries: []string{
+			"Inspect the analytics route.",
+		},
+		AssistantResponses: []string{
+			"I will inspect the route flow before proposing changes.",
+		},
+	}}, researchUsageSummary{
+		SessionCount:      1,
+		RawQueryCount:     1,
+		TotalInputTokens:  1200,
+		TotalOutputTokens: 280,
+		RecentSessions: []researchSessionSnapshot{{
+			TimestampLabel: "2026-03-10T08:00:00Z",
+			Tool:           "codex",
+			QueryCount:     1,
+			InputTokens:    1200,
+			OutputTokens:   280,
+		}},
+	})
+
+	require.NoError(t, err)
+	require.Contains(t, prompt, "produce clear analysis reports in Korean")
+	require.Contains(t, prompt, "Write every user-facing narrative field in Korean")
+	require.Contains(t, prompt, "## Language Rules")
+	require.Contains(t, prompt, "sample_query_1: Inspect the analytics route.")
 }
 
 func TestParseResearchReportsRejectsInvalidEntries(t *testing.T) {

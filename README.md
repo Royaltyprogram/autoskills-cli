@@ -28,6 +28,7 @@ Detailed codebase documentation:
 - Reports are now read-only feedback reports instead of local patch plans
 - The dashboard now favors a user-facing report surface instead of an approval console
 - Session summaries now focus on token usage and raw query history for MVP research analysis
+- `agentopt setup` now compresses onboarding into one command: login, workspace connect, initial local upload, and background collection enrollment when supported
 - `agentopt session` auto-collects the latest local Codex session from `~/.codex/sessions` when `--file` is omitted
 - `agentopt session --recent N` uploads the most recent `N` local Codex sessions in chronological order
 - `agentopt collect` uploads session data now and can skip unchanged snapshots by default
@@ -50,8 +51,7 @@ In another shell:
 For source development:
 
 ```bash
-go run ./cmd/agentopt login --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
-go run ./cmd/agentopt connect --repo-path .
+go run ./cmd/agentopt setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
 go run ./cmd/agentopt workspace
 go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
 go run ./cmd/agentopt session
@@ -65,14 +65,14 @@ For beta or production user machines, install the released CLI and run `agentopt
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-agentopt login --server http://127.0.0.1:8082
-agentopt connect --repo-path .
-agentopt collect --watch --recent 1 --interval 30m
+agentopt setup --server http://127.0.0.1:8082
 ```
 
 Release installs use a prebuilt binary, so Go is not required. If your shell cannot find `agentopt`, add `~/.local/bin` to `PATH`.
+On supported installed macOS environments, `agentopt setup` also enrolls background collection automatically. On other environments it prints the manual fallback command, typically `agentopt collect --watch --recent 1 --interval 30m`.
+After setup, plain `agentopt` now works as the default entrypoint: it shows the setup hint when the CLI is not configured yet, and otherwise prints the current shared-workspace status.
 
-For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `agentopt login --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted.
+For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `agentopt setup --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted and automatically registers the device, connects the current repo, and uploads an initial snapshot plus the latest local Codex session.
 
 For closed beta or production, disable the demo path and seed named beta accounts through env:
 
@@ -98,13 +98,15 @@ Supported secret file envs now include `JWT_SECRET_FILE`, `DB_DSN_FILE`, `APP_AP
 
 Bootstrap users are now treated as managed closed beta identities: removing a user from the bootstrap file revokes their existing tokens, and rotating a bootstrap password revokes prior sessions so the new credential takes effect immediately.
 
-In this MVP every connected repository shares one workspace per organization. `agentopt connect` keeps that shared workspace current, and the generated report records are now user-facing feedback reports rather than executable patch queues.
+In this MVP every connected repository shares one workspace per organization. `agentopt setup` handles the first-time device registration and shared-workspace connection, while `agentopt connect` remains available when you need to reconnect a different repo manually. The generated report records are now user-facing feedback reports rather than executable patch queues.
 
 If you want to keep uploads flowing in the background, keep the collector running:
 
 ```bash
 agentopt collect --watch --recent 1 --interval 30m
 ```
+
+Installed macOS release builds usually do this automatically during `agentopt setup`. Keep the manual command for source development, Linux hosts, or any environment where setup reports `background.status` as `manual_only` or `failed`.
 
 If you want a one-off manual upload instead, keep using `agentopt collect --codex-home ~/.codex`.
 
@@ -204,6 +206,11 @@ AGENTOPT_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royal
 ```
 
 The installer downloads the matching release bundle for the current platform, installs it under `~/.local/share/agentopt/<version>`, writes `~/.local/bin/agentopt`, does not require Go on the target machine, and installs a local Node.js runtime automatically when the machine does not already have a compatible one.
+After install, the shortest onboarding path is:
+
+```bash
+agentopt setup --server http://127.0.0.1:8082
+```
 
 ## Container Deploy
 

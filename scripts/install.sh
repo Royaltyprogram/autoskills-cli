@@ -348,6 +348,7 @@ create_wrapper "$BIN_PATH" "$CURRENT_LINK/agentopt" "$LOCAL_NODE_BIN"
 say "installed $VERSION to $VERSION_DIR"
 say "wrapper created at $BIN_PATH"
 say "release install uses a prebuilt agentopt binary; Go is not required"
+say "next step: agentopt setup --server <agentopt-server-url>"
 if [ -x "$LOCAL_NODE_BIN/node" ]; then
   say "agentopt will use local Node.js from $LOCAL_NODE_BIN when needed"
 elif command -v node >/dev/null 2>&1; then

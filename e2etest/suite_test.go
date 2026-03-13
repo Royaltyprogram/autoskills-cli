@@ -10,9 +10,10 @@ import (
 
 type APISuite struct {
 	suite.Suite
-	ctx context.Context
-	c   *Client
-	api *API
+	ctx             context.Context
+	c               *Client
+	api             *API
+	analyticsAuthed bool
 }
 
 func (s *APISuite) SetupSuite() {
@@ -30,6 +31,10 @@ func (s *APISuite) SetupSuite() {
 	require.Equal(s.T(), 200, status)
 	require.Equal(s.T(), 0, env.Code)
 	require.NotNil(s.T(), data)
+
+	authed, err := s.c.TryAuthenticate(s.ctx)
+	require.NoError(s.T(), err)
+	s.analyticsAuthed = authed
 }
 
 func TestE2E(t *testing.T) {

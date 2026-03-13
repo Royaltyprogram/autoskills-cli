@@ -29,10 +29,11 @@ type CloudResearchAgent struct {
 	Model    string
 	Mode     string
 
-	apiKey     string
-	client     openai.Client
-	sampleSize int
-	randSource *rand.Rand
+	apiKey              string
+	client              openai.Client
+	sampleSize          int
+	randSource          *rand.Rand
+	reportPromptVariant string
 }
 
 type researchReport struct {
@@ -169,6 +170,7 @@ func NewCloudResearchAgent(conf *configs.Config) *CloudResearchAgent {
 	model := firstNonEmptyString(strings.TrimSpace(openAIConf.ResponsesModel), defaultOpenAIResponsesModel)
 	provider := "openai"
 	mode := "responses-api"
+	reportPromptVariant := normalizeResearchReportPromptVariant(openAIConf.ReportPromptVariant)
 	clientOptions := []option.RequestOption{}
 	if apiKey != "" {
 		clientOptions = append(clientOptions, option.WithAPIKey(apiKey))
@@ -182,13 +184,14 @@ func NewCloudResearchAgent(conf *configs.Config) *CloudResearchAgent {
 		model = ""
 	}
 	return &CloudResearchAgent{
-		Provider:   provider,
-		Model:      model,
-		Mode:       mode,
-		apiKey:     apiKey,
-		client:     openai.NewClient(clientOptions...),
-		sampleSize: defaultResearchSampleSize,
-		randSource: rand.New(rand.NewSource(time.Now().UnixNano())),
+		Provider:            provider,
+		Model:               model,
+		Mode:                mode,
+		apiKey:              apiKey,
+		client:              openai.NewClient(clientOptions...),
+		sampleSize:          defaultResearchSampleSize,
+		randSource:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		reportPromptVariant: reportPromptVariant,
 	}
 }
 
@@ -246,7 +249,7 @@ func (a *CloudResearchAgent) generateReports(project *Project, sampledQueries []
 	ctx, cancel := context.WithTimeout(context.Background(), defaultResearchRequestTimeout)
 	defer cancel()
 
-	prompt, err := buildReportsPrompt(project, sampledQueries, interactionSamples, usageSummary)
+	prompt, err := buildReportsPrompt(a.reportPromptVariant, project, sampledQueries, interactionSamples, usageSummary)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +266,8 @@ func (a *CloudResearchAgent) generateReports(project *Project, sampledQueries []
 	return parseResearchReports(resp.OutputText())
 }
 
-func buildReportsPrompt(project *Project, sampledQueries []string, interactionSamples []researchInteractionSample, usageSummary researchUsageSummary) (string, error) {
-	return renderResearchAgentReportsPrompt(project, sampledQueries, interactionSamples, usageSummary)
+func buildReportsPrompt(variant string, project *Project, sampledQueries []string, interactionSamples []researchInteractionSample, usageSummary researchUsageSummary) (string, error) {
+	return renderResearchAgentReportsPrompt(variant, project, sampledQueries, interactionSamples, usageSummary)
 }
 
 func sampleRawQueries(queries []string, limit int, rng *rand.Rand) []string {

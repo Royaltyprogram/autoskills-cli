@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,24 @@ type backgroundBaseCommand struct {
 	Program string
 	Args    []string
 	Workdir string
+}
+
+type backgroundSetupResp struct {
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	Command    string `json:"command,omitempty"`
+	Label      string `json:"label,omitempty"`
+	PlistPath  string `json:"plist_path,omitempty"`
+	StdoutPath string `json:"stdout_path,omitempty"`
+	StderrPath string `json:"stderr_path,omitempty"`
+	Interval   string `json:"interval,omitempty"`
+}
+
+type backgroundSetupOptions struct {
+	Enabled   bool
+	CodexHome string
+	Recent    int
+	Interval  time.Duration
 }
 
 func ensureLaunchdPlatform() error {
@@ -63,13 +82,203 @@ func resolveBackgroundBaseCommand() (backgroundBaseCommand, error) {
 	}
 	repoRoot, ok := detectRepoRoot(cwd)
 	if ok {
+		goBin, lookErr := exec.LookPath("go")
+		if lookErr != nil {
+			return backgroundBaseCommand{}, lookErr
+		}
 		return backgroundBaseCommand{
-			Program: "go",
+			Program: goBin,
 			Args:    []string{"run", "./cmd/agentopt"},
 			Workdir: repoRoot,
 		}, nil
 	}
 	return backgroundBaseCommand{}, errors.New("unable to infer a stable agentopt command for daemon; run from the repo root or use a built agentopt binary")
+}
+
+func ensureBackgroundCollection(opts backgroundSetupOptions) backgroundSetupResp {
+	command := manualBackgroundCollectCommand(opts.CodexHome, opts.Recent, opts.Interval)
+	if !opts.Enabled {
+		return backgroundSetupResp{
+			Status:  "disabled",
+			Command: command,
+		}
+	}
+	if err := ensureLaunchdPlatform(); err != nil {
+		return backgroundSetupResp{
+			Status:   "manual_only",
+			Reason:   err.Error(),
+			Command:  command,
+			Interval: opts.Interval.String(),
+		}
+	}
+
+	base, err := resolveBackgroundBaseCommand()
+	if err != nil {
+		return backgroundSetupResp{
+			Status:   "manual_only",
+			Reason:   err.Error(),
+			Command:  command,
+			Interval: opts.Interval.String(),
+		}
+	}
+	if !backgroundCommandIsStable(base) {
+		return backgroundSetupResp{
+			Status:   "manual_only",
+			Reason:   "automatic background setup is only enabled for installed or built agentopt binaries",
+			Command:  command,
+			Interval: opts.Interval.String(),
+		}
+	}
+
+	resp, err := installLaunchdCollector(base, opts)
+	if err != nil {
+		return backgroundSetupResp{
+			Status:   "failed",
+			Reason:   err.Error(),
+			Command:  command,
+			Interval: opts.Interval.String(),
+		}
+	}
+	resp.Command = command
+	return resp
+}
+
+func installLaunchdCollector(base backgroundBaseCommand, opts backgroundSetupOptions) (backgroundSetupResp, error) {
+	homeDir, err := agentoptHomeDir()
+	if err != nil {
+		return backgroundSetupResp{}, err
+	}
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		return backgroundSetupResp{}, err
+	}
+
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return backgroundSetupResp{}, err
+	}
+	launchAgentsDir := filepath.Join(userHome, "Library", "LaunchAgents")
+	if err := os.MkdirAll(launchAgentsDir, 0o755); err != nil {
+		return backgroundSetupResp{}, err
+	}
+
+	logDir := filepath.Join(homeDir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return backgroundSetupResp{}, err
+	}
+
+	label := backgroundLaunchdLabel(homeDir)
+	plistPath := filepath.Join(launchAgentsDir, label+".plist")
+	stdoutPath := filepath.Join(logDir, "collector.stdout.log")
+	stderrPath := filepath.Join(logDir, "collector.stderr.log")
+	arguments := append([]string{base.Program}, base.Args...)
+	arguments = append(arguments, collectWatchArgs(opts.CodexHome, opts.Recent, opts.Interval)...)
+	env := backgroundEnvironment()
+
+	if err := os.WriteFile(plistPath, []byte(renderLaunchdPlist(label, arguments, base.Workdir, stdoutPath, stderrPath, env)), 0o644); err != nil {
+		return backgroundSetupResp{}, err
+	}
+
+	_ = runLaunchctl("unload", plistPath)
+	if err := runLaunchctl("load", "-w", plistPath); err != nil {
+		return backgroundSetupResp{}, err
+	}
+	if !launchdLoaded(label) {
+		return backgroundSetupResp{}, errors.New("launchd did not report the collector as loaded")
+	}
+
+	return backgroundSetupResp{
+		Status:     "enabled",
+		Label:      label,
+		PlistPath:  plistPath,
+		StdoutPath: stdoutPath,
+		StderrPath: stderrPath,
+		Interval:   opts.Interval.String(),
+	}, nil
+}
+
+func backgroundEnvironment() map[string]string {
+	env := map[string]string{}
+	if value := strings.TrimSpace(os.Getenv("AGENTOPT_HOME")); value != "" {
+		env["AGENTOPT_HOME"] = value
+	}
+	if value := strings.TrimSpace(os.Getenv("PATH")); value != "" {
+		env["PATH"] = value
+	}
+	return env
+}
+
+func backgroundCommandIsStable(base backgroundBaseCommand) bool {
+	if strings.TrimSpace(base.Program) == "" {
+		return false
+	}
+	if strings.TrimSpace(base.Workdir) != "" {
+		return false
+	}
+	return filepath.Base(base.Program) != "go"
+}
+
+func collectWatchArgs(codexHome string, recent int, interval time.Duration) []string {
+	args := []string{
+		"collect",
+		"--watch",
+		"--recent", fmt.Sprintf("%d", recent),
+		"--interval", interval.String(),
+	}
+	if strings.TrimSpace(codexHome) != "" {
+		args = append(args, "--codex-home", codexHome)
+	}
+	return args
+}
+
+func manualBackgroundCollectCommand(codexHome string, recent int, interval time.Duration) string {
+	args := append([]string{"agentopt"}, collectWatchArgs(codexHome, recent, interval)...)
+	return joinShellArgs(args)
+}
+
+func backgroundLaunchdLabel(homeDir string) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(filepath.Clean(homeDir)))
+	return fmt.Sprintf("io.agentopt.collect.%08x", hasher.Sum32())
+}
+
+func renderLaunchdPlist(label string, arguments []string, workdir, stdoutPath, stderrPath string, env map[string]string) string {
+	var builder strings.Builder
+	builder.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	builder.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
+	builder.WriteString(`<plist version="1.0">` + "\n")
+	builder.WriteString(`<dict>` + "\n")
+	builder.WriteString(`  <key>Label</key>` + "\n")
+	builder.WriteString(`  <string>` + xmlEscape(label) + `</string>` + "\n")
+	builder.WriteString(`  <key>ProgramArguments</key>` + "\n")
+	builder.WriteString(`  <array>` + "\n")
+	for _, arg := range arguments {
+		builder.WriteString(`    <string>` + xmlEscape(arg) + `</string>` + "\n")
+	}
+	builder.WriteString(`  </array>` + "\n")
+	if strings.TrimSpace(workdir) != "" {
+		builder.WriteString(`  <key>WorkingDirectory</key>` + "\n")
+		builder.WriteString(`  <string>` + xmlEscape(workdir) + `</string>` + "\n")
+	}
+	builder.WriteString(`  <key>RunAtLoad</key>` + "\n")
+	builder.WriteString(`  <true/>` + "\n")
+	builder.WriteString(`  <key>KeepAlive</key>` + "\n")
+	builder.WriteString(`  <true/>` + "\n")
+	builder.WriteString(`  <key>StandardOutPath</key>` + "\n")
+	builder.WriteString(`  <string>` + xmlEscape(stdoutPath) + `</string>` + "\n")
+	builder.WriteString(`  <key>StandardErrorPath</key>` + "\n")
+	builder.WriteString(`  <string>` + xmlEscape(stderrPath) + `</string>` + "\n")
+	if len(env) > 0 {
+		builder.WriteString(`  <key>EnvironmentVariables</key>` + "\n")
+		builder.WriteString(`  <dict>` + "\n")
+		for key, value := range env {
+			builder.WriteString(`    <key>` + xmlEscape(key) + `</key>` + "\n")
+			builder.WriteString(`    <string>` + xmlEscape(value) + `</string>` + "\n")
+		}
+		builder.WriteString(`  </dict>` + "\n")
+	}
+	builder.WriteString(`</dict>` + "\n")
+	builder.WriteString(`</plist>` + "\n")
+	return builder.String()
 }
 
 func findInstalledAgentopt() (string, bool) {

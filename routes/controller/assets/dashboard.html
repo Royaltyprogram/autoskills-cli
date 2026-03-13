@@ -25,7 +25,7 @@
 
       <div class="wizard-step wizard-step-center is-active" data-wizard-step="0">
         <div class="wizard-title">Welcome to AgentOpt</div>
-        <div class="wizard-desc">AgentOpt watches how you use your coding agents, then turns those sessions into readable feedback reports about prompt quality, workflow friction, and usage habits.</div>
+        <div class="wizard-desc">AgentOpt reads your Codex session traces and explains what the model understood, where it went wrong, and what confused it. Clear analysis instead of a black box.</div>
         <div class="wizard-actions">
           <button class="primary-button" type="button" data-action="wizard-next">Get started</button>
         </div>
@@ -75,7 +75,7 @@
 
       <div class="wizard-step" data-wizard-step="3">
         <div class="wizard-title">Connect a workspace</div>
-        <div class="wizard-desc">Link a local repository so AgentOpt can start observing your workflow and generating usage feedback reports.</div>
+        <div class="wizard-desc">Link a local repository so AgentOpt can start analyzing your Codex session traces and generating analysis reports.</div>
         <div class="command-block">
           <div class="command-block-head">
             <span class="command-label">Connect command</span>
@@ -117,54 +117,31 @@
 
       <div class="agent-status-bar" id="agentStatusBar">
         <div class="agent-status-dot"></div>
-        <span id="agentStatusText">AgentOpt is observing your workspace...</span>
+        <span id="agentStatusText">AgentOpt is analyzing your Codex session traces...</span>
       </div>
 
       <div class="loop-section" id="optimizationLoopSection">
         <div class="section-header">
-          <div class="section-kicker">Feedback loop</div>
-          <div class="section-title">Observe - Analyze - Report - Improve</div>
-          <div class="section-desc" id="loopSummary">AgentOpt watches raw queries, responses, tools, and config snapshots to explain how the agent is being used.</div>
+          <div class="section-kicker">Trace analysis</div>
+          <div class="section-title">Collect - Analyze - Explain - Improve</div>
+          <div class="section-desc" id="loopSummary">AgentOpt reads your Codex session traces to explain what the model understood, where it went wrong, and what confused it.</div>
         </div>
         <div class="loop-stage-grid" id="loopStageGrid"></div>
         <div class="loop-focus-card" id="loopFocusCard"></div>
-      </div>
-
-      <!-- ── Rollout Lifecycle ── -->
-
-      <div class="lifecycle-section" id="lifecycleSection" data-empty="true">
-        <div class="section-header">
-          <div class="section-kicker">Report lifecycle</div>
-          <div class="section-title" id="lifecycleTitle">Current observation cycle</div>
-          <div class="section-desc" id="lifecycleDesc">Track where the current feedback cycle stands, from captured sessions to the latest report.</div>
-        </div>
-        <div class="lifecycle-stepper" id="lifecycleStepper"></div>
-        <div class="lifecycle-grid" id="lifecycleGrid"></div>
-      </div>
-
-      <!-- ── Active Report (always visible at top) ── -->
-
-      <div class="active-report-section" id="activeReportSection">
-        <div class="section-header">
-          <div class="section-kicker">Latest reports</div>
-          <div class="section-title">Read the current feedback</div>
-          <div class="section-desc">These reports summarize how the agent is being used, where friction shows up, and what to try next. Nothing is auto-applied.</div>
-        </div>
-        <div class="list" id="actionItemList"></div>
       </div>
 
       <!-- ── Signals row ── -->
 
       <div class="signals">
         <div class="signal-cell">
-          <div class="signal-cell-label">Feedback reports</div>
+          <div class="signal-cell-label">Analysis reports</div>
           <div class="signal-cell-value" id="activeReports">0</div>
-          <div class="signal-cell-meta" id="activeReportsMeta">Usage feedback generated from the analysis engine.</div>
+          <div class="signal-cell-meta" id="activeReportsMeta">Trace analysis reports generated from your Codex sessions.</div>
         </div>
         <div class="signal-cell">
-          <div class="signal-cell-label">Sessions observed</div>
+          <div class="signal-cell-label">Codex sessions</div>
           <div class="signal-cell-value" id="totalSessions">0</div>
-          <div class="signal-cell-meta" id="totalSessionsMeta">AI usage sessions collected from your local CLI.</div>
+          <div class="signal-cell-meta" id="totalSessionsMeta">Codex session traces collected from your local CLI.</div>
         </div>
         <div class="signal-cell">
           <div class="signal-cell-label">Avg tokens / query</div>
@@ -179,7 +156,7 @@
       </div>
 
       <div class="context-bar" id="overviewNarrative">
-        The system is collecting enough context to produce its first feedback report.
+        The system is collecting enough Codex traces to produce its first analysis report.
       </div>
 
       <nav class="dashboard-nav" aria-label="Dashboard views">
@@ -192,13 +169,34 @@
       <!-- ── Change History (was Overview) ── -->
 
       <section class="tab-panel is-active" data-tab-panel="overview">
-        <div class="section">
-          <div class="section-header">
-            <div class="section-kicker">Report timeline</div>
-            <div class="section-title">Latest workflow feedback</div>
-            <div class="section-desc">Each report captures what the system observed in your recent sessions and what that implies for future usage.</div>
+        <div class="report-workspace">
+          <div class="report-subnav" aria-label="Report views">
+            <button id="reportPanelToggleBtn" class="report-subtab-button" type="button" data-action="toggle-report-panel">History</button>
           </div>
-          <div class="list" id="impactTimelineList"></div>
+
+          <section class="report-panel is-active" data-report-panel="actions">
+            <div id="actionFocusCard"></div>
+          </section>
+
+          <section class="report-panel" data-report-panel="history" hidden>
+            <div class="section">
+              <div class="section-header">
+                <div class="section-kicker">Analysis timeline</div>
+                <div class="section-title">Latest trace analysis</div>
+                <div class="section-desc">Recent reports in chronological order, so you can scan changes without opening the full archive first.</div>
+              </div>
+              <div class="list" id="impactTimelineList"></div>
+            </div>
+
+            <div class="section active-report-section" id="activeReportSection">
+              <div class="section-header">
+                <div class="section-kicker">Report archive</div>
+                <div class="section-title">What happened in your Codex sessions</div>
+                <div class="section-desc">Open individual reports only when you need the full explanation, evidence, and detailed rationale.</div>
+              </div>
+              <div class="list" id="actionItemList"></div>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -253,7 +251,7 @@
               <div class="section-header compact">
                 <div class="section-kicker">Data coverage</div>
                 <div class="section-title">Fill missing model and latency signals</div>
-                <div class="section-desc" id="coverageActionSummary">Run the collector in watch mode to keep session and snapshot coverage current for the next report refresh.</div>
+                <div class="section-desc" id="coverageActionSummary">If setup did not enroll background collection, run the collector in watch mode to keep session and snapshot coverage current for the next report refresh.</div>
               </div>
               <div class="command-block">
                 <div class="command-block-head">
@@ -264,7 +262,7 @@
               </div>
               <div class="command-block">
                 <div class="command-block-head">
-                  <span class="command-label">Bootstrap + keep coverage fresh</span>
+                  <span class="command-label">Manual background fallback</span>
                   <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="coverageDaemonCmd" data-copy-label="daemon command">Copy</button>
                 </div>
                 <div class="command-shell" id="coverageDaemonCmd">agentopt collect --watch --recent 1 --interval 30m</div>
@@ -377,9 +375,9 @@
       <section class="tab-panel" data-tab-panel="sessions" hidden>
         <div class="section">
           <div class="section-header">
-            <div class="section-kicker">Observed sessions</div>
-            <div class="section-title">Recent AI usage sessions</div>
-            <div class="section-desc">Raw sessions the agent has observed. These feed into its analysis and feedback reports.</div>
+            <div class="section-kicker">Codex sessions</div>
+            <div class="section-title">Collected session traces</div>
+            <div class="section-desc">Raw Codex session traces collected from your CLI. These feed into the analysis engine.</div>
           </div>
           <div class="list" id="sessionSummaryList"></div>
         </div>

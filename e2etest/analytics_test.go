@@ -30,6 +30,32 @@ func getAPIJSON[T any](t *testing.T, suite *APISuite, path string, query url.Val
 	return *data
 }
 
+func tryGetAPIJSON[T any](t *testing.T, suite *APISuite, path string, query url.Values) (int, *T, error) {
+	t.Helper()
+
+	status, body, err := suite.c.Get(suite.ctx, path, query)
+	if err != nil {
+		return 0, nil, err
+	}
+	env, data, err := decodeEnvelope[T](body)
+	if err != nil {
+		return status, nil, err
+	}
+	if status == http.StatusTooManyRequests {
+		return status, nil, nil
+	}
+	if status != http.StatusOK {
+		return status, nil, fmt.Errorf("unexpected status %d", status)
+	}
+	if env.Code != 0 {
+		return status, nil, fmt.Errorf("unexpected envelope code %d", env.Code)
+	}
+	if data == nil {
+		return status, nil, fmt.Errorf("missing response data")
+	}
+	return status, data, nil
+}
+
 func postAPIJSON[T any](t *testing.T, suite *APISuite, method, path string, body any) T {
 	t.Helper()
 
@@ -43,7 +69,7 @@ func postAPIJSON[T any](t *testing.T, suite *APISuite, method, path string, body
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := suite.c.HTTP.Do(req)
+	resp, err := suite.c.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -68,14 +94,21 @@ func waitForReportResearch(
 	t *testing.T,
 	suite *APISuite,
 	orgID, projectID string,
+	triggerSessionID string,
+	baselineReportIDs map[string]struct{},
 ) (*response.DashboardOverviewResp, *response.ReportListResp) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		overview := getAPIJSON[response.DashboardOverviewResp](t, suite, "/api/v1/dashboard/overview", url.Values{
+		overviewStatus, overview, err := tryGetAPIJSON[response.DashboardOverviewResp](t, suite, "/api/v1/dashboard/overview", url.Values{
 			"org_id": []string{orgID},
 		})
+		require.NoError(t, err)
+		if overviewStatus == http.StatusTooManyRequests {
+			time.Sleep(1 * time.Second)
+			continue
+		}
 		if status := overview.ResearchStatus; status != nil {
 			switch status.State {
 			case "disabled":
@@ -85,13 +118,18 @@ func waitForReportResearch(
 			}
 		}
 
-		reports := getAPIJSON[response.ReportListResp](t, suite, "/api/v1/reports", url.Values{
+		reportsStatus, reports, err := tryGetAPIJSON[response.ReportListResp](t, suite, "/api/v1/reports", url.Values{
 			"project_id": []string{projectID},
 		})
-		if len(reports.Items) > 0 {
-			return &overview, &reports
+		require.NoError(t, err)
+		if reportsStatus == http.StatusTooManyRequests {
+			time.Sleep(1 * time.Second)
+			continue
 		}
-		time.Sleep(100 * time.Millisecond)
+		if reportRefreshSatisfied(overview.ResearchStatus, reports.Items, triggerSessionID, baselineReportIDs) {
+			return overview, reports
+		}
+		time.Sleep(1 * time.Second)
 	}
 
 	overview := getAPIJSON[response.DashboardOverviewResp](t, suite, "/api/v1/dashboard/overview", url.Values{
@@ -104,10 +142,40 @@ func waitForReportResearch(
 	return nil, nil
 }
 
+func reportRefreshSatisfied(
+	status *response.ReportResearchStatusResp,
+	items []response.ReportResp,
+	triggerSessionID string,
+	baselineReportIDs map[string]struct{},
+) bool {
+	if status == nil || status.TriggerSessionID != triggerSessionID || status.State != "succeeded" {
+		return false
+	}
+	if len(items) == 0 {
+		return false
+	}
+	if len(baselineReportIDs) == 0 {
+		return true
+	}
+	for _, item := range items {
+		if _, ok := baselineReportIDs[item.ID]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *APISuite) TestAnalyticsLifecycle_GeneratesFeedbackReports() {
+	if !s.analyticsAuthed {
+		s.T().Skip("analytics e2e requires E2E_API_TOKEN or login credentials")
+	}
+
 	now := time.Now().UTC()
 	suffix := fmt.Sprintf("%d", now.UnixNano())
-	orgID := "org-e2e-" + suffix
+	orgID := s.c.AuthOrgID
+	if orgID == "" {
+		orgID = "org-e2e-" + suffix
+	}
 	userID := "user-e2e-" + suffix
 	projectHash := "hash-" + suffix
 
@@ -126,6 +194,14 @@ func (s *APISuite) TestAnalyticsLifecycle_GeneratesFeedbackReports() {
 		DefaultTool: "codex",
 	})
 	require.Equal(s.T(), "connected", projectResp.Status)
+
+	initialReports := getAPIJSON[response.ReportListResp](s.T(), s, "/api/v1/reports", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	baselineReportIDs := make(map[string]struct{}, len(initialReports.Items))
+	for _, item := range initialReports.Items {
+		baselineReportIDs[item.ID] = struct{}{}
+	}
 
 	snapshotResp := postAPIJSON[response.ConfigSnapshotResp](s.T(), s, http.MethodPost, "/api/v1/config-snapshots", request.ConfigSnapshotReq{
 		ProjectID:  projectResp.ProjectID,
@@ -166,7 +242,7 @@ func (s *APISuite) TestAnalyticsLifecycle_GeneratesFeedbackReports() {
 		})
 	}
 
-	sessionResp := uploadSession(
+	finalSessionResp := uploadSession(
 		"session-before-"+suffix,
 		now.Add(-2*time.Hour),
 		[]string{
@@ -177,10 +253,10 @@ func (s *APISuite) TestAnalyticsLifecycle_GeneratesFeedbackReports() {
 		1000,
 		240,
 	)
-	require.Equal(s.T(), "report-api.v1", sessionResp.SchemaVersion)
-	if status := sessionResp.ResearchStatus; status != nil && status.MinimumSessions > 1 {
+	require.Equal(s.T(), "report-api.v1", finalSessionResp.SchemaVersion)
+	if status := finalSessionResp.ResearchStatus; status != nil && status.MinimumSessions > 1 {
 		for i := 2; i <= status.MinimumSessions; i++ {
-			uploadSession(
+			finalSessionResp = uploadSession(
 				fmt.Sprintf("session-before-%s-%d", suffix, i),
 				now.Add(time.Duration(-120+i)*time.Minute),
 				[]string{
@@ -193,7 +269,8 @@ func (s *APISuite) TestAnalyticsLifecycle_GeneratesFeedbackReports() {
 		}
 	}
 
-	overview, reports := waitForReportResearch(s.T(), s, orgID, projectResp.ProjectID)
+	require.Equal(s.T(), "report-api.v1", finalSessionResp.SchemaVersion)
+	overview, reports := waitForReportResearch(s.T(), s, orgID, projectResp.ProjectID, finalSessionResp.SessionID, baselineReportIDs)
 	require.Equal(s.T(), "report-api.v1", overview.SchemaVersion)
 	require.Equal(s.T(), "report-api.v1", reports.SchemaVersion)
 	require.NotNil(s.T(), overview.ResearchStatus)

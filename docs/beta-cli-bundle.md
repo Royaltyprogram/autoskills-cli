@@ -24,12 +24,13 @@ After install, run the CLI directly:
 
 ```bash
 agentopt version
-agentopt login --server http://127.0.0.1:8082
-agentopt connect --repo-path .
-agentopt snapshot
-agentopt session --recent 1
+agentopt setup --server http://127.0.0.1:8082
 agentopt reports
 agentopt audit
 ```
+
+`agentopt setup` prompts for the issued CLI token if you omit `--token`, connects the current repo to the shared workspace, uploads an initial snapshot plus the latest local Codex session, and enrolls background collection automatically on supported installed macOS environments.
+If background enrollment is not supported on the machine, setup returns the manual fallback command to run instead.
+After setup, plain `agentopt` prints the current shared-workspace status.
 
 If your shell cannot find `agentopt`, add `~/.local/bin` to `PATH`.

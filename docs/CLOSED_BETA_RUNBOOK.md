@@ -29,8 +29,7 @@ Open `http://127.0.0.1:8082/` and sign in with the local demo account:
 From another shell, run the CLI against the local server. These commands are for source development:
 
 ```bash
-go run ./cmd/agentopt login --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
-go run ./cmd/agentopt connect --repo-path .
+go run ./cmd/agentopt setup --server http://127.0.0.1:8082 --token <CLI_TOKEN_FROM_DASHBOARD>
 go run ./cmd/agentopt workspace
 go run ./cmd/agentopt snapshot --file examples/config-snapshot.json
 go run ./cmd/agentopt session
@@ -42,7 +41,9 @@ go run ./cmd/agentopt audit
 Notes:
 
 - In the MVP, every connected repository rolls into one shared workspace per organization.
-- `agentopt connect` updates that shared workspace.
+- `agentopt setup` is the shortest onboarding path and includes the initial workspace connection automatically.
+- installed macOS beta machines also get background collection automatically when setup can register a launchd agent
+- `agentopt connect` remains available when you need to reconnect a different repo manually.
 - `agentopt collect --watch` keeps session and snapshot uploads flowing while the shared workspace is being observed.
 - Reports are now read-only feedback reports for the user; nothing is auto-applied.
 
@@ -54,7 +55,7 @@ agentopt collect --watch --recent 1 --interval 30m
 
 Notes:
 
-- Prefer the installed `agentopt` command for long-lived beta machine setup.
+- Prefer the installed `agentopt` command for long-lived beta machine setup. On supported installed macOS environments, `agentopt setup --server ...` now enrolls that background collector automatically.
 - Keep `agentopt collect` without `--watch` for one-off manual uploads.
 
 For beta users who should install from GitHub Releases instead of an unpacked bundle:
@@ -260,5 +261,5 @@ Run this before handing the build to beta users:
 7. Runtime secrets are mounted from files, not hardcoded.
 8. `GET /healthz` and `GET /readyz` respond successfully in the target environment.
 9. A seeded beta user can log in on the dashboard and issue a CLI token.
-10. A beta machine can complete `agentopt login`, `agentopt connect`, and `agentopt collect`.
+10. A beta machine can complete `agentopt setup` and `agentopt collect`.
 11. If background collection is part of the beta flow, `agentopt collect --watch --recent 1 --interval 30m` succeeds on the target machine.

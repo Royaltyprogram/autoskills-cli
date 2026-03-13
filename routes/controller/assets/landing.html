@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentOpt — Workflow Feedback For Coding Agents</title>
+  <title>AgentOpt — Understand What Your Codex Agent Actually Did</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -467,7 +467,7 @@
       </a>
       <ul class="nav-links">
         <li><a href="#how-it-works" class="nav-link-text">How It Works</a></li>
-        <li><a href="#configures" class="nav-link-text">What It Sees</a></li>
+        <li><a href="#configures" class="nav-link-text">What It Analyzes</a></li>
         <li><a href="#login" class="nav-cta">Sign In</a></li>
       </ul>
     </div>
@@ -479,72 +479,68 @@
       <span class="hero-badge-dot"></span>
       Closed Beta
     </div>
-    <h1>An AI system that <em>reviews how you use your coding agent</em>.</h1>
+    <h1>See what your Codex agent <em>actually understood</em>.</h1>
     <p class="hero-sub">
-      Watches real sessions, prompt patterns, tool use, responses, and reasoning summaries, then turns them into readable <strong>workflow feedback reports</strong>.
-      No auto-apply step. No hidden edits.
+      AgentOpt reads your Codex session traces and tells you <strong>what you asked for, how the model interpreted it, and where it went wrong</strong>.
+      No guessing. No black box.
     </p>
     <div class="hero-actions">
       <a href="#login" class="btn btn-primary">Get Started</a>
       <a href="#how-it-works" class="btn btn-ghost">See How It Works</a>
     </div>
     <div class="tool-strip">
-      <span>Works with</span>
-      <div class="tool-pill"><span class="dot dot--codex"></span>Codex</div>
-      <div class="tool-pill"><span class="dot dot--claude"></span>Claude Code</div>
-      <div class="tool-pill"><span class="dot dot--opencode"></span>OpenCode</div>
+      <span>Built for</span>
+      <div class="tool-pill"><span class="dot dot--codex"></span>OpenAI Codex</div>
     </div>
 
     <!-- MOCK: Shows the actual product experience -->
     <div class="hero-visual">
       <div class="hero-visual-bar">
         <span class="hv-dot"></span><span class="hv-dot"></span><span class="hv-dot"></span>
-        <span class="hv-title">AgentOpt Dashboard</span>
+        <span class="hv-title">AgentOpt &mdash; Trace Analysis</span>
       </div>
       <div class="hero-visual-body">
         <div class="mock-agent-status">
           <span class="status-dot"></span>
-          Analyzed 30 sessions &mdash; 1 report ready
+          12 Codex sessions analyzed &mdash; 2 misalignment patterns found
         </div>
 
         <div class="mock-report">
           <div class="mock-report-header">
-            <span class="mock-report-title">You keep restating scope before edits</span>
+            <span class="mock-report-title">Model refactored instead of fixing the bug</span>
             <span class="mock-pill mock-pill--risk">High confidence</span>
-          </div>
-          <div class="mock-diff">
-            <span class="line-ctx">  Observed pattern</span><br>
-            <span class="line-add">+ Repeated repo-orientation prompts before implementation.</span><br>
-            <span class="line-add">+ Verification asks arrive late instead of at the start.</span>
           </div>
           <div class="mock-impact">
             <div class="mock-impact-card">
-              <div class="mock-impact-label">Likely effect</div>
-              <div class="mock-impact-value mock-impact-value--good">Fewer</div>
-              <div class="mock-impact-delta mock-impact-delta--good">setup turns</div>
+              <div class="mock-impact-label">What you asked</div>
+              <div class="mock-text">"Fix the failing test in auth_test.go"</div>
             </div>
             <div class="mock-impact-card">
-              <div class="mock-impact-label">Next step</div>
-              <div class="mock-impact-value mock-impact-value--accent">Start</div>
-              <div class="mock-impact-delta">with files and checks</div>
+              <div class="mock-impact-label">What the model did</div>
+              <div class="mock-text mock-text--muted">Rewrote the auth middleware and updated 4 files instead of patching the test assertion.</div>
             </div>
+          </div>
+          <div class="mock-diff">
+            <span class="line-ctx">  Why it happened</span><br>
+            <span class="line-add">+ The prompt lacked scope constraint &mdash; no "only touch this file".</span><br>
+            <span class="line-add">+ Model defaulted to a structural rewrite when the fix was a one-liner.</span>
           </div>
         </div>
 
         <div class="mock-history">
           <div class="mock-history-item">
             <div class="mock-history-left">
-              <span class="mock-pill mock-pill--improved">Improved</span>
-              <span class="mock-history-title">Reduce verbosity</span>
+              <span class="mock-pill mock-pill--measuring">Misalignment</span>
+              <span class="mock-history-title">Scope expanded without constraint</span>
             </div>
-            <span class="mock-history-meta">-23% tokens</span>
+            <span class="mock-history-meta">3 sessions</span>
           </div>
           <div class="mock-history-item">
             <div class="mock-history-left">
-              <span class="mock-pill mock-pill--rolledback">Rolled back</span>
-              <span class="mock-history-title">Switch MCP tool</span>
+              <span class="mock-pill mock-pill--improved">Aligned</span>
+              <span class="mock-history-title">Clear file-scoped fix requests</span>
             </div>
-            <span class="mock-history-meta">auto-reverted</span>
+            <span class="mock-history-meta">9 sessions</span>
           </div>
         </div>
       </div>
@@ -555,7 +551,7 @@
   <section class="section wrap" id="how-it-works">
     <div class="section-header">
       <div class="section-kicker">How It Works</div>
-      <h2 class="section-title">A continuous feedback loop</h2>
+      <h2 class="section-title">From raw traces to clear explanations</h2>
     </div>
 
     <div class="loop-container">
@@ -563,43 +559,43 @@
         <div class="loop-step">
           <div class="loop-step-num loop-step-num--auto">1</div>
           <div class="loop-step-body">
-            <h3>Observe</h3>
-            <p>Watches queries, tokens, tool calls across sessions.</p>
+            <h3>Collect traces</h3>
+            <p>The CLI captures your Codex sessions &mdash; prompts, responses, reasoning, tool calls.</p>
           </div>
         </div>
         <div class="loop-step">
           <div class="loop-step-num loop-step-num--auto">2</div>
           <div class="loop-step-body">
-            <h3>Research</h3>
-            <p>LLM finds patterns across prompts, responses, and tool usage.</p>
+            <h3>Analyze intent vs. outcome</h3>
+            <p>Compares what you asked for against what the model actually did and why.</p>
           </div>
         </div>
         <div class="loop-step">
-          <div class="loop-step-num loop-step-num--auto">3</div>
+          <div class="loop-step-num loop-step-num--danger">3</div>
           <div class="loop-step-body">
-            <h3>Report</h3>
-            <p>Writes a readable report about what is working and what is not.</p>
+            <h3>Find misalignment</h3>
+            <p>Identifies where the model misunderstood scope, misread context, or chose the wrong approach.</p>
           </div>
         </div>
         <div class="loop-step">
-          <div class="loop-step-num loop-step-num--user">4</div>
+          <div class="loop-step-num loop-step-num--auto">4</div>
           <div class="loop-step-body">
-            <h3>You Reflect</h3>
-            <p>Read the report and adjust prompts or habits manually.</p>
+            <h3>Explain what happened</h3>
+            <p>Produces a readable report: what you intended, what the model understood, what confused it.</p>
           </div>
         </div>
         <div class="loop-step">
-          <div class="loop-step-num loop-step-num--agent">5</div>
+          <div class="loop-step-num loop-step-num--user">5</div>
           <div class="loop-step-body">
-            <h3>Measure</h3>
-            <p>Tracks whether future sessions show less friction and better task framing.</p>
+            <h3>You adjust</h3>
+            <p>Use the insights to prompt better, scope tighter, or catch patterns before they recur.</p>
           </div>
         </div>
       </div>
 
       <div class="loop-feedback">
         <p class="loop-feedback-text">
-          <strong>The loop repeats.</strong> The agent keeps observing and surfaces the next opportunity.
+          <strong>Every session teaches something.</strong> AgentOpt finds the lesson so you don't have to re-read logs.
         </p>
       </div>
     </div>
@@ -607,11 +603,11 @@
 
   <div class="wrap divider"><hr></div>
 
-  <!-- ── WHAT IT OBSERVES ── -->
+  <!-- ── WHAT IT ANALYZES ── -->
   <section class="section wrap" id="configures">
     <div class="section-header">
-      <div class="section-kicker">What It Sees</div>
-      <h2 class="section-title">The workflow signals behind each report</h2>
+      <div class="section-kicker">What It Analyzes</div>
+      <h2 class="section-title">Every trace tells a story</h2>
     </div>
 
     <div class="config-row">
@@ -620,8 +616,8 @@
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1H5a2 2 0 00-2 2v14l3.5-2.5L10 17l3.5-2.5L17 17V3a2 2 0 00-2-2z"/></svg>
         </div>
         <div class="config-item-text">
-          <h3>Prompt habits</h3>
-          <p>Repeated asks, scoping, verification</p>
+          <h3>Your intent</h3>
+          <p>What you actually wanted the agent to do</p>
         </div>
       </div>
       <div class="config-item">
@@ -629,26 +625,26 @@
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1L1 6l9 4.5L19 6 10-1z"/><path d="M1 14l9 4.5L19 14"/><path d="M1 10l9 4.5L19 10"/></svg>
         </div>
         <div class="config-item-text">
-          <h3>Workflow patterns</h3>
-          <p>Discovery, diagnosis, validation</p>
+          <h3>Model interpretation</h3>
+          <p>How the agent framed and understood it</p>
+        </div>
+      </div>
+      <div class="config-item">
+        <div class="config-item-icon" style="background: var(--danger-light); color: var(--danger);">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="8"/><path d="M9 5v4M9 13h.01"/></svg>
+        </div>
+        <div class="config-item-text">
+          <h3>Confusion points</h3>
+          <p>Where the model went off track and why</p>
         </div>
       </div>
       <div class="config-item">
         <div class="config-item-icon" style="background: var(--good-light); color: var(--good);">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="16" height="12" rx="2"/><path d="M6 18h6M9 14v4"/></svg>
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12l4 4L15 4"/></svg>
         </div>
         <div class="config-item-text">
-          <h3>Tool usage</h3>
-          <p>Calls, latency, failures</p>
-        </div>
-      </div>
-      <div class="config-item">
-        <div class="config-item-icon" style="background: var(--warn-light); color: var(--warn);">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="2.5"/><path d="M14.5 11.5a1.3 1.3 0 00.25 1.4 1.6 1.6 0 01-2.25 2.25 1.3 1.3 0 00-1.4-.25 1.3 1.3 0 00-.8 1.2V16.5a1.6 1.6 0 01-3.2 0v-.07a1.3 1.3 0 00-.85-1.2 1.3 1.3 0 00-1.4.25A1.6 1.6 0 012.6 13.2a1.3 1.3 0 00.25-1.4 1.3 1.3 0 00-1.2-.8H1.5a1.6 1.6 0 010-3.2h.07a1.3 1.3 0 001.2-.85 1.3 1.3 0 00-.25-1.4A1.6 1.6 0 014.77 3.3a1.3 1.3 0 001.4.25A1.3 1.3 0 007 2.35V1.5a1.6 1.6 0 013.2 0v.07a1.3 1.3 0 00.8 1.2 1.3 1.3 0 001.4-.25 1.6 1.6 0 012.25 2.25 1.3 1.3 0 00-.25 1.4 1.3 1.3 0 001.2.8h.9a1.6 1.6 0 010 3.2h-.07a1.3 1.3 0 00-1.18.81z"/></svg>
-        </div>
-        <div class="config-item-text">
-          <h3>Model behavior</h3>
-          <p>Latency, token cost, response mix</p>
+          <h3>Actionable advice</h3>
+          <p>Specific changes to prompt or scope better</p>
         </div>
       </div>
     </div>
@@ -656,55 +652,55 @@
 
   <div class="wrap divider"><hr></div>
 
-  <!-- ── BEFORE & AFTER ── -->
+  <!-- ── EXAMPLE ANALYSIS ── -->
   <section class="section wrap" id="before-after">
     <div class="section-header">
-      <div class="section-kicker">Example Report</div>
-      <h2 class="section-title">A readable summary of how the agent is being used</h2>
+      <div class="section-kicker">Example Analysis</div>
+      <h2 class="section-title">What a trace analysis looks like</h2>
     </div>
 
     <div class="ba-container">
       <div class="ba-card">
         <div class="ba-header">
-          <span class="ba-header-title">Example: Workflow feedback after repeated repo discovery</span>
-          <span class="mock-pill mock-pill--improved">High signal</span>
+          <span class="ba-header-title">Session: "Add retry logic to the API client"</span>
+          <span class="mock-pill mock-pill--measuring">Misaligned</span>
         </div>
         <div class="ba-body">
           <div class="ba-timeline">
             <div class="ba-step">
-              <div class="ba-step-marker ba-step-marker--before">1</div>
+              <div class="ba-step-marker ba-step-marker--before">?</div>
               <div class="ba-step-content">
-                <h4>Observed pattern</h4>
-                <p>The user spends several early turns re-establishing file scope and verification intent.</p>
+                <h4>Your intent</h4>
+                <p>Add exponential backoff retry to the existing HTTP client in <code>pkg/api/client.go</code>.</p>
               </div>
             </div>
             <div class="ba-step">
-              <div class="ba-step-marker ba-step-marker--suggest">2</div>
+              <div class="ba-step-marker ba-step-marker--suggest">!</div>
               <div class="ba-step-content">
-                <h4>Report says</h4>
-                <p>"Start with concrete file discovery and state verification upfront to reduce repeated orientation."</p>
+                <h4>What the model did</h4>
+                <p>Replaced the entire HTTP client with a new abstraction layer, added 3 new files, and changed the call signature used by 12 other files.</p>
               </div>
             </div>
             <div class="ba-step">
-              <div class="ba-step-marker ba-step-marker--after">3</div>
+              <div class="ba-step-marker ba-step-marker--after">&rarr;</div>
               <div class="ba-step-content">
-                <h4>What to monitor next</h4>
-                <p><span class="highlight">Fewer recap turns</span>, <span class="highlight">clearer first useful responses</span></p>
+                <h4>What confused the model</h4>
+                <p>The prompt said "add retry logic" without specifying <span class="highlight">where to add it</span> or <span class="highlight">what to leave unchanged</span>. The model interpreted "add" as "redesign."</p>
               </div>
             </div>
           </div>
           <div class="ba-metrics">
             <div class="ba-metric">
-              <div class="ba-metric-value">-22%</div>
-              <div class="ba-metric-label">Token reduction signal</div>
+              <div class="ba-metric-value">15 files</div>
+              <div class="ba-metric-label">Changed (expected: 1)</div>
             </div>
             <div class="ba-metric">
-              <div class="ba-metric-value">-37%</div>
-              <div class="ba-metric-label">Repeated-query signal</div>
+              <div class="ba-metric-value">Scope</div>
+              <div class="ba-metric-label">Primary confusion source</div>
             </div>
             <div class="ba-metric">
-              <div class="ba-metric-value">0%</div>
-              <div class="ba-metric-label">Auto-applied changes</div>
+              <div class="ba-metric-value">High</div>
+              <div class="ba-metric-label">Confidence</div>
             </div>
           </div>
         </div>
@@ -717,12 +713,12 @@
   <!-- ── LOGIN ── -->
   <section class="login-section wrap" id="login">
     <div class="login-copy">
-      <h2>Turn usage into feedback reports</h2>
-      <p>Sign in to connect your coding agents. AgentOpt will observe sessions and publish readable workflow reports.</p>
+      <h2>Stop guessing what your Codex agent did wrong</h2>
+      <p>Sign in and connect your Codex CLI. AgentOpt will read session traces and explain exactly where intent and execution diverged.</p>
       <ul class="login-features">
-        <li>User-readable reports instead of auto-edited instructions</li>
-        <li>Prompt, tool, and response patterns summarized in one place</li>
-        <li>Nothing is pushed back into your local agent automatically</li>
+        <li>See what you asked vs. what the model actually understood</li>
+        <li>Find the exact point where the model went off track</li>
+        <li>Get concrete advice to prompt more effectively next time</li>
       </ul>
     </div>
 
@@ -752,7 +748,7 @@
 
   <footer class="footer">
     <div class="footer-inner">
-      <span class="footer-copy">AgentOpt &middot; AI Workflow Feedback For Coding Agents</span>
+      <span class="footer-copy">AgentOpt &middot; Understand What Your Codex Agent Actually Did</span>
       <ul class="footer-links">
         <li><a href="https://github.com/Royaltyprogram/aiops" target="_blank" rel="noopener">GitHub</a></li>
         <li><a href="/healthz">Status</a></li>
