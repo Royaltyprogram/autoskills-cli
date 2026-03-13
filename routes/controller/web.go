@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/Royaltyprogram/aiops/service"
 )
 
-//go:embed assets/dashboard.html assets/landing.html assets/dashboard.css assets/dashboard.js assets/logo.svg
+//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/landing.html assets/dashboard.css assets/dashboard.js assets/logo.svg
 var uiFS embed.FS
 
 type DashboardRoute struct {
@@ -24,6 +27,7 @@ func NewDashboardRoute(opt Options) *DashboardRoute {
 func (r *DashboardRoute) RegisterRoute(router *echo.Group) {
 	router.GET("/", r.landing)
 	router.GET("/dashboard", r.dashboard)
+	router.GET("/admin", r.admin)
 	router.GET("/assets/:name", r.asset)
 }
 
@@ -37,6 +41,22 @@ func (r *DashboardRoute) landing(c *echo.Context) error {
 
 func (r *DashboardRoute) dashboard(c *echo.Context) error {
 	page, err := uiFS.ReadFile("assets/dashboard.html")
+	if err != nil {
+		return err
+	}
+	return c.HTML(http.StatusOK, string(page))
+}
+
+func (r *DashboardRoute) admin(c *echo.Context) error {
+	identity, ok := r.webSessionIdentity(c)
+	if !ok {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	if strings.ToLower(strings.TrimSpace(identity.UserRole)) != "admin" {
+		return c.Redirect(http.StatusSeeOther, "/dashboard")
+	}
+
+	page, err := uiFS.ReadFile("assets/admin.html")
 	if err != nil {
 		return err
 	}
@@ -60,4 +80,22 @@ func (r *DashboardRoute) asset(c *echo.Context) error {
 	}
 
 	return c.Blob(http.StatusOK, contentType, body)
+}
+
+func (r *DashboardRoute) webSessionIdentity(c *echo.Context) (service.AuthIdentity, bool) {
+	if r.AnalyticsService == nil || r.AnalyticsService.AnalyticsStore == nil {
+		return service.AuthIdentity{}, false
+	}
+	cookie, err := c.Cookie(service.WebSessionCookieName)
+	if err != nil || cookie == nil {
+		return service.AuthIdentity{}, false
+	}
+	identity, ok := r.AnalyticsService.AnalyticsStore.ValidateAccessToken(strings.TrimSpace(cookie.Value))
+	if !ok || identity == nil {
+		return service.AuthIdentity{}, false
+	}
+	if identity.TokenKind != service.TokenKindWebSession {
+		return service.AuthIdentity{}, false
+	}
+	return *identity, true
 }

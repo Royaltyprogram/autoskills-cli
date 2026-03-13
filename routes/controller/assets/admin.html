@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crux Admin</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <style>
+    .admin-header-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+    }
+
+    .admin-header-meta {
+      color: var(--muted);
+      font-size: 14px;
+      max-width: 58ch;
+    }
+
+    .admin-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .admin-grid-wide {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1.5fr 1fr 1fr;
+    }
+
+    .admin-checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      padding-top: 8px;
+    }
+
+    .admin-helper {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 8px;
+    }
+
+    .admin-empty-note {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 860px) {
+      .admin-grid,
+      .admin-grid-wide {
+        grid-template-columns: 1fr;
+      }
+
+      .admin-header-row {
+        flex-direction: column;
+        align-items: start;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="dashboard is-visible">
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <span class="top-bar-brand">Crux Admin</span>
+        <div class="top-bar-context">
+          <div class="top-bar-sep"></div>
+          <span id="topBarOrg">-</span>
+          <div class="top-bar-sep"></div>
+          <span id="topBarUser">-</span>
+        </div>
+      </div>
+      <div class="top-bar-right">
+        <a class="secondary-button top-bar-btn" href="/dashboard">Dashboard</a>
+        <button id="refreshBtn" class="secondary-button top-bar-btn" type="button">Refresh</button>
+        <button id="signOutBtn" class="ghost-button top-bar-btn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div class="content-wrap">
+      <div class="status" id="status" data-tone="info" aria-live="polite">Loading admin data...</div>
+
+      <section class="section">
+        <div class="section-header admin-header-row">
+          <div>
+            <div class="section-kicker">Admin</div>
+            <div class="section-title">User Management</div>
+            <div class="admin-header-meta">Search beta users, create managed users, reset passwords, deactivate accounts, and soft-delete users without leaving the browser.</div>
+          </div>
+          <div class="pill pill-sky" id="adminBadge">Admin session</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div class="section-kicker">Directory</div>
+          <div class="section-title">Search and filter users</div>
+          <div class="section-desc">Filters run against the current organization only.</div>
+        </div>
+        <form id="filterForm">
+          <div class="admin-grid-wide">
+            <label class="field">
+              <span class="field-label">Search</span>
+              <input id="searchInput" type="text" placeholder="Email, name, or user ID">
+            </label>
+            <label class="field">
+              <span class="field-label">Role</span>
+              <select id="roleFilter">
+                <option value="">All roles</option>
+                <option value="admin">Admin</option>
+                <option value="member">Member</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Status</span>
+              <select id="statusFilter">
+                <option value="">Active + disabled</option>
+                <option value="active">Active</option>
+                <option value="disabled">Disabled</option>
+                <option value="deleted">Deleted</option>
+              </select>
+            </label>
+          </div>
+          <div class="action-row">
+            <label class="admin-checkbox-row">
+              <input id="includeDeleted" type="checkbox">
+              <span>Include deleted users</span>
+            </label>
+            <button class="secondary-button" type="submit">Apply filters</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div class="section-kicker">Provisioning</div>
+          <div class="section-title">Create a managed user</div>
+          <div class="section-desc">Use this for operational test accounts and real beta users after the first bootstrap admin exists.</div>
+        </div>
+        <form id="createUserForm">
+          <div class="admin-grid">
+            <label class="field">
+              <span class="field-label">Name</span>
+              <input id="createName" type="text" placeholder="Beta Operator">
+            </label>
+            <label class="field">
+              <span class="field-label">Email</span>
+              <input id="createEmail" type="email" placeholder="operator@example.com">
+            </label>
+            <label class="field">
+              <span class="field-label">Role</span>
+              <select id="createRole">
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Initial password</span>
+              <input id="createPassword" type="password" placeholder="Temporary password">
+            </label>
+          </div>
+          <div class="action-row">
+            <button class="primary-button" type="submit">Create user</button>
+          </div>
+          <div class="admin-helper">New users are created as `managed` accounts inside the current organization.</div>
+        </form>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div class="section-kicker">Accounts</div>
+          <div class="section-title">Current organization users</div>
+          <div class="section-desc" id="listSummary">Loading users...</div>
+        </div>
+        <div class="list" id="userList"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/assets/admin.js"></script>
+</body>
+
+</html>

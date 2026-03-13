@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Royaltyprogram/aiops/configs"
+	"github.com/Royaltyprogram/aiops/dto/request"
 	"github.com/Royaltyprogram/aiops/routes"
 	"github.com/Royaltyprogram/aiops/routes/controller"
 	"github.com/Royaltyprogram/aiops/service"
@@ -79,6 +80,7 @@ func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `data-action="refresh-dashboard"`)
 	require.NotContains(t, rec.Body.String(), "Approve with confidence. Measure what changed.")
 	require.NotContains(t, rec.Body.String(), `id="loginForm"`)
+	require.Contains(t, rec.Body.String(), `id="adminLink"`)
 }
 
 func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
@@ -109,6 +111,11 @@ func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
 			contentType: "javascript",
 			bodySnippet: `window.location.replace("/")`,
 		},
+		{
+			path:        "/assets/admin.js",
+			contentType: "javascript",
+			bodySnippet: `/api/v1/admin/users`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -121,4 +128,122 @@ func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
 		require.Contains(t, rec.Header().Get("Content-Type"), tc.contentType, tc.path)
 		require.Contains(t, rec.Body.String(), tc.bodySnippet, tc.path)
 	}
+}
+
+func TestAdminRouteRedirectsWithoutWebSession(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewDashboardRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	})
+	route.RegisterRoute(echo.Group(""))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/", rec.Header().Get("Location"))
+}
+
+func TestAdminRouteServesPageForAdminSession(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	}).RegisterRoute(echo.Group(""))
+	controller.NewDashboardRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	}).RegisterRoute(echo.Group(""))
+
+	loginRec := postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "demo@example.com",
+		Password: "demo1234",
+	})
+	sessionCookie := requireCookie(t, loginRec, service.WebSessionCookieName)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "User Management")
+	require.Contains(t, rec.Body.String(), `<script src="/assets/admin.js"></script>`)
+}
+
+func TestAdminRouteRedirectsNonAdminToDashboard(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+	conf.Auth.BootstrapUsers = []configs.BootstrapUser{{
+		ID:       "member-1",
+		OrgID:    "member-org",
+		OrgName:  "Member Org",
+		Email:    "member@example.com",
+		Name:     "Member User",
+		Role:     "member",
+		Password: "member-pass",
+	}}
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	}).RegisterRoute(echo.Group(""))
+	controller.NewDashboardRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	}).RegisterRoute(echo.Group(""))
+
+	loginRec := postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/login", request.LoginReq{
+		Email:    "member@example.com",
+		Password: "member-pass",
+	})
+	sessionCookie := requireCookie(t, loginRec, service.WebSessionCookieName)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/dashboard", rec.Header().Get("Location"))
 }
