@@ -1589,47 +1589,96 @@ func (s *AnalyticsService) currentReportsLocked(projectID string) []*Report {
 func (s *AnalyticsService) prepareReportRefreshLocked(project *Project, triggerSessionID string) ([]*Report, *reportRefreshJob) {
 	sessions := s.AnalyticsStore.sessionSummaries[project.ID]
 	rawQueries := collectRawQueries(sessions)
+	currentReports := s.currentReportsLocked(project.ID)
+	currentStatus := s.AnalyticsStore.reportResearch[project.ID]
+	sessionCount := len(sessions)
 	status := ReportResearchStatus{
 		ProjectID:        project.ID,
 		Provider:         s.researchAgent.Provider,
 		Model:            s.researchAgent.Model,
 		MinimumSessions:  s.reportMinSessions,
-		SessionCount:     len(sessions),
+		SessionCount:     sessionCount,
 		RawQueryCount:    len(rawQueries),
 		TriggerSessionID: triggerSessionID,
-		ReportCount:      len(s.currentReportsLocked(project.ID)),
+		ReportCount:      len(currentReports),
 	}
 	triggeredAt := time.Now().UTC()
 	status.TriggeredAt = cloneTime(&triggeredAt)
-	if len(sessions) < s.reportMinSessions {
+	if currentStatus != nil && currentStatus.SessionCount == sessionCount {
+		return currentReports, nil
+	}
+	if sessionCount < s.reportMinSessions {
 		status.State = "waiting_for_min_sessions"
-		status.Summary = fmt.Sprintf("Collected %d of %d sessions needed before generating the first feedback report.", len(sessions), s.reportMinSessions)
+		status.Summary = fmt.Sprintf("Collected %d of %d sessions needed before generating the first feedback report.", sessionCount, s.reportMinSessions)
 		s.setReportResearchStatusLocked(project.ID, status)
-		return s.currentReportsLocked(project.ID), nil
+		return currentReports, nil
+	}
+	if !shouldRefreshReportsForSessionCount(sessionCount, s.reportMinSessions) {
+		if currentStatus != nil && strings.EqualFold(strings.TrimSpace(currentStatus.State), "running") {
+			return currentReports, nil
+		}
+		preserveReportResearchHistory(&status, currentStatus)
+		status.State = "waiting_for_next_batch"
+		nextRefreshAt := nextReportRefreshSessionCount(sessionCount, s.reportMinSessions)
+		if len(currentReports) > 0 {
+			status.Summary = fmt.Sprintf("Collected %d sessions. The current feedback report stays active until %d sessions are collected for the next refresh.", sessionCount, nextRefreshAt)
+		} else {
+			status.Summary = fmt.Sprintf("Collected %d sessions. The next feedback analysis starts at %d sessions.", sessionCount, nextRefreshAt)
+		}
+		s.setReportResearchStatusLocked(project.ID, status)
+		return currentReports, nil
 	}
 	if strings.TrimSpace(s.researchAgent.apiKey) == "" {
 		status.State = "disabled"
 		status.Summary = "OpenAI-backed report research is disabled on this server, so no new feedback reports will be generated."
 		s.setReportResearchStatusLocked(project.ID, status)
-		return s.currentReportsLocked(project.ID), nil
+		return currentReports, nil
 	}
 	if len(rawQueries) == 0 {
 		status.State = "missing_raw_queries"
 		status.Summary = "Uploaded sessions are missing raw query evidence, so the server cannot generate a targeted feedback report yet."
 		s.setReportResearchStatusLocked(project.ID, status)
-		return s.currentReportsLocked(project.ID), nil
+		return currentReports, nil
 	}
 	status.State = "running"
 	status.Summary = fmt.Sprintf("Preparing the next feedback report with %s while uploaded sessions are analyzed in the background.", s.researchAgent.Provider)
 	status.StartedAt = cloneTime(&triggeredAt)
 	s.setReportResearchStatusLocked(project.ID, status)
-	return s.currentReportsLocked(project.ID), &reportRefreshJob{
+	return currentReports, &reportRefreshJob{
 		project:          cloneProject(project),
 		sessions:         cloneSessionSummaries(sessions),
 		snapshots:        cloneConfigSnapshots(s.AnalyticsStore.configSnapshots[project.ID]),
 		triggerSessionID: triggerSessionID,
 		triggeredAt:      triggeredAt,
 	}
+}
+
+func shouldRefreshReportsForSessionCount(sessionCount, batchSize int) bool {
+	if sessionCount <= 0 || batchSize <= 0 {
+		return false
+	}
+	return sessionCount >= batchSize && sessionCount%batchSize == 0
+}
+
+func nextReportRefreshSessionCount(sessionCount, batchSize int) int {
+	if batchSize <= 0 {
+		return 0
+	}
+	if sessionCount < batchSize {
+		return batchSize
+	}
+	return ((sessionCount / batchSize) + 1) * batchSize
+}
+
+func preserveReportResearchHistory(dst, src *ReportResearchStatus) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.LastError = src.LastError
+	dst.StartedAt = cloneTime(src.StartedAt)
+	dst.CompletedAt = cloneTime(src.CompletedAt)
+	dst.LastSuccessfulAt = cloneTime(src.LastSuccessfulAt)
+	dst.LastDurationMS = src.LastDurationMS
 }
 
 func (s *AnalyticsService) enqueueReportRefresh(job *reportRefreshJob) {

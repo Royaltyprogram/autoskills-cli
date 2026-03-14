@@ -270,6 +270,134 @@ func TestAnalyticsRouteLifecycle(t *testing.T) {
 	require.NotEmpty(t, auditResp.Items)
 }
 
+func TestAnalyticsRouteRefreshesReportsEveryBatchOfSessions(t *testing.T) {
+	conf := newRouteResearchConfig(t)
+	conf.App.APIToken = "route-token"
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 10,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	})
+	route.RegisterRoute(echo.Group(""))
+
+	agentResp := postJSON[response.AgentRegistrationResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/agents/register", request.RegisterAgentReq{
+		OrgID:      "org-batch",
+		UserID:     "user-batch",
+		DeviceName: "batch-mbp",
+	})
+	projectResp := postJSON[response.ProjectRegistrationResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/projects/register", request.RegisterProjectReq{
+		OrgID:       "org-batch",
+		AgentID:     agentResp.AgentID,
+		Name:        "batch-project",
+		RepoHash:    "batch-project-hash",
+		DefaultTool: "codex",
+	})
+
+	baseTime := time.Now().UTC().Round(time.Second)
+	for i := 1; i <= 9; i++ {
+		resp := postJSON[response.SessionIngestResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
+			ProjectID: projectResp.ProjectID,
+			Tool:      "codex",
+			RawQueries: []string{
+				"Inspect the batch refresh policy before editing it.",
+				"Confirm when the next report refresh should run.",
+			},
+			Timestamp: baseTime.Add(time.Duration(i) * time.Minute),
+		})
+		require.NotNil(t, resp.ResearchStatus)
+		require.Equal(t, "waiting_for_min_sessions", resp.ResearchStatus.State)
+		require.Equal(t, i, resp.ResearchStatus.SessionCount)
+	}
+
+	tenthResp := postJSON[response.SessionIngestResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
+		ProjectID: projectResp.ProjectID,
+		Tool:      "codex",
+		RawQueries: []string{
+			"Generate the first report now that ten sessions are available.",
+		},
+		Timestamp: baseTime.Add(10 * time.Minute),
+	})
+	require.NotNil(t, tenthResp.ResearchStatus)
+	require.Equal(t, "running", tenthResp.ResearchStatus.State)
+
+	statusAfterTen := waitForDashboardResearchStatus(t, echo, conf.App.APIToken, "org-batch", func(item *response.ReportResearchStatusResp) bool {
+		return item != nil && item.State == "succeeded" && item.SessionCount == 10
+	})
+	require.Equal(t, 1, statusAfterTen.ReportCount)
+
+	reportsAfterTen := getJSON[response.ReportListResp](t, echo, conf.App.APIToken, "/api/v1/reports", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.Len(t, reportsAfterTen.Items, 1)
+	firstReportID := reportsAfterTen.Items[0].ID
+
+	eleventhResp := postJSON[response.SessionIngestResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
+		ProjectID: projectResp.ProjectID,
+		Tool:      "codex",
+		RawQueries: []string{
+			"Keep the current report active until the next batch boundary.",
+		},
+		Timestamp: baseTime.Add(11 * time.Minute),
+	})
+	require.NotNil(t, eleventhResp.ResearchStatus)
+	require.Equal(t, "waiting_for_next_batch", eleventhResp.ResearchStatus.State)
+	require.Equal(t, 11, eleventhResp.ResearchStatus.SessionCount)
+	require.Contains(t, eleventhResp.ResearchStatus.Summary, "20 sessions")
+
+	reportsAfterEleven := getJSON[response.ReportListResp](t, echo, conf.App.APIToken, "/api/v1/reports", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.Len(t, reportsAfterEleven.Items, 1)
+	require.Equal(t, firstReportID, reportsAfterEleven.Items[0].ID)
+
+	for i := 12; i <= 19; i++ {
+		resp := postJSON[response.SessionIngestResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
+			ProjectID: projectResp.ProjectID,
+			Tool:      "codex",
+			RawQueries: []string{
+				"Accumulate more sessions before the next report refresh.",
+			},
+			Timestamp: baseTime.Add(time.Duration(i) * time.Minute),
+		})
+		require.NotNil(t, resp.ResearchStatus)
+		require.Equal(t, "waiting_for_next_batch", resp.ResearchStatus.State)
+	}
+
+	twentiethResp := postJSON[response.SessionIngestResp](t, echo, conf.App.APIToken, http.MethodPost, "/api/v1/session-summaries", request.SessionSummaryReq{
+		ProjectID: projectResp.ProjectID,
+		Tool:      "codex",
+		RawQueries: []string{
+			"Refresh the report now that the second batch is complete.",
+		},
+		Timestamp: baseTime.Add(20 * time.Minute),
+	})
+	require.NotNil(t, twentiethResp.ResearchStatus)
+	require.Equal(t, "running", twentiethResp.ResearchStatus.State)
+
+	statusAfterTwenty := waitForDashboardResearchStatus(t, echo, conf.App.APIToken, "org-batch", func(item *response.ReportResearchStatusResp) bool {
+		return item != nil && item.State == "succeeded" && item.SessionCount == 20
+	})
+	require.Equal(t, 1, statusAfterTwenty.ReportCount)
+
+	reportsAfterTwenty := getJSON[response.ReportListResp](t, echo, conf.App.APIToken, "/api/v1/reports", url.Values{
+		"project_id": []string{projectResp.ProjectID},
+	})
+	require.Len(t, reportsAfterTwenty.Items, 1)
+	require.NotEqual(t, firstReportID, reportsAfterTwenty.Items[0].ID)
+}
+
 func newRouteResearchConfig(t *testing.T) *configs.Config {
 	t.Helper()
 
