@@ -24,26 +24,28 @@ import (
 )
 
 type state struct {
-	ServerURL   string `json:"server_url"`
-	APIToken    string `json:"api_token"`
-	OrgID       string `json:"org_id"`
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	DeviceName  string `json:"device_name"`
-	Hostname    string `json:"hostname"`
-	WorkspaceID string `json:"workspace_id,omitempty"`
+	ServerURL                 string               `json:"server_url"`
+	APIToken                  string               `json:"api_token"`
+	OrgID                     string               `json:"org_id"`
+	UserID                    string               `json:"user_id"`
+	AgentID                   string               `json:"agent_id"`
+	DeviceName                string               `json:"device_name"`
+	Hostname                  string               `json:"hostname"`
+	WorkspaceID               string               `json:"workspace_id,omitempty"`
+	LastUploadedSessionCursor *sessionUploadCursor `json:"last_uploaded_session_cursor,omitempty"`
 }
 
 type stateDisk struct {
-	ServerURL       string `json:"server_url"`
-	APIToken        string `json:"api_token"`
-	OrgID           string `json:"org_id"`
-	UserID          string `json:"user_id"`
-	AgentID         string `json:"agent_id"`
-	DeviceName      string `json:"device_name"`
-	Hostname        string `json:"hostname"`
-	WorkspaceID     string `json:"workspace_id,omitempty"`
-	LegacyProjectID string `json:"project_id,omitempty"`
+	ServerURL                 string               `json:"server_url"`
+	APIToken                  string               `json:"api_token"`
+	OrgID                     string               `json:"org_id"`
+	UserID                    string               `json:"user_id"`
+	AgentID                   string               `json:"agent_id"`
+	DeviceName                string               `json:"device_name"`
+	Hostname                  string               `json:"hostname"`
+	WorkspaceID               string               `json:"workspace_id,omitempty"`
+	LegacyProjectID           string               `json:"project_id,omitempty"`
+	LastUploadedSessionCursor *sessionUploadCursor `json:"last_uploaded_session_cursor,omitempty"`
 }
 
 const sharedWorkspaceName = "Shared workspace"
@@ -195,7 +197,7 @@ Use ` + "`crux help`" + ` for advanced commands.`)
 
 func printUsage() {
 	fmt.Println(`Crux quickstart:
-  setup             register this device, connect the current repo, upload initial local data, and enable background collection when supported
+  setup             register this device, connect the current repo, backfill local Codex history on first setup, and enable background collection when supported
 
 Common commands:
   status            print org overview and shared workspace feedback reports
@@ -292,9 +294,9 @@ func runSetup(args []string) error {
 	device := fs.String("device", "", "device name")
 	codexHome := fs.String("codex-home", "", "override Codex home used for initial session collection")
 	recent := fs.Int("recent", 1, "number of recent local Codex session JSONL files to upload during setup")
-	upload := fs.Bool("upload", true, "upload an initial snapshot and recent local session after connecting")
+	upload := fs.Bool("upload", true, "upload an initial snapshot and local session history after connecting; first setup backfills all local Codex sessions")
 	background := fs.Bool("background", true, "enable background collection automatically when supported")
-	backgroundInterval := fs.Duration("background-interval", 30*time.Minute, "poll interval for background collection")
+	backgroundInterval := fs.Duration("background-interval", 30*time.Minute, "fallback scan interval for background collection")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -304,6 +306,7 @@ func runSetup(args []string) error {
 	if *backgroundInterval <= 0 {
 		return errors.New("setup --background-interval must be greater than zero")
 	}
+	initialWorkspaceSetup := shouldBackfillFullHistoryOnSetup()
 
 	fmt.Fprintf(os.Stderr, "Registering this device with %s\n", strings.TrimRight(*server, "/"))
 	st, loginResp, err := loginAndSaveState(loginOptions{
@@ -330,9 +333,17 @@ func runSetup(args []string) error {
 
 	var collectResp *collectRunResp
 	if *upload {
-		fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the latest local Codex session")
+		uploadRecent := *recent
+		if initialWorkspaceSetup {
+			uploadRecent = 0
+			fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the full local Codex session history")
+		} else if *recent == 1 {
+			fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the latest local Codex session")
+		} else {
+			fmt.Fprintf(os.Stderr, "Uploading an initial snapshot and the latest %d local Codex sessions\n", *recent)
+		}
 		client := newAPIClient(st.ServerURL, st.APIToken)
-		resp, err := runCollectOnce(st, client, "", "default", "codex", "", *codexHome, *recent, collectSnapshotModeChanged)
+		resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, uploadRecent, collectSnapshotModeChanged)
 		if err != nil {
 			return err
 		}
@@ -374,6 +385,14 @@ func runSetup(args []string) error {
 		Collect:       collectResp,
 		Background:    backgroundResp,
 	})
+}
+
+func shouldBackfillFullHistoryOnSetup() bool {
+	_, err := loadWorkspaceState()
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, errStateNotFound) || errors.Is(err, errWorkspaceNotConnected)
 }
 
 func runSnapshot(args []string) error {
@@ -554,10 +573,11 @@ func runStatus(args []string) error {
 	}
 
 	payload := map[string]any{
-		"workspace_id":   st.workspaceID(),
-		"workspace_name": sharedWorkspaceName,
-		"overview":       overview,
-		"reports":        recs.Items,
+		"workspace_id":                 st.workspaceID(),
+		"workspace_name":               sharedWorkspaceName,
+		"last_uploaded_session_cursor": cloneSessionUploadCursor(st.LastUploadedSessionCursor),
+		"overview":                     overview,
+		"reports":                      recs.Items,
 	}
 	return prettyPrint(payload)
 }
@@ -578,7 +598,7 @@ func runWorkspace(args []string) error {
 	if err := client.doJSON(http.MethodGet, "/api/v1/projects?org_id="+url.QueryEscape(st.OrgID), nil, &resp); err != nil {
 		return err
 	}
-	return prettyPrint(resp)
+	return prettyPrint(workspaceScopedItems(st, resp.Items))
 }
 
 func runAudit(args []string) error {
@@ -848,14 +868,15 @@ func loadState() (state, error) {
 		return state{}, err
 	}
 	return state{
-		ServerURL:   disk.ServerURL,
-		APIToken:    disk.APIToken,
-		OrgID:       disk.OrgID,
-		UserID:      disk.UserID,
-		AgentID:     disk.AgentID,
-		DeviceName:  disk.DeviceName,
-		Hostname:    disk.Hostname,
-		WorkspaceID: firstNonEmpty(disk.WorkspaceID, disk.LegacyProjectID),
+		ServerURL:                 disk.ServerURL,
+		APIToken:                  disk.APIToken,
+		OrgID:                     disk.OrgID,
+		UserID:                    disk.UserID,
+		AgentID:                   disk.AgentID,
+		DeviceName:                disk.DeviceName,
+		Hostname:                  disk.Hostname,
+		WorkspaceID:               firstNonEmpty(disk.WorkspaceID, disk.LegacyProjectID),
+		LastUploadedSessionCursor: cloneSessionUploadCursor(disk.LastUploadedSessionCursor),
 	}, nil
 }
 
@@ -879,14 +900,15 @@ func saveState(st state) error {
 		return err
 	}
 	payload := stateDisk{
-		ServerURL:   st.ServerURL,
-		APIToken:    st.APIToken,
-		OrgID:       st.OrgID,
-		UserID:      st.UserID,
-		AgentID:     st.AgentID,
-		DeviceName:  st.DeviceName,
-		Hostname:    st.Hostname,
-		WorkspaceID: st.workspaceID(),
+		ServerURL:                 st.ServerURL,
+		APIToken:                  st.APIToken,
+		OrgID:                     st.OrgID,
+		UserID:                    st.UserID,
+		AgentID:                   st.AgentID,
+		DeviceName:                st.DeviceName,
+		Hostname:                  st.Hostname,
+		WorkspaceID:               st.workspaceID(),
+		LastUploadedSessionCursor: cloneSessionUploadCursor(st.LastUploadedSessionCursor),
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -921,9 +943,10 @@ func normalizeRepoPath(path string) (string, error) {
 
 func workspaceScopedItems(st state, items any) map[string]any {
 	return map[string]any{
-		"workspace_id":   st.workspaceID(),
-		"workspace_name": sharedWorkspaceName,
-		"items":          items,
+		"workspace_id":                 st.workspaceID(),
+		"workspace_name":               sharedWorkspaceName,
+		"last_uploaded_session_cursor": cloneSessionUploadCursor(st.LastUploadedSessionCursor),
+		"items":                        items,
 	}
 }
 
@@ -993,6 +1016,39 @@ func readOptionalJSONMap(path string, out *map[string]any) (bool, error) {
 	return true, json.Unmarshal(data, out)
 }
 
+func loadCodexParsedSessions(codexHome, tool string) ([]codexParsedSession, error) {
+	sessionFiles, err := listCodexSessionFiles(codexHome)
+	if err != nil {
+		return nil, err
+	}
+	parsedSessions := make([]codexParsedSession, 0, len(sessionFiles))
+	for _, sessionFile := range sessionFiles {
+		parsed, err := collectCodexParsedSession(sessionFile.path, tool)
+		if err != nil {
+			if isCodexSkippableSessionError(err) {
+				continue
+			}
+			return nil, err
+		}
+		if parsed.classification != codexSessionClassificationPrimary {
+			continue
+		}
+		parsed.tailPath = sessionFile.path
+		parsed.tailModTime = sessionFile.modTime
+		parsed.tailSize = sessionFile.size
+		parsedSessions = append(parsedSessions, parsed)
+	}
+	parsedSessions = coalesceCodexParsedSessions(parsedSessions)
+	if len(parsedSessions) == 0 {
+		root, rootErr := codexHomePath(codexHome)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		return nil, fmt.Errorf("no Codex sessions found under %s; pass --file or set --codex-home", filepath.Join(root, "sessions"))
+	}
+	return parsedSessions, nil
+}
+
 func loadSessionSummaryInputs(path, tool, codexHome string, recent int) ([]request.SessionSummaryReq, error) {
 	if strings.TrimSpace(path) != "" {
 		if strings.EqualFold(filepath.Ext(path), ".jsonl") {
@@ -1009,17 +1065,22 @@ func loadSessionSummaryInputs(path, tool, codexHome string, recent int) ([]reque
 		return []request.SessionSummaryReq{req}, nil
 	}
 
-	sessionPaths, err := recentCodexSessionFiles(codexHome, recent)
+	parsedSessions, err := loadCodexParsedSessions(codexHome, tool)
 	if err != nil {
 		return nil, err
 	}
-	reqs := make([]request.SessionSummaryReq, 0, len(sessionPaths))
-	for _, sessionPath := range sessionPaths {
-		req, err := collectCodexSessionSummary(sessionPath, tool)
-		if err != nil {
-			return nil, err
-		}
-		reqs = append(reqs, req)
+
+	collectAll := recent < 1
+	reqCapacity := recent
+	if collectAll || reqCapacity > len(parsedSessions) {
+		reqCapacity = len(parsedSessions)
+	}
+	reqs := make([]request.SessionSummaryReq, 0, reqCapacity)
+	for idx := len(parsedSessions) - 1; idx >= 0 && (collectAll || len(reqs) < recent); idx-- {
+		reqs = append(reqs, parsedSessions[idx].req)
+	}
+	for left, right := 0, len(reqs)-1; left < right; left, right = left+1, right-1 {
+		reqs[left], reqs[right] = reqs[right], reqs[left]
 	}
 	return reqs, nil
 }

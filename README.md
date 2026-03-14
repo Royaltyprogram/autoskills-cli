@@ -32,7 +32,7 @@ Detailed codebase documentation:
 - `crux session` auto-collects the latest local Codex session from `~/.codex/sessions` when `--file` is omitted
 - `crux session --recent N` uploads the most recent `N` local Codex sessions in chronological order
 - `crux collect` uploads session data now and can skip unchanged snapshots by default
-- `crux collect --watch` can keep background collection running during onboarding and beta usage
+- `crux collect --watch` watches local Codex session files, uploads each new logical session after the saved cursor, and keeps the interval as a fallback scan
 - Feedback reports now wait until at least `10` uploaded sessions exist before the server publishes the first report
 
 ## Quickstart
@@ -72,7 +72,7 @@ Release installs use a prebuilt binary, so Go is not required. If your shell can
 On supported installed macOS environments, `crux setup` also enrolls background collection automatically. On other environments it prints the manual fallback command, typically `crux collect --watch --recent 1 --interval 30m`.
 After setup, plain `crux` now works as the default entrypoint: it shows the setup hint when the CLI is not configured yet, and otherwise prints the current shared-workspace status.
 
-For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `crux setup --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted and automatically registers the device, connects the current repo, and uploads an initial snapshot plus the latest local Codex session.
+For local development, open `http://127.0.0.1:8082/`, sign in with `demo@example.com / demo1234`, issue a CLI token from the dashboard, and run `crux setup --server http://127.0.0.1:8082` on the machine you want to connect. The CLI prompts for the issued token if `--token` is omitted and automatically registers the device, connects the current repo, and uploads an initial snapshot plus local Codex session history on first setup.
 
 For closed beta or production, disable the demo path and seed named beta accounts through env:
 
@@ -107,7 +107,7 @@ If you want to keep uploads flowing in the background, keep the collector runnin
 crux collect --watch --recent 1 --interval 30m
 ```
 
-Installed macOS release builds usually do this automatically during `crux setup`. Keep the manual command for source development, Linux hosts, or any environment where setup reports `background.status` as `manual_only` or `failed`.
+Installed macOS release builds usually do this automatically during `crux setup`. The watcher reacts to session file changes and uses `--interval` only as a fallback scan, while the saved session cursor makes sure every new logical session after the cursor is uploaded. Keep the manual command for source development, Linux hosts, or any environment where setup reports `background.status` as `manual_only` or `failed`.
 
 If you want a one-off manual upload instead, keep using `crux collect --codex-home ~/.codex`.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -175,6 +176,128 @@ func TestRunCollectSkipsUnchangedSnapshotAndHandlesMissingSessions(t *testing.T)
 	require.Equal(t, "no_local_sessions", payload.SessionStatus)
 	require.Zero(t, payload.SessionUploaded)
 	require.Equal(t, 0, postCount)
+}
+
+func TestRunCollectUploadsAllNewSessionsAfterCursor(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	codexHome := filepath.Join(root, ".codex")
+	baseTime := time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC)
+
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-1.jsonl"), baseTime, []string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"session-1","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nInspect session cursor handling."}}`,
+		`{"timestamp":"2026-03-10T08:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"I inspected the session cursor handling."}}`,
+	})
+
+	sessionReqs := make([]request.SessionSummaryReq, 0, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
+			var sessionReq request.SessionSummaryReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
+			sessionReqs = append(sessionReqs, sessionReq)
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionIngestResp{
+					SessionID:  sessionReq.SessionID,
+					ProjectID:  sessionReq.ProjectID,
+					RecordedAt: sessionReq.Timestamp,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	require.NoError(t, saveState(state{
+		ServerURL:   server.URL,
+		APIToken:    "token-collect",
+		OrgID:       "org-1",
+		UserID:      "user-1",
+		WorkspaceID: "project-1",
+	}))
+
+	firstOutput := captureStdout(t, func() {
+		require.NoError(t, runCollect([]string{"--codex-home", codexHome, "--recent", "1", "--snapshot-mode", "skip"}))
+	})
+
+	var firstPayload collectRunResp
+	require.NoError(t, json.Unmarshal([]byte(firstOutput), &firstPayload))
+	require.Equal(t, "uploaded", firstPayload.SessionStatus)
+	require.Equal(t, 1, firstPayload.SessionUploaded)
+
+	st, err := loadState()
+	require.NoError(t, err)
+	require.NotNil(t, st.LastUploadedSessionCursor)
+	require.Equal(t, "session-1", st.LastUploadedSessionCursor.SessionID)
+
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-2.jsonl"), baseTime.Add(2*time.Minute), []string{
+		`{"timestamp":"2026-03-10T08:02:00Z","type":"session_meta","payload":{"id":"session-2","timestamp":"2026-03-10T08:02:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:02:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nUpload every new logical session after the cursor."}}`,
+		`{"timestamp":"2026-03-10T08:02:02Z","type":"event_msg","payload":{"type":"agent_message","message":"I will upload every new logical session after the cursor."}}`,
+	})
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-3.jsonl"), baseTime.Add(4*time.Minute), []string{
+		`{"timestamp":"2026-03-10T08:04:00Z","type":"session_meta","payload":{"id":"session-3","timestamp":"2026-03-10T08:04:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:04:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nVerify the collector no longer drops older new sessions."}}`,
+		`{"timestamp":"2026-03-10T08:04:02Z","type":"event_msg","payload":{"type":"agent_message","message":"I verified the collector no longer drops older new sessions."}}`,
+	})
+
+	secondOutput := captureStdout(t, func() {
+		require.NoError(t, runCollect([]string{"--codex-home", codexHome, "--recent", "1", "--snapshot-mode", "skip"}))
+	})
+
+	var secondPayload collectRunResp
+	require.NoError(t, json.Unmarshal([]byte(secondOutput), &secondPayload))
+	require.Equal(t, "uploaded", secondPayload.SessionStatus)
+	require.Equal(t, 2, secondPayload.SessionUploaded)
+	require.Len(t, sessionReqs, 3)
+	require.Equal(t, []string{"session-1", "session-2", "session-3"}, []string{
+		sessionReqs[0].SessionID,
+		sessionReqs[1].SessionID,
+		sessionReqs[2].SessionID,
+	})
+
+	st, err = loadState()
+	require.NoError(t, err)
+	require.NotNil(t, st.LastUploadedSessionCursor)
+	require.Equal(t, "session-3", st.LastUploadedSessionCursor.SessionID)
+}
+
+func TestWatchCollectSessionChangesEmitsOnSessionWrite(t *testing.T) {
+	root := t.TempDir()
+	codexHome := filepath.Join(root, ".codex")
+	sessionPath := filepath.Join(codexHome, "sessions", "2026", "03", "10", "watch.jsonl")
+	writeCodexSessionFixture(t, sessionPath, time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC), []string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"watch-session","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nWatch session file changes."}}`,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	changes, errs, closeWatcher, err := watchCollectSessionChanges(ctx, "", codexHome)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, closeWatcher())
+	}()
+
+	file, err := os.OpenFile(sessionPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = file.WriteString(`{"timestamp":"2026-03-10T08:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"The watcher should react to this append."}}` + "\n")
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+
+	select {
+	case <-changes:
+	case err := <-errs:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for session file watcher event")
+	}
 }
 
 func TestResolveBackgroundBaseCommandPrefersInstalledCrux(t *testing.T) {

@@ -29,7 +29,7 @@ crux reports
 crux audit
 ```
 
-`crux setup` prompts for the issued CLI token if you omit `--token`, connects the current repo to the shared workspace, uploads an initial snapshot plus the latest local Codex session, and enrolls background collection automatically on supported installed macOS environments.
+`crux setup` prompts for the issued CLI token if you omit `--token`, connects the current repo to the shared workspace, uploads an initial snapshot plus local Codex session history on first setup, and enrolls background collection automatically on supported installed macOS environments.
 If background enrollment is not supported on the machine, setup returns the manual fallback command to run instead.
 After setup, plain `crux` prints the current shared-workspace status.
 

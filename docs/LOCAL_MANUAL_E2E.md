@@ -144,6 +144,8 @@ source myenv/bin/activate
 go run ./cmd/crux collect --watch --recent 1 --interval 30m
 ```
 
+This mode watches Codex session files directly, uses `--interval` only as a fallback scan, and resumes from the saved upload cursor so every new logical session after the cursor is uploaded.
+
 ## 11. Clean Up After The Run
 
 ```bash

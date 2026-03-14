@@ -136,6 +136,203 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 	require.Equal(t, "codex-session-setup", sessionReq.SessionID)
 }
 
+func TestRunSetupBackfillsFullCodexHistoryOnFirstWorkspaceSetup(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	repoPath := filepath.Join(root, "workspace")
+	require.NoError(t, os.MkdirAll(repoPath, 0o755))
+
+	codexHome := filepath.Join(root, ".codex")
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "older.jsonl"), time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC), []string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"codex-session-1","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nReview the collector flow."}}`,
+	})
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "12", "newer.jsonl"), time.Date(2026, 3, 12, 8, 0, 0, 0, time.UTC), []string{
+		`{"timestamp":"2026-03-12T08:00:00Z","type":"session_meta","payload":{"id":"codex-session-2","timestamp":"2026-03-12T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-12T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nVerify the latest setup upload."}}`,
+	})
+
+	sessionIDs := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.CLILoginResp{
+					AgentID:      "agent-1",
+					DeviceID:     "device-1",
+					OrgID:        "org-1",
+					UserID:       "user-1",
+					Status:       "registered",
+					RegisteredAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/register":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ProjectRegistrationResp{
+					ProjectID:   "project-1",
+					Status:      "connected",
+					ConnectedAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/config-snapshots":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotListResp{}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/config-snapshots":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotResp{
+					SnapshotID: "snapshot-1",
+					ProjectID:  "project-1",
+					CapturedAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
+			var sessionReq request.SessionSummaryReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
+			sessionIDs = append(sessionIDs, sessionReq.SessionID)
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionIngestResp{
+					SessionID:  sessionReq.SessionID,
+					ProjectID:  sessionReq.ProjectID,
+					RecordedAt: sessionReq.Timestamp,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	output := captureStdout(t, func() {
+		require.NoError(t, run([]string{
+			"setup",
+			"--server", server.URL,
+			"--token", "setup-token",
+			"--repo-path", repoPath,
+			"--codex-home", codexHome,
+			"--background=false",
+		}))
+	})
+
+	var payload setupResp
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.NotNil(t, payload.Collect)
+	require.Equal(t, "uploaded", payload.Collect.SessionStatus)
+	require.Equal(t, 2, payload.Collect.SessionUploaded)
+	require.Equal(t, []string{"codex-session-1", "codex-session-2"}, sessionIDs)
+}
+
+func TestRunSetupKeepsRecentIncrementalUploadWhenWorkspaceAlreadyConfigured(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	require.NoError(t, saveState(state{
+		ServerURL:   "https://existing.example.com",
+		APIToken:    "existing-token",
+		OrgID:       "org-1",
+		UserID:      "user-1",
+		AgentID:     "agent-1",
+		WorkspaceID: "existing-workspace",
+	}))
+
+	repoPath := filepath.Join(root, "workspace")
+	require.NoError(t, os.MkdirAll(repoPath, 0o755))
+
+	codexHome := filepath.Join(root, ".codex")
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "older.jsonl"), time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC), []string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"codex-session-1","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nReview the collector flow."}}`,
+	})
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "12", "newer.jsonl"), time.Date(2026, 3, 12, 8, 0, 0, 0, time.UTC), []string{
+		`{"timestamp":"2026-03-12T08:00:00Z","type":"session_meta","payload":{"id":"codex-session-2","timestamp":"2026-03-12T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-12T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nVerify the latest setup upload."}}`,
+	})
+
+	sessionIDs := make([]string, 0, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.CLILoginResp{
+					AgentID:      "agent-2",
+					DeviceID:     "device-2",
+					OrgID:        "org-1",
+					UserID:       "user-1",
+					Status:       "registered",
+					RegisteredAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/register":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ProjectRegistrationResp{
+					ProjectID:   "project-1",
+					Status:      "connected",
+					ConnectedAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/config-snapshots":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotListResp{}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/config-snapshots":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotResp{
+					SnapshotID: "snapshot-1",
+					ProjectID:  "project-1",
+					CapturedAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
+			var sessionReq request.SessionSummaryReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
+			sessionIDs = append(sessionIDs, sessionReq.SessionID)
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionIngestResp{
+					SessionID:  sessionReq.SessionID,
+					ProjectID:  sessionReq.ProjectID,
+					RecordedAt: sessionReq.Timestamp,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	output := captureStdout(t, func() {
+		require.NoError(t, run([]string{
+			"setup",
+			"--server", server.URL,
+			"--token", "setup-token",
+			"--repo-path", repoPath,
+			"--codex-home", codexHome,
+			"--background=false",
+		}))
+	})
+
+	var payload setupResp
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.NotNil(t, payload.Collect)
+	require.Equal(t, "uploaded", payload.Collect.SessionStatus)
+	require.Equal(t, 1, payload.Collect.SessionUploaded)
+	require.Equal(t, []string{"codex-session-2"}, sessionIDs)
+}
+
 func TestRunSetupEnablesBackgroundWhenInstalledBinaryAndLaunchctlAreAvailable(t *testing.T) {
 	root := t.TempDir()
 	homeDir := filepath.Join(root, "home")
@@ -311,14 +508,148 @@ func TestRunWithoutArgsShowsStatusWhenConfigured(t *testing.T) {
 		UserID:      "user-1",
 		AgentID:     "agent-1",
 		WorkspaceID: "project-1",
+		LastUploadedSessionCursor: &sessionUploadCursor{
+			TailPath:    filepath.Join(root, ".codex", "sessions", "2026", "03", "14", "latest.jsonl"),
+			TailModTime: time.Date(2026, 3, 14, 8, 0, 0, 0, time.UTC),
+			TailSize:    321,
+			SessionID:   "session-123",
+		},
 	}))
 
 	output := captureStdout(t, func() {
 		require.NoError(t, run(nil))
 	})
 
-	var payload map[string]any
+	var payload struct {
+		WorkspaceID               string               `json:"workspace_id"`
+		WorkspaceName             string               `json:"workspace_name"`
+		LastUploadedSessionCursor *sessionUploadCursor `json:"last_uploaded_session_cursor"`
+	}
 	require.NoError(t, json.Unmarshal([]byte(output), &payload))
-	require.Equal(t, "project-1", payload["workspace_id"])
-	require.Equal(t, sharedWorkspaceName, payload["workspace_name"])
+	require.Equal(t, "project-1", payload.WorkspaceID)
+	require.Equal(t, sharedWorkspaceName, payload.WorkspaceName)
+	require.NotNil(t, payload.LastUploadedSessionCursor)
+	require.Equal(t, "session-123", payload.LastUploadedSessionCursor.SessionID)
+	require.Equal(t, int64(321), payload.LastUploadedSessionCursor.TailSize)
+}
+
+func TestRunWorkspaceIncludesLastUploadedSessionCursor(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ProjectListResp{
+					Items: []response.ProjectResp{{
+						ID:          "project-1",
+						Name:        sharedWorkspaceName,
+						RepoHash:    "repo-1",
+						RepoPath:    filepath.Join(root, "workspace"),
+						DefaultTool: "codex",
+					}},
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	require.NoError(t, saveState(state{
+		ServerURL:   server.URL,
+		APIToken:    "token",
+		OrgID:       "org-1",
+		UserID:      "user-1",
+		AgentID:     "agent-1",
+		WorkspaceID: "project-1",
+		LastUploadedSessionCursor: &sessionUploadCursor{
+			TailPath:    filepath.Join(root, ".codex", "sessions", "2026", "03", "14", "latest.jsonl"),
+			TailModTime: time.Date(2026, 3, 14, 9, 0, 0, 0, time.UTC),
+			TailSize:    456,
+			SessionID:   "session-456",
+		},
+	}))
+
+	output := captureStdout(t, func() {
+		require.NoError(t, run([]string{"workspace"}))
+	})
+
+	var payload struct {
+		WorkspaceID               string                 `json:"workspace_id"`
+		WorkspaceName             string                 `json:"workspace_name"`
+		LastUploadedSessionCursor *sessionUploadCursor   `json:"last_uploaded_session_cursor"`
+		Items                     []response.ProjectResp `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.Equal(t, "project-1", payload.WorkspaceID)
+	require.Equal(t, sharedWorkspaceName, payload.WorkspaceName)
+	require.NotNil(t, payload.LastUploadedSessionCursor)
+	require.Equal(t, "session-456", payload.LastUploadedSessionCursor.SessionID)
+	require.Len(t, payload.Items, 1)
+	require.Equal(t, "project-1", payload.Items[0].ID)
+}
+
+func TestRunSessionsIncludesLastUploadedSessionCursor(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-summaries":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionSummaryListResp{
+					Items: []response.SessionSummaryItem{{
+						ID:        "session-1",
+						ProjectID: "project-1",
+						Tool:      "codex",
+						Timestamp: time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC),
+					}},
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	require.NoError(t, saveState(state{
+		ServerURL:   server.URL,
+		APIToken:    "token",
+		OrgID:       "org-1",
+		UserID:      "user-1",
+		AgentID:     "agent-1",
+		WorkspaceID: "project-1",
+		LastUploadedSessionCursor: &sessionUploadCursor{
+			TailPath:    filepath.Join(root, ".codex", "sessions", "2026", "03", "14", "latest.jsonl"),
+			TailModTime: time.Date(2026, 3, 14, 9, 0, 0, 0, time.UTC),
+			TailSize:    789,
+			SessionID:   "session-789",
+		},
+	}))
+
+	output := captureStdout(t, func() {
+		require.NoError(t, run([]string{"sessions", "--limit", "1"}))
+	})
+
+	var payload struct {
+		WorkspaceID               string                        `json:"workspace_id"`
+		WorkspaceName             string                        `json:"workspace_name"`
+		LastUploadedSessionCursor *sessionUploadCursor          `json:"last_uploaded_session_cursor"`
+		Items                     []response.SessionSummaryItem `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.Equal(t, "project-1", payload.WorkspaceID)
+	require.Equal(t, sharedWorkspaceName, payload.WorkspaceName)
+	require.NotNil(t, payload.LastUploadedSessionCursor)
+	require.Equal(t, "session-789", payload.LastUploadedSessionCursor.SessionID)
+	require.Len(t, payload.Items, 1)
+	require.Equal(t, "session-1", payload.Items[0].ID)
 }

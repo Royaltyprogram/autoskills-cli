@@ -44,7 +44,7 @@ Notes:
 - `crux setup` is the shortest onboarding path and includes the initial workspace connection automatically.
 - installed macOS beta machines also get background collection automatically when setup can register a launchd agent
 - `crux connect` remains available when you need to reconnect a different repo manually.
-- `crux collect --watch` keeps session and snapshot uploads flowing while the shared workspace is being observed.
+- `crux collect --watch` keeps session and snapshot uploads flowing while the shared workspace is being observed by reacting to session file changes and using the interval as a fallback scan.
 - Reports are now read-only feedback reports for the user; nothing is auto-applied.
 
 If you want a beta machine to keep uploading usage data without repeated manual CLI runs, keep a long-lived collector running:
@@ -56,6 +56,7 @@ crux collect --watch --recent 1 --interval 30m
 Notes:
 
 - Prefer the installed `crux` command for long-lived beta machine setup. On supported installed macOS environments, `crux setup --server ...` now enrolls that background collector automatically.
+- The collector stores a session cursor locally and uploads every new logical session after that cursor, so `--recent 1` only limits the initial backfill when no cursor exists yet.
 - Keep `crux collect` without `--watch` for one-off manual uploads.
 
 For beta users who should install from GitHub Releases instead of an unpacked bundle:

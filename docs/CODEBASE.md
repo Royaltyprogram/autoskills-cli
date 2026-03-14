@@ -10,7 +10,7 @@ It has four runtime surfaces:
    - registers a local device
    - connects a repo into the org's shared workspace
    - uploads config snapshots and session summaries
-   - can keep collecting in watch mode
+   - can keep collecting in watch mode by watching Codex session files and advancing a saved upload cursor
 
 2. `Cloud Research Agent`
    - runs inside the server process
@@ -117,7 +117,7 @@ The CLI is now a collector and workspace client only. It does not apply config c
 2. `crux setup`
    - authenticates a local CLI install with the issued token
    - connects the local repo to the org's shared workspace
-   - uploads an initial snapshot plus the latest local Codex session when available
+   - uploads an initial snapshot plus local Codex session history on first setup, then resumes from the saved session cursor
 3. `crux snapshot` / `crux session` / `crux collect`
    - uploads config snapshots plus usage sessions
    - `session` and `collect` can auto-read recent Codex session JSONL files
@@ -127,7 +127,7 @@ The CLI is now a collector and workspace client only. It does not apply config c
 6. `crux reports` / dashboard overview
    - shows report-style feedback, strengths, frictions, and next steps
 7. Ongoing usage uploads
-   - provide new evidence for later report refreshes
+   - `collect --watch` reacts to session file changes, uses the interval as a fallback scan, and uploads every new logical session after the saved cursor
 
 ## Persistence Model
 

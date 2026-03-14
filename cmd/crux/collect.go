@@ -41,8 +41,8 @@ func runCollect(args []string) error {
 	codexHome := fs.String("codex-home", "", "override Codex home used for automatic session collection")
 	recent := fs.Int("recent", 1, "number of recent local Codex session JSONL files to upload when --session-file is omitted")
 	snapshotMode := fs.String("snapshot-mode", collectSnapshotModeChanged, "snapshot upload mode: changed, always, skip")
-	watch := fs.Bool("watch", false, "poll local usage and upload on an interval until interrupted")
-	interval := fs.Duration("interval", 30*time.Minute, "poll interval in watch mode")
+	watch := fs.Bool("watch", false, "watch local session files and upload changes until interrupted")
+	interval := fs.Duration("interval", 30*time.Minute, "fallback poll interval in watch mode")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func runCollect(args []string) error {
 	client := newAPIClient(st.ServerURL, st.APIToken)
 
 	if !*watch {
-		resp, err := runCollectOnce(st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
+		resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
 		if err != nil {
 			return err
 		}
@@ -77,13 +77,19 @@ func runCollect(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	resp, err := runCollectOnce(st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
+	resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
 	if err != nil {
 		return err
 	}
 	if err := prettyPrint(resp); err != nil {
 		return err
 	}
+
+	sessionChanges, sessionWatchErrors, closeWatcher, err := watchCollectSessionChanges(ctx, *sessionFile, *codexHome)
+	if err != nil {
+		return err
+	}
+	defer closeWatcher()
 
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
@@ -93,8 +99,28 @@ func runCollect(args []string) error {
 		case <-ctx.Done():
 			fmt.Println(`{"watch":"stopped"}`)
 			return nil
+		case err, ok := <-sessionWatchErrors:
+			if !ok {
+				sessionWatchErrors = nil
+				continue
+			}
+			if err != nil {
+				return err
+			}
+		case _, ok := <-sessionChanges:
+			if !ok {
+				sessionChanges = nil
+				continue
+			}
+			resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
+			if err != nil {
+				return err
+			}
+			if err := prettyPrint(resp); err != nil {
+				return err
+			}
 		case <-ticker.C:
-			resp, err := runCollectOnce(st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
+			resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
 			if err != nil {
 				return err
 			}
@@ -118,7 +144,7 @@ func parseCollectSnapshotMode(raw string) (string, error) {
 	}
 }
 
-func runCollectOnce(st state, client *apiClient, snapshotFile, profileID, tool, sessionFile, codexHome string, recent int, snapshotMode string) (collectRunResp, error) {
+func runCollectOnce(st *state, client *apiClient, snapshotFile, profileID, tool, sessionFile, codexHome string, recent int, snapshotMode string) (collectRunResp, error) {
 	resp := collectRunResp{
 		CollectedAt:     time.Now().UTC(),
 		SnapshotStatus:  "skipped",
@@ -126,7 +152,7 @@ func runCollectOnce(st state, client *apiClient, snapshotFile, profileID, tool, 
 		SessionUploaded: 0,
 	}
 
-	snapshotStatus, snapshot, err := collectSnapshotOnce(st, client, snapshotFile, profileID, tool, snapshotMode)
+	snapshotStatus, snapshot, err := collectSnapshotOnce(*st, client, snapshotFile, profileID, tool, snapshotMode)
 	if err != nil {
 		return collectRunResp{}, err
 	}
@@ -208,19 +234,40 @@ func fetchLatestConfigSnapshot(client *apiClient, workspaceID string) (*response
 	return &snapshots.Items[0], nil
 }
 
-func collectSessionsOnce(st state, client *apiClient, filePath, tool, codexHome string, recent int) (string, []response.SessionIngestResp, error) {
-	reqs, err := loadSessionSummaryInputs(filePath, tool, codexHome, recent)
+func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome string, recent int) (string, []response.SessionIngestResp, error) {
+	if strings.TrimSpace(filePath) != "" {
+		reqs, err := loadSessionSummaryInputs(filePath, tool, codexHome, recent)
+		if err != nil {
+			return "", nil, err
+		}
+		if len(reqs) == 0 {
+			return "no_local_sessions", nil, nil
+		}
+
+		items, err := uploadSessionSummaries(*st, client, reqs, tool)
+		if err != nil {
+			return "", nil, err
+		}
+		return "uploaded", items, nil
+	}
+
+	parsedSessions, err := loadCodexParsedSessions(codexHome, tool)
 	if err != nil {
-		if strings.TrimSpace(filePath) == "" && isNoLocalSessionError(err) {
+		if isNoLocalSessionError(err) {
 			return "no_local_sessions", nil, nil
 		}
 		return "", nil, err
 	}
-	if len(reqs) == 0 {
-		return "no_local_sessions", nil, nil
+
+	pendingSessions := selectCodexParsedSessionsAfterCursor(parsedSessions, st.LastUploadedSessionCursor)
+	if st.LastUploadedSessionCursor == nil && recent > 0 && len(pendingSessions) > recent {
+		pendingSessions = pendingSessions[len(pendingSessions)-recent:]
+	}
+	if len(pendingSessions) == 0 {
+		return "up_to_date", nil, nil
 	}
 
-	items, err := uploadSessionSummaries(st, client, reqs, tool)
+	items, err := uploadCodexParsedSessionSummaries(st, client, pendingSessions, tool)
 	if err != nil {
 		return "", nil, err
 	}
@@ -230,26 +277,55 @@ func collectSessionsOnce(st state, client *apiClient, filePath, tool, codexHome 
 func uploadSessionSummaries(st state, client *apiClient, reqs []request.SessionSummaryReq, tool string) ([]response.SessionIngestResp, error) {
 	items := make([]response.SessionIngestResp, 0, len(reqs))
 	for idx, req := range reqs {
-		req.ProjectID = st.workspaceID()
-		if req.Tool == "" {
-			req.Tool = tool
-		}
-		if req.Timestamp.IsZero() {
-			req.Timestamp = time.Now().UTC()
-		}
-		fmt.Fprintf(os.Stderr, "[%d/%d] Uploading session %s\n", idx+1, len(reqs), firstNonEmpty(strings.TrimSpace(req.SessionID), "pending-id"))
-		fmt.Fprintln(os.Stderr, "    The server may spend a while generating the next feedback report after this upload.")
-
-		var uploaded response.SessionIngestResp
-		if err := client.doJSON(http.MethodPost, "/api/v1/session-summaries", req, &uploaded); err != nil {
+		uploaded, err := uploadSessionSummary(st, client, req, tool, idx+1, len(reqs))
+		if err != nil {
 			return nil, err
-		}
-		if uploaded.ResearchStatus != nil {
-			fmt.Fprintf(os.Stderr, "    %s\n", formatResearchStatusSummary(uploaded.ResearchStatus))
 		}
 		items = append(items, uploaded)
 	}
 	return items, nil
+}
+
+func uploadCodexParsedSessionSummaries(st *state, client *apiClient, sessions []codexParsedSession, tool string) ([]response.SessionIngestResp, error) {
+	items := make([]response.SessionIngestResp, 0, len(sessions))
+	for idx, session := range sessions {
+		uploaded, err := uploadSessionSummary(*st, client, session.req, tool, idx+1, len(sessions))
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, uploaded)
+
+		cursor := session.uploadCursor()
+		if cursor == nil {
+			continue
+		}
+		st.LastUploadedSessionCursor = cursor
+		if err := saveState(*st); err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
+func uploadSessionSummary(st state, client *apiClient, req request.SessionSummaryReq, tool string, index, total int) (response.SessionIngestResp, error) {
+	req.ProjectID = st.workspaceID()
+	if req.Tool == "" {
+		req.Tool = tool
+	}
+	if req.Timestamp.IsZero() {
+		req.Timestamp = time.Now().UTC()
+	}
+	fmt.Fprintf(os.Stderr, "[%d/%d] Uploading session %s\n", index, total, firstNonEmpty(strings.TrimSpace(req.SessionID), "pending-id"))
+	fmt.Fprintln(os.Stderr, "    The server may spend a while generating the next feedback report after this upload.")
+
+	var uploaded response.SessionIngestResp
+	if err := client.doJSON(http.MethodPost, "/api/v1/session-summaries", req, &uploaded); err != nil {
+		return response.SessionIngestResp{}, err
+	}
+	if uploaded.ResearchStatus != nil {
+		fmt.Fprintf(os.Stderr, "    %s\n", formatResearchStatusSummary(uploaded.ResearchStatus))
+	}
+	return uploaded, nil
 }
 
 func formatResearchStatusSummary(status *response.ReportResearchStatusResp) string {
