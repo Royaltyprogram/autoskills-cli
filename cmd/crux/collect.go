@@ -24,12 +24,13 @@ const (
 )
 
 type collectRunResp struct {
-	CollectedAt     time.Time                    `json:"collected_at"`
-	SnapshotStatus  string                       `json:"snapshot_status"`
-	Snapshot        *response.ConfigSnapshotResp `json:"snapshot,omitempty"`
-	SessionStatus   string                       `json:"session_status"`
-	SessionUploaded int                          `json:"session_uploaded"`
-	Sessions        []response.SessionIngestResp `json:"sessions,omitempty"`
+	CollectedAt        time.Time                    `json:"collected_at"`
+	SnapshotStatus     string                       `json:"snapshot_status"`
+	Snapshot           *response.ConfigSnapshotResp `json:"snapshot,omitempty"`
+	SessionCursorReset bool                         `json:"session_cursor_reset,omitempty"`
+	SessionStatus      string                       `json:"session_status"`
+	SessionUploaded    int                          `json:"session_uploaded"`
+	Sessions           []response.SessionIngestResp `json:"sessions,omitempty"`
 }
 
 func runCollect(args []string) error {
@@ -40,6 +41,7 @@ func runCollect(args []string) error {
 	sessionFile := fs.String("session-file", "", "session summary JSON or Codex session JSONL path")
 	codexHome := fs.String("codex-home", "", "override Codex home used for automatic session collection")
 	recent := fs.Int("recent", 1, "number of recent local Codex session JSONL files to upload when --session-file is omitted")
+	resetSessions := fs.Bool("reset-sessions", false, "clear the saved session upload cursor and re-upload all local Codex sessions")
 	snapshotMode := fs.String("snapshot-mode", collectSnapshotModeChanged, "snapshot upload mode: changed, always, skip")
 	watch := fs.Bool("watch", false, "watch local session files and upload changes until interrupted")
 	interval := fs.Duration("interval", 30*time.Minute, "fallback poll interval in watch mode")
@@ -52,6 +54,9 @@ func runCollect(args []string) error {
 	if strings.TrimSpace(*sessionFile) != "" && *recent != 1 {
 		return errors.New("collect --recent can only be used when --session-file is omitted")
 	}
+	if *resetSessions && strings.TrimSpace(*sessionFile) != "" {
+		return errors.New("collect --reset-sessions can only be used when --session-file is omitted")
+	}
 	resolvedSnapshotMode, err := parseCollectSnapshotMode(*snapshotMode)
 	if err != nil {
 		return err
@@ -62,12 +67,22 @@ func runCollect(args []string) error {
 		return err
 	}
 	client := newAPIClient(st.ServerURL, st.APIToken)
+	sessionCursorReset := false
+	effectiveRecent := *recent
+	if *resetSessions {
+		if err := resetSessionUploadCursor(&st); err != nil {
+			return err
+		}
+		sessionCursorReset = true
+		effectiveRecent = 0
+	}
 
 	if !*watch {
-		resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
+		resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, effectiveRecent, resolvedSnapshotMode)
 		if err != nil {
 			return err
 		}
+		resp.SessionCursorReset = sessionCursorReset
 		return prettyPrint(resp)
 	}
 	if *interval <= 0 {
@@ -77,10 +92,11 @@ func runCollect(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode)
+	resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, effectiveRecent, resolvedSnapshotMode)
 	if err != nil {
 		return err
 	}
+	resp.SessionCursorReset = sessionCursorReset
 	if err := prettyPrint(resp); err != nil {
 		return err
 	}
@@ -129,6 +145,14 @@ func runCollect(args []string) error {
 			}
 		}
 	}
+}
+
+func resetSessionUploadCursor(st *state) error {
+	if st == nil || st.LastUploadedSessionCursor == nil {
+		return nil
+	}
+	st.LastUploadedSessionCursor = nil
+	return saveState(*st)
 }
 
 func parseCollectSnapshotMode(raw string) (string, error) {

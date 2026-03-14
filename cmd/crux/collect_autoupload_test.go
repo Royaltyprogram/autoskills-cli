@@ -267,6 +267,90 @@ func TestRunCollectUploadsAllNewSessionsAfterCursor(t *testing.T) {
 	require.Equal(t, "session-3", st.LastUploadedSessionCursor.SessionID)
 }
 
+func TestRunCollectResetSessionsReuploadsFullLocalHistory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	codexHome := filepath.Join(root, ".codex")
+	baseTime := time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC)
+
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-1.jsonl"), baseTime, []string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"session-1","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nUpload session one."}}`,
+		`{"timestamp":"2026-03-10T08:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Uploaded session one."}}`,
+	})
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-2.jsonl"), baseTime.Add(2*time.Minute), []string{
+		`{"timestamp":"2026-03-10T08:02:00Z","type":"session_meta","payload":{"id":"session-2","timestamp":"2026-03-10T08:02:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:02:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nUpload session two."}}`,
+		`{"timestamp":"2026-03-10T08:02:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Uploaded session two."}}`,
+	})
+
+	sessionReqs := make([]request.SessionSummaryReq, 0, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
+			var sessionReq request.SessionSummaryReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
+			sessionReqs = append(sessionReqs, sessionReq)
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionIngestResp{
+					SessionID:  sessionReq.SessionID,
+					ProjectID:  sessionReq.ProjectID,
+					RecordedAt: sessionReq.Timestamp,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	require.NoError(t, saveState(state{
+		ServerURL:   server.URL,
+		APIToken:    "token-collect",
+		OrgID:       "org-1",
+		UserID:      "user-1",
+		WorkspaceID: "project-1",
+	}))
+
+	initialOutput := captureStdout(t, func() {
+		require.NoError(t, runCollect([]string{"--codex-home", codexHome, "--recent", "1", "--snapshot-mode", "skip"}))
+	})
+
+	var initialPayload collectRunResp
+	require.NoError(t, json.Unmarshal([]byte(initialOutput), &initialPayload))
+	require.Equal(t, "uploaded", initialPayload.SessionStatus)
+	require.Equal(t, 1, initialPayload.SessionUploaded)
+
+	st, err := loadState()
+	require.NoError(t, err)
+	require.NotNil(t, st.LastUploadedSessionCursor)
+	require.Equal(t, "session-2", st.LastUploadedSessionCursor.SessionID)
+
+	resetOutput := captureStdout(t, func() {
+		require.NoError(t, runCollect([]string{"--codex-home", codexHome, "--reset-sessions", "--snapshot-mode", "skip"}))
+	})
+
+	var resetPayload collectRunResp
+	require.NoError(t, json.Unmarshal([]byte(resetOutput), &resetPayload))
+	require.True(t, resetPayload.SessionCursorReset)
+	require.Equal(t, "uploaded", resetPayload.SessionStatus)
+	require.Equal(t, 2, resetPayload.SessionUploaded)
+	require.Len(t, sessionReqs, 3)
+	require.Equal(t, []string{"session-2", "session-1", "session-2"}, []string{
+		sessionReqs[0].SessionID,
+		sessionReqs[1].SessionID,
+		sessionReqs[2].SessionID,
+	})
+
+	st, err = loadState()
+	require.NoError(t, err)
+	require.NotNil(t, st.LastUploadedSessionCursor)
+	require.Equal(t, "session-2", st.LastUploadedSessionCursor.SessionID)
+}
+
 func TestWatchCollectSessionChangesEmitsOnSessionWrite(t *testing.T) {
 	root := t.TempDir()
 	codexHome := filepath.Join(root, ".codex")
