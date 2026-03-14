@@ -73,6 +73,16 @@ type apiClient struct {
 	http    *http.Client
 }
 
+type apiError struct {
+	StatusCode int
+	Code       int
+	Message    string
+}
+
+func (e *apiError) Error() string {
+	return fmt.Sprintf("request failed: %s", e.Message)
+}
+
 type loginOptions struct {
 	ServerURL  string
 	Token      string
@@ -844,7 +854,11 @@ func (c *apiClient) doJSON(method, path string, body any, out any) error {
 		if env.Message == "" {
 			env.Message = string(raw)
 		}
-		return fmt.Errorf("request failed: %s", env.Message)
+		return &apiError{
+			StatusCode: resp.StatusCode,
+			Code:       env.Code,
+			Message:    env.Message,
+		}
 	}
 	if out == nil || len(env.Data) == 0 || string(env.Data) == "null" {
 		return nil

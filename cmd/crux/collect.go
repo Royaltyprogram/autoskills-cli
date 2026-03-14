@@ -30,7 +30,13 @@ type collectRunResp struct {
 	SessionCursorReset bool                         `json:"session_cursor_reset,omitempty"`
 	SessionStatus      string                       `json:"session_status"`
 	SessionUploaded    int                          `json:"session_uploaded"`
+	SessionFailures    []collectSessionFailure      `json:"session_failures,omitempty"`
 	Sessions           []response.SessionIngestResp `json:"sessions,omitempty"`
+}
+
+type collectSessionFailure struct {
+	SessionID string `json:"session_id"`
+	Error     string `json:"error"`
 }
 
 func runCollect(args []string) error {
@@ -183,12 +189,13 @@ func runCollectOnce(st *state, client *apiClient, snapshotFile, profileID, tool,
 	resp.SnapshotStatus = snapshotStatus
 	resp.Snapshot = snapshot
 
-	sessionStatus, sessions, err := collectSessionsOnce(st, client, sessionFile, tool, codexHome, recent)
+	sessionStatus, sessions, failures, err := collectSessionsOnce(st, client, sessionFile, tool, codexHome, recent)
 	if err != nil {
 		return collectRunResp{}, err
 	}
 	resp.SessionStatus = sessionStatus
 	resp.SessionUploaded = len(sessions)
+	resp.SessionFailures = failures
 	resp.Sessions = sessions
 	return resp, nil
 }
@@ -258,29 +265,29 @@ func fetchLatestConfigSnapshot(client *apiClient, workspaceID string) (*response
 	return &snapshots.Items[0], nil
 }
 
-func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome string, recent int) (string, []response.SessionIngestResp, error) {
+func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome string, recent int) (string, []response.SessionIngestResp, []collectSessionFailure, error) {
 	if strings.TrimSpace(filePath) != "" {
 		reqs, err := loadSessionSummaryInputs(filePath, tool, codexHome, recent)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 		if len(reqs) == 0 {
-			return "no_local_sessions", nil, nil
+			return "no_local_sessions", nil, nil, nil
 		}
 
 		items, err := uploadSessionSummaries(*st, client, reqs, tool)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
-		return "uploaded", items, nil
+		return "uploaded", items, nil, nil
 	}
 
 	parsedSessions, err := loadCodexParsedSessions(codexHome, tool)
 	if err != nil {
 		if isNoLocalSessionError(err) {
-			return "no_local_sessions", nil, nil
+			return "no_local_sessions", nil, nil, nil
 		}
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	pendingSessions := selectCodexParsedSessionsAfterCursor(parsedSessions, st.LastUploadedSessionCursor)
@@ -288,14 +295,20 @@ func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome
 		pendingSessions = pendingSessions[len(pendingSessions)-recent:]
 	}
 	if len(pendingSessions) == 0 {
-		return "up_to_date", nil, nil
+		return "up_to_date", nil, nil, nil
 	}
 
-	items, err := uploadCodexParsedSessionSummaries(st, client, pendingSessions, tool)
+	items, failures, err := uploadCodexParsedSessionSummaries(st, client, pendingSessions, tool)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	return "uploaded", items, nil
+	if len(failures) == 0 {
+		return "uploaded", items, nil, nil
+	}
+	if len(items) == 0 {
+		return "skipped_invalid_sessions", nil, failures, nil
+	}
+	return "uploaded_with_failures", items, failures, nil
 }
 
 func uploadSessionSummaries(st state, client *apiClient, reqs []request.SessionSummaryReq, tool string) ([]response.SessionIngestResp, error) {
@@ -310,25 +323,49 @@ func uploadSessionSummaries(st state, client *apiClient, reqs []request.SessionS
 	return items, nil
 }
 
-func uploadCodexParsedSessionSummaries(st *state, client *apiClient, sessions []codexParsedSession, tool string) ([]response.SessionIngestResp, error) {
+func uploadCodexParsedSessionSummaries(st *state, client *apiClient, sessions []codexParsedSession, tool string) ([]response.SessionIngestResp, []collectSessionFailure, error) {
 	items := make([]response.SessionIngestResp, 0, len(sessions))
+	failures := make([]collectSessionFailure, 0)
 	for idx, session := range sessions {
 		uploaded, err := uploadSessionSummary(*st, client, session.req, tool, idx+1, len(sessions))
 		if err != nil {
-			return nil, err
-		}
-		items = append(items, uploaded)
-
-		cursor := session.uploadCursor()
-		if cursor == nil {
+			if !isSkippableSessionUploadError(err) {
+				return nil, nil, err
+			}
+			failure := collectSessionFailure{
+				SessionID: strings.TrimSpace(session.req.SessionID),
+				Error:     err.Error(),
+			}
+			failures = append(failures, failure)
+			fmt.Fprintf(os.Stderr, "    Skipping session %s: %s\n", firstNonEmpty(failure.SessionID, "pending-id"), failure.Error)
+			if err := advanceSessionUploadCursor(st, session); err != nil {
+				return nil, nil, err
+			}
 			continue
 		}
-		st.LastUploadedSessionCursor = cursor
-		if err := saveState(*st); err != nil {
-			return nil, err
+		items = append(items, uploaded)
+		if err := advanceSessionUploadCursor(st, session); err != nil {
+			return nil, nil, err
 		}
 	}
-	return items, nil
+	return items, failures, nil
+}
+
+func advanceSessionUploadCursor(st *state, session codexParsedSession) error {
+	cursor := session.uploadCursor()
+	if cursor == nil {
+		return nil
+	}
+	st.LastUploadedSessionCursor = cursor
+	return saveState(*st)
+}
+
+func isSkippableSessionUploadError(err error) bool {
+	var apiErr *apiError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == http.StatusBadRequest
 }
 
 func uploadSessionSummary(st state, client *apiClient, req request.SessionSummaryReq, tool string, index, total int) (response.SessionIngestResp, error) {

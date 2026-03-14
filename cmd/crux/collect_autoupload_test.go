@@ -351,6 +351,89 @@ func TestRunCollectResetSessionsReuploadsFullLocalHistory(t *testing.T) {
 	require.Equal(t, "session-2", st.LastUploadedSessionCursor.SessionID)
 }
 
+func TestRunCollectSkipsInvalidSessionAndAdvancesCursor(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	codexHome := filepath.Join(root, ".codex")
+	baseTime := time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC)
+
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-1.jsonl"), baseTime, []string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"session-1","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nUpload session one."}}`,
+		`{"timestamp":"2026-03-10T08:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Uploaded session one."}}`,
+	})
+	writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", "session-2.jsonl"), baseTime.Add(2*time.Minute), []string{
+		`{"timestamp":"2026-03-10T08:02:00Z","type":"session_meta","payload":{"id":"session-2","timestamp":"2026-03-10T08:02:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:02:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nUpload session two."}}`,
+		`{"timestamp":"2026-03-10T08:02:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Uploaded session two."}}`,
+	})
+
+	sessionReqs := make([]request.SessionSummaryReq, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
+			var sessionReq request.SessionSummaryReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
+			sessionReqs = append(sessionReqs, sessionReq)
+			if sessionReq.SessionID == "session-2" {
+				w.WriteHeader(http.StatusBadRequest)
+				require.NoError(t, json.NewEncoder(w).Encode(envelope{
+					Code:    1000,
+					Message: "Invalid Params",
+				}))
+				return
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionIngestResp{
+					SessionID:  sessionReq.SessionID,
+					ProjectID:  sessionReq.ProjectID,
+					RecordedAt: sessionReq.Timestamp,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	require.NoError(t, saveState(state{
+		ServerURL:   server.URL,
+		APIToken:    "token-collect",
+		OrgID:       "org-1",
+		UserID:      "user-1",
+		WorkspaceID: "project-1",
+	}))
+
+	output := captureStdout(t, func() {
+		require.NoError(t, runCollect([]string{"--codex-home", codexHome, "--snapshot-mode", "skip", "--reset-sessions"}))
+	})
+
+	var payload collectRunResp
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.Equal(t, "uploaded_with_failures", payload.SessionStatus)
+	require.Equal(t, 1, payload.SessionUploaded)
+	require.Len(t, payload.SessionFailures, 1)
+	require.Equal(t, "session-2", payload.SessionFailures[0].SessionID)
+	require.Contains(t, payload.SessionFailures[0].Error, "Invalid Params")
+	require.Len(t, sessionReqs, 2)
+
+	st, err := loadState()
+	require.NoError(t, err)
+	require.NotNil(t, st.LastUploadedSessionCursor)
+	require.Equal(t, "session-2", st.LastUploadedSessionCursor.SessionID)
+
+	retryOutput := captureStdout(t, func() {
+		require.NoError(t, runCollect([]string{"--codex-home", codexHome, "--snapshot-mode", "skip"}))
+	})
+
+	var retryPayload collectRunResp
+	require.NoError(t, json.Unmarshal([]byte(retryOutput), &retryPayload))
+	require.Equal(t, "up_to_date", retryPayload.SessionStatus)
+}
+
 func TestWatchCollectSessionChangesEmitsOnSessionWrite(t *testing.T) {
 	root := t.TempDir()
 	codexHome := filepath.Join(root, ".codex")
