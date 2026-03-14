@@ -24,7 +24,7 @@ After install, run the CLI directly:
 
 ```bash
 crux version
-crux setup --server http://127.0.0.1:8082
+crux setup
 crux reports
 crux audit
 ```

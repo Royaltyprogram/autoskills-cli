@@ -443,7 +443,7 @@ func TestDefaultCommandShowsSetupHintWhenUnconfigured(t *testing.T) {
 	})
 
 	require.Contains(t, output, "Crux is not set up yet.")
-	require.Contains(t, output, "crux setup --server <server-url>")
+	require.Contains(t, output, "crux setup")
 }
 
 func TestHelpHighlightsSetup(t *testing.T) {
@@ -453,7 +453,7 @@ func TestHelpHighlightsSetup(t *testing.T) {
 
 	require.Contains(t, output, "Crux quickstart:")
 	require.Contains(t, output, "setup             register this device")
-	require.Contains(t, output, "crux setup --server http://127.0.0.1:8082")
+	require.Contains(t, output, "crux setup")
 }
 
 func TestRunWithoutArgsUsesSavedServerHintWhenWorkspaceMissing(t *testing.T) {

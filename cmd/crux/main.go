@@ -49,7 +49,7 @@ type stateDisk struct {
 }
 
 const sharedWorkspaceName = "Shared workspace"
-const defaultServerURL = "http://127.0.0.1:8082"
+const defaultServerURL = "https://cruxai.ai"
 
 var (
 	errStateNotFound         = errors.New("crux state not found")
@@ -182,14 +182,15 @@ func runDefaultCommand() error {
 }
 
 func printDefaultSetupHint(serverURL string) {
-	serverHint := "<server-url>"
-	if strings.TrimSpace(serverURL) != "" {
-		serverHint = strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	command := "crux setup"
+	trimmedServerURL := strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	if trimmedServerURL != "" && trimmedServerURL != defaultServerURL {
+		command = "crux setup --server " + trimmedServerURL
 	}
 	fmt.Println(`Crux is not set up yet.
 
 Next step:
-  crux setup --server ` + serverHint + `
+  ` + command + `
 
 The CLI will prompt for the issued token.
 Use ` + "`crux help`" + ` for advanced commands.`)
@@ -219,7 +220,7 @@ Advanced commands:
 
 Install and onboard:
   curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-  crux setup --server ` + defaultServerURL)
+  crux setup`)
 }
 
 func printVersion() {
