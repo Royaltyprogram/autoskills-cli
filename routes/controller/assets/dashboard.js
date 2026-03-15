@@ -357,7 +357,7 @@ function redirectToLanding(message) {
       // Ignore sessionStorage failures and continue the redirect.
     }
   }
-  window.location.replace("/");
+  window.location.replace("/login");
 }
 
 async function ensureSession() {
@@ -3806,7 +3806,7 @@ async function signOut() {
   }
 
   clearSession();
-  window.location.replace("/");
+  window.location.replace("/login");
 }
 
 /* ── Load ── */

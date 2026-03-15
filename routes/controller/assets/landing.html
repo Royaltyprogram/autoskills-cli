@@ -78,14 +78,6 @@
 
     /* ── HERO ── */
     .hero { padding: 80px 0 0; text-align: center; }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 16px; border-radius: 999px;
-      border: 1px solid var(--line); background: var(--surface);
-      font-size: 13px; font-weight: 600; color: var(--support); margin-bottom: 28px;
-    }
-    .hero-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--support); animation: pulse 2s ease-in-out infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
     .hero h1 {
       font-family: 'DM Serif Display', serif;
@@ -356,58 +348,6 @@
     .ba-metric-value { font-size: 22px; font-weight: 700; color: var(--good); }
     .ba-metric-label { font-size: 12px; color: var(--muted); font-weight: 600; }
 
-    /* ── LOGIN SECTION ── */
-    .login-section {
-      padding: 80px 0 100px;
-      display: grid; grid-template-columns: 1fr 420px;
-      gap: 56px; align-items: center;
-    }
-    .login-copy h2 {
-      font-family: 'DM Serif Display', serif;
-      font-size: clamp(28px, 4vw, 40px);
-      line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 16px;
-    }
-    .login-copy > p { color: var(--muted); font-size: 16px; line-height: 1.7; margin-bottom: 28px; max-width: 480px; }
-    .login-features { list-style: none; display: grid; gap: 14px; }
-    .login-features li { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--ink); font-weight: 500; }
-    .login-features li::before {
-      content: ''; flex-shrink: 0; width: 24px; height: 24px; border-radius: 8px;
-      background: var(--support-light)
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%231e6870' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11.5 3.5 5.5 10 2.5 7'/%3E%3C/svg%3E")
-        no-repeat center;
-    }
-
-    .login-panel {
-      padding: 32px; border-radius: 24px;
-      border: 1px solid var(--line); background: var(--surface);
-      box-shadow: var(--shadow-lg); display: grid; gap: 20px;
-    }
-    .login-panel-header { display: flex; align-items: center; justify-content: space-between; }
-    .login-panel-title { font-size: 18px; font-weight: 700; }
-    .login-panel-badge {
-      font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--support);
-      padding: 4px 10px; border-radius: 6px; background: var(--support-light);
-    }
-    .form-actions { display: grid; gap: 10px; }
-    .login-btn {
-      width: 100%; padding: 14px 16px; border: none; border-radius: 14px;
-      background: linear-gradient(135deg, var(--accent), #c56b45);
-      color: #fff; font: inherit; font-size: 15px; font-weight: 700;
-      cursor: pointer; transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
-    }
-    .login-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
-    .login-btn:disabled { cursor: wait; opacity: 0.65; transform: none; box-shadow: none; }
-    .status {
-      min-height: 20px; padding: 10px 14px; border-radius: 12px;
-      border: 1px solid var(--line); background: var(--surface-soft);
-      font-size: 13px; line-height: 1.5; color: var(--muted);
-    }
-    .status[data-tone="error"] {
-      border-color: rgba(162, 61, 51, 0.22);
-      background: rgba(255, 246, 245, 0.96); color: #a23d33;
-    }
-
     /* ── FOOTER ── */
     .footer { border-top: 1px solid var(--line); background: rgba(243, 236, 225, 0.4); }
     .footer-inner {
@@ -422,7 +362,6 @@
     /* ── RESPONSIVE ── */
     @media (max-width: 960px) {
       .ba-metrics { grid-template-columns: 1fr; }
-      .login-section { grid-template-columns: 1fr; gap: 40px; }
       .config-row { gap: 24px; }
     }
     @media (max-width: 640px) {
@@ -430,8 +369,6 @@
       .nav-links .nav-link-text { display: none; }
       .section { padding: 56px 0; }
       .config-row { flex-direction: column; align-items: flex-start; gap: 16px; padding-left: 24px; }
-      .login-section { padding: 56px 0 72px; }
-      .login-panel { padding: 24px; }
       .mock-impact { grid-template-columns: 1fr; }
     }
 
@@ -457,24 +394,20 @@
       <ul class="nav-links">
         <li><a href="#how-it-works" class="nav-link-text">How It Works</a></li>
         <li><a href="#configures" class="nav-link-text">What It Analyzes</a></li>
-        <li><a href="#login" class="nav-cta">Continue</a></li>
+        <li><a href="/login" class="nav-cta">Login / Sign Up</a></li>
       </ul>
     </div>
   </nav>
 
   <!-- ── HERO ── -->
   <section class="hero wrap">
-    <div class="hero-badge">
-      <span class="hero-badge-dot"></span>
-      Google Sign-In
-    </div>
     <h1>See what your Codex agent <em>actually understood</em>.</h1>
     <p class="hero-sub">
       Crux reads your Codex session traces and tells you <strong>what you asked for, how the model interpreted it, and where it went wrong</strong>.
       No guessing. No black box.
     </p>
     <div class="hero-actions">
-      <a href="#login" class="btn btn-primary">Get Started</a>
+      <a href="/login" class="btn btn-primary">Get Started</a>
       <a href="#how-it-works" class="btn btn-ghost">See How It Works</a>
     </div>
     <div class="tool-strip">
@@ -697,34 +630,6 @@
     </div>
   </section>
 
-  <div class="wrap divider"><hr></div>
-
-  <!-- ── LOGIN ── -->
-  <section class="login-section wrap" id="login">
-    <div class="login-copy">
-      <h2>Stop guessing what your Codex agent did wrong</h2>
-      <p>Continue with Google, then connect your Codex CLI. Crux will read session traces and explain exactly where intent and execution diverged.</p>
-      <ul class="login-features">
-        <li>See what you asked vs. what the model actually understood</li>
-        <li>Find the exact point where the model went off track</li>
-        <li>Get concrete advice to prompt more effectively next time</li>
-      </ul>
-    </div>
-
-    <div class="login-panel" id="loginPanel">
-      <div class="login-panel-header">
-        <span class="login-panel-title">Continue with Google</span>
-        <span class="login-panel-badge">OAuth</span>
-      </div>
-      <div class="form-actions">
-        <a id="googleLoginButton" class="login-btn" href="/api/v1/auth/google/start">Continue with Google</a>
-      </div>
-      <div class="status" id="status" data-tone="info" aria-live="polite">
-        Use your Google account to create or access your workspace.
-      </div>
-    </div>
-  </section>
-
   <footer class="footer">
     <div class="footer-inner">
       <span class="footer-copy">Crux &middot; Understand What Your Codex Agent Actually Did</span>
@@ -735,38 +640,6 @@
     </div>
   </footer>
 
-  <script>
-    const $ = (id) => document.getElementById(id);
-
-    function setStatus(text, isError = false) {
-      const status = $("status");
-      status.textContent = text;
-      status.dataset.tone = isError ? "error" : "info";
-    }
-
-    function restoreNotice() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const authError = params.get("auth_error");
-        const authNotice = params.get("auth_notice");
-        if (authError) {
-          setStatus(authError, true);
-        } else if (authNotice) {
-          setStatus(authNotice, false);
-        }
-        if (authError || authNotice) {
-          params.delete("auth_error");
-          params.delete("auth_notice");
-          const nextQuery = params.toString();
-          const nextURL = nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname;
-          window.history.replaceState({}, "", nextURL);
-        }
-      } catch (error) {
-      }
-    }
-
-    restoreNotice();
-  </script>
 </body>
 
 </html>

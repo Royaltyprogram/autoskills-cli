@@ -337,7 +337,7 @@ func googleCallbackURL(c *echo.Context) string {
 func landingRedirectURL(key, value string) string {
 	params := url.Values{}
 	params.Set(key, value)
-	return "/?" + params.Encode()
+	return "/login?" + params.Encode()
 }
 
 func userFacingError(err error) string {
