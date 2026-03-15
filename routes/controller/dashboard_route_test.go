@@ -34,10 +34,9 @@ func TestLandingRouteServesLandingPage(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "actually understood")
-	require.Contains(t, rec.Body.String(), "Continue with Google")
-	require.Contains(t, rec.Body.String(), `id="googleLoginButton"`)
-	require.Contains(t, rec.Body.String(), "Stop guessing what your Codex agent did wrong")
-	require.Contains(t, rec.Body.String(), "Google Sign-In")
+	require.Contains(t, rec.Body.String(), "Login / Sign Up")
+	require.Contains(t, rec.Body.String(), `href="/login"`)
+	require.Contains(t, rec.Body.String(), "No guessing. No black box.")
 	require.NotContains(t, rec.Body.String(), "demo@example.com")
 }
 
@@ -108,12 +107,17 @@ func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
 		{
 			path:        "/assets/dashboard.js",
 			contentType: "javascript",
-			bodySnippet: `window.location.replace("/")`,
+			bodySnippet: `window.location.replace("/login")`,
 		},
 		{
 			path:        "/assets/admin.js",
 			contentType: "javascript",
 			bodySnippet: `/api/v1/admin/users`,
+		},
+		{
+			path:        "/assets/logo.ico",
+			contentType: "image/",
+			bodySnippet: "",
 		},
 	}
 
@@ -125,8 +129,33 @@ func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, rec.Code, tc.path)
 		require.Contains(t, rec.Header().Get("Content-Type"), tc.contentType, tc.path)
-		require.Contains(t, rec.Body.String(), tc.bodySnippet, tc.path)
+		if tc.bodySnippet != "" {
+			require.Contains(t, rec.Body.String(), tc.bodySnippet, tc.path)
+		}
 	}
+}
+
+func TestDashboardRouteServesFavicon(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewDashboardRoute(controller.Options{})
+	route.RegisterRoute(echo.Group(""))
+
+	req := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	rec := httptest.NewRecorder()
+
+	echo.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "image/")
+	require.NotEmpty(t, rec.Body.Bytes())
 }
 
 func TestAdminRouteRedirectsWithoutWebSession(t *testing.T) {

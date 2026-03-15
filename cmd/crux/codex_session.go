@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,6 +69,21 @@ type codexResponseItemPayload struct {
 	Output  any                    `json:"output"`
 }
 
+type codexFunctionCallOutputEnvelope struct {
+	Output   any            `json:"output"`
+	Error    any            `json:"error"`
+	Metadata map[string]any `json:"metadata"`
+}
+
+type codexFunctionCallOutputInfo struct {
+	text       string
+	wallTimeMS int
+	exitCode   *int
+	hasError   bool
+	isNeutral  bool
+	recognized bool
+}
+
 type codexSessionFile struct {
 	path    string
 	modTime time.Time
@@ -87,6 +103,34 @@ const (
 	codexSessionClassificationPrimary          codexSessionClassification = "primary"
 	codexSessionClassificationUtilityTitle     codexSessionClassification = "utility_title_generation"
 	codexSessionClassificationUtilityLocalPlan codexSessionClassification = "utility_local_change_plan"
+)
+
+var (
+	codexFunctionCallOutputWallTimePattern  = regexp.MustCompile(`(?im)^\s*wall time:\s*([0-9]+(?:\.[0-9]+)?)\s*([a-z]+)?`)
+	codexFunctionCallOutputExitCodePatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?im)\bprocess exited with code\s+(-?\d+)\b`),
+		regexp.MustCompile(`(?im)\bexit code:\s*(-?\d+)\b`),
+		regexp.MustCompile(`(?im)\bexit_code[:=]\s*(-?\d+)\b`),
+	}
+	codexFunctionCallOutputFailureMarkers = []string{
+		"failed in sandbox",
+		"write_stdin failed:",
+		"exec_command failed:",
+		"apply_patch verification failed:",
+		"patch rejected",
+		"rejected by user",
+		"aborted by user",
+		"missing required parameter",
+		"missing parameter",
+		"missing param",
+		"error: failed to find expected lines",
+		"error: failed to read file to update",
+		"error: invalid hunk at line ",
+	}
+	codexFunctionCallOutputNeutralMarkers = []string{
+		"plan updated",
+		"process running with session id",
+	}
 )
 
 type codexSessionUtilityError struct {
@@ -330,7 +374,8 @@ func collectCodexParsedSession(path, tool string) (codexParsedSession, error) {
 					}
 				}
 			case "function_call_output":
-				wallTimeMS := codexFunctionCallOutputWallTimeMS(payload.Output)
+				outputInfo := codexFunctionCallOutputInfoFromRaw(payload.Output)
+				wallTimeMS := outputInfo.wallTimeMS
 				toolName := strings.TrimSpace(callToolByID[strings.TrimSpace(payload.CallID)])
 				if toolName == "" && wallTimeMS > 0 {
 					toolName = "unknown"
@@ -339,7 +384,7 @@ func collectCodexParsedSession(path, tool string) (codexParsedSession, error) {
 					toolWallTimesMS[toolName] += wallTimeMS
 					req.ToolWallTimeMS += wallTimeMS
 				}
-				if codexFunctionCallOutputHasError(payload.Output) {
+				if outputInfo.hasError {
 					req.ToolErrorCount++
 					if toolName == "" {
 						toolName = "unknown"
@@ -964,57 +1009,292 @@ func parseCodexTimestamp(raw string) (time.Time, bool) {
 	return ts.UTC(), true
 }
 
-func codexFunctionCallOutputHasError(raw any) bool {
-	text := strings.TrimSpace(fmt.Sprint(raw))
+func codexFunctionCallOutputInfoFromRaw(raw any) codexFunctionCallOutputInfo {
+	info := codexFunctionCallOutputInfo{}
+	codexPopulateFunctionCallOutputInfo(&info, raw, 0)
+	if info.wallTimeMS == 0 {
+		info.wallTimeMS = codexFunctionCallOutputWallTimeMSFromText(info.text)
+	}
+	if info.exitCode == nil {
+		if code, ok := codexFunctionCallOutputExitCodeFromText(info.text); ok {
+			info.exitCode = &code
+		}
+	}
+	if info.exitCode != nil {
+		info.hasError = *info.exitCode != 0
+	} else {
+		info.hasError = codexFunctionCallOutputLooksLikeError(info.text)
+	}
+	info.isNeutral = !info.hasError && codexFunctionCallOutputLooksLikeNeutral(info.text)
+	info.recognized = info.wallTimeMS > 0 || info.exitCode != nil || info.hasError || info.isNeutral
+	return info
+}
+
+func codexPopulateFunctionCallOutputInfo(info *codexFunctionCallOutputInfo, raw any, depth int) {
+	if depth > 4 || raw == nil {
+		return
+	}
+
+	switch value := raw.(type) {
+	case string:
+		codexPopulateFunctionCallOutputInfoFromString(info, value, depth)
+	case []byte:
+		codexPopulateFunctionCallOutputInfoFromString(info, string(value), depth)
+	case map[string]any:
+		if envelope, ok := codexFunctionCallOutputEnvelopeFromMap(value); ok {
+			codexMergeFunctionCallOutputEnvelope(info, envelope, depth)
+			return
+		}
+		codexAppendFunctionCallOutputText(info, codexJSONString(value))
+	default:
+		text := strings.TrimSpace(fmt.Sprint(raw))
+		if text == "" || text == "<nil>" {
+			return
+		}
+		if envelope, ok := codexParseFunctionCallOutputEnvelope(text); ok {
+			codexMergeFunctionCallOutputEnvelope(info, envelope, depth)
+			return
+		}
+		codexAppendFunctionCallOutputText(info, text)
+	}
+}
+
+func codexPopulateFunctionCallOutputInfoFromString(info *codexFunctionCallOutputInfo, raw string, depth int) {
+	text := strings.TrimSpace(raw)
+	if text == "" || text == "<nil>" {
+		return
+	}
+	if envelope, ok := codexParseFunctionCallOutputEnvelope(text); ok {
+		codexMergeFunctionCallOutputEnvelope(info, envelope, depth)
+		return
+	}
+	codexAppendFunctionCallOutputText(info, text)
+}
+
+func codexParseFunctionCallOutputEnvelope(text string) (codexFunctionCallOutputEnvelope, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" || !strings.HasPrefix(text, "{") {
+		return codexFunctionCallOutputEnvelope{}, false
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return codexFunctionCallOutputEnvelope{}, false
+	}
+	return codexFunctionCallOutputEnvelopeFromMap(payload)
+}
+
+func codexFunctionCallOutputEnvelopeFromMap(payload map[string]any) (codexFunctionCallOutputEnvelope, bool) {
+	envelope := codexFunctionCallOutputEnvelope{}
+	if value, ok := payload["output"]; ok {
+		envelope.Output = value
+	}
+	if value, ok := payload["error"]; ok {
+		envelope.Error = value
+	}
+	if metadata, ok := payload["metadata"].(map[string]any); ok && len(metadata) > 0 {
+		envelope.Metadata = metadata
+	}
+	if envelope.Output == nil && envelope.Error == nil && len(envelope.Metadata) == 0 {
+		return codexFunctionCallOutputEnvelope{}, false
+	}
+	return envelope, true
+}
+
+func codexMergeFunctionCallOutputEnvelope(info *codexFunctionCallOutputInfo, envelope codexFunctionCallOutputEnvelope, depth int) {
+	codexMergeFunctionCallOutputMetadata(info, envelope.Metadata)
+	codexPopulateFunctionCallOutputInfo(info, envelope.Output, depth+1)
+	codexPopulateFunctionCallOutputInfo(info, envelope.Error, depth+1)
+}
+
+func codexMergeFunctionCallOutputMetadata(info *codexFunctionCallOutputInfo, metadata map[string]any) {
+	if len(metadata) == 0 {
+		return
+	}
+	if info.exitCode == nil {
+		if code, ok := codexFunctionCallOutputInt(metadata["exit_code"]); ok {
+			info.exitCode = &code
+		}
+	}
+	if info.wallTimeMS == 0 {
+		for _, key := range []string{"duration_ms", "wall_time_ms", "duration_milliseconds"} {
+			if value, ok := codexFunctionCallOutputFloat(metadata[key]); ok && value >= 0 {
+				info.wallTimeMS = int(value)
+				return
+			}
+		}
+		for _, key := range []string{"duration_seconds", "wall_time_seconds"} {
+			if value, ok := codexFunctionCallOutputFloat(metadata[key]); ok && value >= 0 {
+				info.wallTimeMS = int(value * 1000)
+				return
+			}
+		}
+	}
+}
+
+func codexFunctionCallOutputInt(raw any) (int, bool) {
+	switch value := raw.(type) {
+	case nil:
+		return 0, false
+	case int:
+		return value, true
+	case int8:
+		return int(value), true
+	case int16:
+		return int(value), true
+	case int32:
+		return int(value), true
+	case int64:
+		return int(value), true
+	case float32:
+		return int(value), true
+	case float64:
+		return int(value), true
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil {
+			return int(parsed), true
+		}
+		if parsed, err := value.Float64(); err == nil {
+			return int(parsed), true
+		}
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return 0, false
+		}
+		if parsed, err := strconv.Atoi(value); err == nil {
+			return parsed, true
+		}
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			return int(parsed), true
+		}
+	}
+	return 0, false
+}
+
+func codexFunctionCallOutputFloat(raw any) (float64, bool) {
+	switch value := raw.(type) {
+	case nil:
+		return 0, false
+	case int:
+		return float64(value), true
+	case int8:
+		return float64(value), true
+	case int16:
+		return float64(value), true
+	case int32:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	case float32:
+		return float64(value), true
+	case float64:
+		return value, true
+	case json.Number:
+		parsed, err := value.Float64()
+		return parsed, err == nil
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseFloat(value, 64)
+		return parsed, err == nil
+	}
+	return 0, false
+}
+
+func codexAppendFunctionCallOutputText(info *codexFunctionCallOutputInfo, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" || text == "<nil>" {
+		return
+	}
+	if info.text == "" {
+		info.text = text
+		return
+	}
+	info.text += "\n" + text
+}
+
+func codexJSONString(raw any) string {
+	bytes, err := json.Marshal(raw)
+	if err != nil {
+		return strings.TrimSpace(fmt.Sprint(raw))
+	}
+	return strings.TrimSpace(string(bytes))
+}
+
+func codexFunctionCallOutputExitCodeFromText(raw string) (int, bool) {
+	for _, pattern := range codexFunctionCallOutputExitCodePatterns {
+		matches := pattern.FindStringSubmatch(raw)
+		if len(matches) != 2 {
+			continue
+		}
+		code, err := strconv.Atoi(matches[1])
+		if err != nil {
+			continue
+		}
+		return code, true
+	}
+	return 0, false
+}
+
+func codexFunctionCallOutputWallTimeMSFromText(raw string) int {
+	matches := codexFunctionCallOutputWallTimePattern.FindStringSubmatch(raw)
+	if len(matches) < 2 {
+		return 0
+	}
+	value, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0
+	}
+	unit := "seconds"
+	if len(matches) > 2 {
+		unit = strings.ToLower(strings.TrimSpace(matches[2]))
+	}
+	switch {
+	case strings.HasPrefix(unit, "ms"):
+		return int(value)
+	case strings.HasPrefix(unit, "s"), strings.HasPrefix(unit, "second"):
+		return int(value * 1000)
+	default:
+		return int(value * 1000)
+	}
+}
+
+func codexFunctionCallOutputLooksLikeError(raw string) bool {
+	text := strings.ToLower(strings.TrimSpace(raw))
 	if text == "" || text == "<nil>" {
 		return false
 	}
-	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "Exit code:") {
-			continue
+	for _, marker := range codexFunctionCallOutputFailureMarkers {
+		if strings.Contains(text, marker) {
+			return true
 		}
-		code, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "Exit code:")))
-		if err != nil {
-			return false
-		}
-		return code != 0
 	}
 	return false
 }
 
-func codexFunctionCallOutputWallTimeMS(raw any) int {
-	text := strings.TrimSpace(fmt.Sprint(raw))
+func codexFunctionCallOutputLooksLikeNeutral(raw string) bool {
+	text := strings.ToLower(strings.TrimSpace(raw))
 	if text == "" || text == "<nil>" {
-		return 0
+		return false
 	}
-	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "Wall time:") {
-			continue
-		}
-		fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "Wall time:")))
-		if len(fields) == 0 {
-			return 0
-		}
-		value, err := strconv.ParseFloat(fields[0], 64)
-		if err != nil {
-			return 0
-		}
-		unit := "seconds"
-		if len(fields) > 1 {
-			unit = strings.ToLower(fields[1])
-		}
-		switch {
-		case strings.HasPrefix(unit, "ms"):
-			return int(value)
-		case strings.HasPrefix(unit, "s"), strings.HasPrefix(unit, "second"):
-			return int(value * 1000)
-		default:
-			return int(value * 1000)
+	for _, marker := range codexFunctionCallOutputNeutralMarkers {
+		if strings.Contains(text, marker) {
+			return true
 		}
 	}
-	return 0
+	return false
+}
+
+func codexFunctionCallOutputHasError(raw any) bool {
+	return codexFunctionCallOutputInfoFromRaw(raw).hasError
+}
+
+func codexFunctionCallOutputWallTimeMS(raw any) int {
+	return codexFunctionCallOutputInfoFromRaw(raw).wallTimeMS
 }
 
 func cloneToolCalls(input map[string]int) map[string]int {

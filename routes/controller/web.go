@@ -14,7 +14,7 @@ import (
 	"github.com/Royaltyprogram/aiops/service"
 )
 
-//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/landing.html assets/login.html assets/dashboard.css assets/dashboard.js assets/logo.svg
+//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/landing.html assets/login.html assets/dashboard.css assets/dashboard.js assets/logo.ico assets/logo.png assets/logo.svg
 var uiFS embed.FS
 
 type DashboardRoute struct {

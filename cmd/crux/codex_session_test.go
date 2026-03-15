@@ -84,6 +84,141 @@ func TestCollectCodexSessionSummaryParsesLegacyRolloutFormat(t *testing.T) {
 	require.Equal(t, map[string]int{"shell": 1}, req.ToolCalls)
 }
 
+func TestCollectCodexSessionSummaryParsesStructuredFunctionCallOutputMetadata(t *testing.T) {
+	root := t.TempDir()
+	sessionPath := filepath.Join(root, "structured.jsonl")
+	require.NoError(t, os.WriteFile(sessionPath, []byte(strings.Join([]string{
+		`{"id":"structured-session-1","timestamp":"2025-09-17T10:28:24Z","model_provider":"openai","cwd":"/repo"}`,
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"## My request for Codex:\nReplay the structured tool output case."}]}`,
+		`{"type":"function_call","name":"shell","call_id":"call-1"}`,
+		`{"type":"function_call_output","call_id":"call-1","output":"{\"output\":\"hello tools\\nFINAL_OUTPUT: hello tools\\n\",\"metadata\":{\"exit_code\":1,\"duration_seconds\":13.6}}"}`,
+		`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I replayed the structured tool output case."}]}`,
+	}, "\n")+"\n"), 0o644))
+
+	req, err := collectCodexSessionSummary(sessionPath, "codex")
+	require.NoError(t, err)
+	require.Equal(t, 1, req.FunctionCallCount)
+	require.Equal(t, 13600, req.ToolWallTimeMS)
+	require.Equal(t, 1, req.ToolErrorCount)
+	require.Equal(t, map[string]int{"shell": 13600}, req.ToolWallTimesMS)
+	require.Equal(t, map[string]int{"shell": 1}, req.ToolErrors)
+}
+
+func TestCollectCodexSessionSummaryParsesProcessExitedOutput(t *testing.T) {
+	root := t.TempDir()
+	sessionPath := filepath.Join(root, "process-output.jsonl")
+	require.NoError(t, os.WriteFile(sessionPath, []byte(strings.Join([]string{
+		`{"timestamp":"2026-03-10T08:00:00Z","type":"session_meta","payload":{"id":"process-output-session","timestamp":"2026-03-10T08:00:00Z","model_provider":"openai"}}`,
+		`{"timestamp":"2026-03-10T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nInspect process-style tool output parsing."}}`,
+		`{"timestamp":"2026-03-10T08:00:02Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"call-1"}}`,
+		`{"timestamp":"2026-03-10T08:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"Chunk ID: abc123\nWall time: 0.7 seconds\nProcess exited with code 2\nOriginal token count: 12\nOutput:\nmissing required parameter: cmd\n"}}`,
+		`{"timestamp":"2026-03-10T08:00:04Z","type":"event_msg","payload":{"type":"agent_message","message":"I inspected the process-style tool output parsing."}}`,
+	}, "\n")+"\n"), 0o644))
+
+	req, err := collectCodexSessionSummary(sessionPath, "codex")
+	require.NoError(t, err)
+	require.Equal(t, 1, req.FunctionCallCount)
+	require.Equal(t, 700, req.ToolWallTimeMS)
+	require.Equal(t, 1, req.ToolErrorCount)
+	require.Equal(t, map[string]int{"exec_command": 700}, req.ToolWallTimesMS)
+	require.Equal(t, map[string]int{"exec_command": 1}, req.ToolErrors)
+}
+
+func TestCodexFunctionCallOutputHasErrorRecognizesMissingParameterFailures(t *testing.T) {
+	require.True(t, codexFunctionCallOutputHasError("exec_command failed: missing required parameter: cmd"))
+	require.True(t, codexFunctionCallOutputHasError("aborted by user after 4.2s"))
+	require.True(t, codexFunctionCallOutputHasError("error: Failed to read file to update /tmp/demo.txt: No such file or directory"))
+}
+
+func TestCodexFunctionCallOutputInfoRecognizesNeutralPlanUpdate(t *testing.T) {
+	info := codexFunctionCallOutputInfoFromRaw("Plan updated")
+	require.False(t, info.hasError)
+	require.True(t, info.isNeutral)
+	require.True(t, info.recognized)
+	require.Zero(t, info.wallTimeMS)
+	require.Nil(t, info.exitCode)
+}
+
+func TestCodexFunctionCallOutputInfoFromRawRecognizesRealWorldPatterns(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        any
+		wallTimeMS int
+		exitCode   *int
+		hasError   bool
+		isNeutral  bool
+		recognized bool
+	}{
+		{
+			name:       "plain exit code and wall time",
+			raw:        "Exit code: 1\nWall time: 0.1 seconds\nOutput:\npermission denied\n",
+			wallTimeMS: 100,
+			exitCode:   intPtr(1),
+			hasError:   true,
+			recognized: true,
+		},
+		{
+			name:       "structured metadata success",
+			raw:        `{"output":"hello tools\n","metadata":{"exit_code":0,"duration_seconds":13.6}}`,
+			wallTimeMS: 13600,
+			exitCode:   intPtr(0),
+			recognized: true,
+		},
+		{
+			name:       "process exited pattern",
+			raw:        "Chunk ID: abc123\nWall time: 0.7 seconds\nProcess exited with code 2\nOriginal token count: 12\nOutput:\nmissing required parameter: cmd\n",
+			wallTimeMS: 700,
+			exitCode:   intPtr(2),
+			hasError:   true,
+			recognized: true,
+		},
+		{
+			name:       "process running is neutral",
+			raw:        "Chunk ID: abc123\nWall time: 1.0 seconds\nProcess running with session ID 42\nOriginal token count: 0\nOutput:\n",
+			wallTimeMS: 1000,
+			hasError:   false,
+			isNeutral:  true,
+			recognized: true,
+		},
+		{
+			name:       "plan updated is neutral",
+			raw:        "Plan updated",
+			hasError:   false,
+			isNeutral:  true,
+			recognized: true,
+		},
+		{
+			name:       "sandbox failure heuristic",
+			raw:        "failed in sandbox MacosSeatbelt with execution error: sandbox denied exec error, exit code: 1, stdout: total 40",
+			exitCode:   intPtr(1),
+			hasError:   true,
+			recognized: true,
+		},
+		{
+			name:       "missing parameter heuristic without explicit exit code",
+			raw:        "exec_command failed: missing required parameter: cmd",
+			hasError:   true,
+			recognized: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			info := codexFunctionCallOutputInfoFromRaw(tc.raw)
+			require.Equal(t, tc.wallTimeMS, info.wallTimeMS)
+			if tc.exitCode == nil {
+				require.Nil(t, info.exitCode)
+			} else {
+				require.NotNil(t, info.exitCode)
+				require.Equal(t, *tc.exitCode, *info.exitCode)
+			}
+			require.Equal(t, tc.hasError, info.hasError)
+			require.Equal(t, tc.isNeutral, info.isNeutral)
+			require.Equal(t, tc.recognized, info.recognized)
+		})
+	}
+}
+
 func TestCollectCodexSessionSummaryRejectsNoQueryMetadataOnlyRollout(t *testing.T) {
 	root := t.TempDir()
 	sessionPath := filepath.Join(root, "metadata-only.jsonl")
@@ -218,4 +353,8 @@ func writeCodexSessionFixture(t *testing.T, path string, modTime time.Time, line
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644))
 	require.NoError(t, os.Chtimes(path, modTime, modTime))
+}
+
+func intPtr(value int) *int {
+	return &value
 }

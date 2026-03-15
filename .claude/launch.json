@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "crux-server",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "main.go", "wire_gen.go"],
+      "port": 8082,
+      "env": {
+        "APP_MODE": "local"
+      }
+    }
+  ]
+}
