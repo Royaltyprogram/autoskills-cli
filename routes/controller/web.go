@@ -14,7 +14,7 @@ import (
 	"github.com/Royaltyprogram/aiops/service"
 )
 
-//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/landing.html assets/login.html assets/dashboard.css assets/dashboard.js assets/logo.ico assets/logo.png assets/logo.svg
+//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/docs.html assets/landing.html assets/login.html assets/dashboard.css assets/dashboard.js assets/logo.ico assets/logo.png assets/logo.svg
 var uiFS embed.FS
 
 type DashboardRoute struct {
@@ -28,6 +28,7 @@ func NewDashboardRoute(opt Options) *DashboardRoute {
 func (r *DashboardRoute) RegisterRoute(router *echo.Group) {
 	router.GET("/", r.landing)
 	router.GET("/login", r.login)
+	router.GET("/docs", r.docs)
 	router.GET("/dashboard", r.dashboard)
 	router.GET("/admin", r.admin)
 	router.GET("/favicon.ico", r.favicon)
@@ -36,6 +37,14 @@ func (r *DashboardRoute) RegisterRoute(router *echo.Group) {
 
 func (r *DashboardRoute) landing(c *echo.Context) error {
 	page, err := uiFS.ReadFile("assets/landing.html")
+	if err != nil {
+		return err
+	}
+	return c.HTML(http.StatusOK, string(page))
+}
+
+func (r *DashboardRoute) docs(c *echo.Context) error {
+	page, err := uiFS.ReadFile("assets/docs.html")
 	if err != nil {
 		return err
 	}

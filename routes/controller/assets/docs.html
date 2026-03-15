@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crux — Docs</title>
+  <link rel="icon" href="/assets/logo.ico" type="image/x-icon">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --canvas-top: #f3ece1;
+      --canvas-bottom: #e8f0ec;
+      --surface: rgba(255, 255, 255, 0.95);
+      --surface-soft: rgba(247, 249, 247, 0.94);
+      --line: rgba(20, 33, 42, 0.10);
+      --line-strong: rgba(20, 33, 42, 0.16);
+      --ink: #14212a;
+      --muted: #5a6973;
+      --accent: #a75231;
+      --accent-deep: #7d3a1f;
+      --accent-light: rgba(167, 82, 49, 0.08);
+      --support: #1e6870;
+      --support-light: rgba(30, 104, 112, 0.08);
+      --good: #1d7648;
+      --good-light: rgba(29, 118, 72, 0.10);
+      --warn: #8e621b;
+      --warn-light: rgba(142, 98, 27, 0.10);
+      --shadow-sm: 0 2px 8px rgba(20, 33, 42, 0.06);
+      --shadow-md: 0 8px 24px rgba(20, 33, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; color-scheme: light; }
+
+    body {
+      color: var(--ink);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      background: linear-gradient(168deg, var(--canvas-top) 0%, #f7f4ee 40%, var(--canvas-bottom) 100%);
+      overflow-x: hidden;
+    }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── NAV ── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      background: rgba(243, 236, 225, 0.72);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner {
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+      height: 64px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+    .nav-logo { width: 32px; height: 32px; border-radius: 8px; object-fit: contain; }
+    .nav-wordmark { font-family: 'DM Serif Display', serif; font-size: 20px; letter-spacing: -0.02em; }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a { text-decoration: none; color: var(--muted); font-size: 14px; font-weight: 500; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--ink); }
+    .nav-links a.is-current { color: var(--ink); font-weight: 600; }
+    .nav-cta {
+      padding: 8px 20px; border-radius: 10px; background: var(--ink);
+      color: #fff !important; font-weight: 600 !important; transition: opacity 0.2s, transform 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    /* ── DOCS LAYOUT ── */
+    .docs-layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 40px;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+      align-items: start;
+    }
+
+    /* ── SIDEBAR ── */
+    .docs-sidebar {
+      position: sticky;
+      top: 104px;
+    }
+    .docs-sidebar-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .docs-sidebar-nav {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .docs-sidebar-nav a {
+      display: block;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      text-decoration: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .docs-sidebar-nav a:hover { background: rgba(20, 33, 42, 0.04); color: var(--ink); }
+    .docs-sidebar-nav a.is-active { background: var(--accent-light); color: var(--accent-deep); font-weight: 600; }
+
+    /* ── CONTENT ── */
+    .docs-content {
+      min-width: 0;
+    }
+    .docs-content h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(28px, 4vw, 38px);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    .docs-content .docs-lead {
+      font-size: 17px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: 40px;
+    }
+
+    .docs-section {
+      margin-bottom: 48px;
+    }
+    .docs-section h2 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 24px;
+      line-height: 1.2;
+      margin-bottom: 16px;
+      padding-top: 24px;
+    }
+    .docs-section h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      margin-top: 24px;
+    }
+    .docs-section p {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+      margin-bottom: 12px;
+    }
+    .docs-section ul, .docs-section ol {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+      margin-bottom: 12px;
+      padding-left: 24px;
+    }
+    .docs-section li { margin-bottom: 4px; }
+    .docs-section strong { color: var(--ink); }
+
+    /* ── STEP CARDS ── */
+    .step-card {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 24px;
+    }
+    .step-num {
+      width: 40px; height: 40px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 800; color: #fff;
+      flex-shrink: 0;
+    }
+    .step-num--teal { background: var(--support); }
+    .step-num--accent { background: var(--accent); }
+    .step-num--green { background: var(--good); }
+    .step-body h3 { margin-top: 0; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .step-body p { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 8px; }
+
+    /* ── COMMAND BLOCKS ── */
+    .cmd {
+      position: relative;
+      background: #18232d;
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-family: 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #e4ebe4;
+      overflow-x: auto;
+      margin-bottom: 12px;
+    }
+    .cmd-copy {
+      position: absolute;
+      top: 8px; right: 8px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.7);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .cmd-copy:hover { background: rgba(255,255,255,0.16); }
+
+    /* ── INFO BOX ── */
+    .info-box {
+      padding: 16px 20px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      margin-bottom: 16px;
+    }
+    .info-box--tip {
+      border-left: 3px solid var(--support);
+      background: var(--support-light);
+    }
+    .info-box--warn {
+      border-left: 3px solid var(--warn);
+      background: var(--warn-light);
+    }
+    .info-box p { margin-bottom: 0; font-size: 14px; }
+
+    /* ── TABLE ── */
+    .docs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .docs-table th, .docs-table td {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .docs-table th {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: var(--surface-soft);
+    }
+    .docs-table td { color: var(--muted); }
+    .docs-table code {
+      font-family: 'SFMono-Regular', 'Menlo', monospace;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(20, 33, 42, 0.06);
+      color: var(--ink);
+    }
+
+    /* ── FOOTER ── */
+    .footer { border-top: 1px solid var(--line); background: rgba(243, 236, 225, 0.4); }
+    .footer-inner {
+      max-width: 1120px; margin: 0 auto; padding: 32px 24px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+    }
+    .footer-copy { font-size: 13px; color: var(--muted); }
+    .footer-links { display: flex; gap: 24px; list-style: none; }
+    .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; font-weight: 500; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--ink); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .docs-layout {
+        grid-template-columns: 1fr;
+        gap: 0;
+        padding-top: 24px;
+      }
+      .docs-sidebar {
+        position: static;
+        margin-bottom: 32px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .docs-sidebar-nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .docs-sidebar-nav a {
+        padding: 6px 12px;
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="/">
+        <img src="/assets/logo.svg" alt="Crux" class="nav-logo">
+        <span class="nav-wordmark">Crux</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="/docs" class="nav-link-text is-current">Docs</a></li>
+        <li><a href="/login" class="nav-cta">Login / Sign Up</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <div class="docs-sidebar-title">Documentation</div>
+      <ul class="docs-sidebar-nav" id="sidebarNav">
+        <li><a href="#setup" class="is-active">How to Setup</a></li>
+        <li><a href="#install-cli">Install CLI</a></li>
+        <li><a href="#create-token">Create Token</a></li>
+        <li><a href="#run-setup">Run Setup</a></li>
+        <li><a href="#cli-commands">CLI Commands</a></li>
+        <li><a href="#dashboard">Dashboard</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h1 id="setup">How to Setup</h1>
+      <p class="docs-lead">
+        Crux를 처음 사용하거나 온보딩을 건너뛴 경우, 이 가이드를 따라 설정을 완료할 수 있습니다.
+        3단계만 완료하면 Codex 세션 분석을 시작할 수 있습니다.
+      </p>
+
+      <!-- Step 1 -->
+      <section class="docs-section" id="install-cli">
+        <h2>Step 1 &mdash; Install the CLI</h2>
+        <div class="step-card">
+          <div class="step-num step-num--teal">1</div>
+          <div class="step-body">
+            <h3>CLI 설치</h3>
+            <p>분석할 머신에 Crux CLI를 설치합니다. CLI는 백그라운드에서 Codex 세션 데이터를 수집합니다.</p>
+          </div>
+        </div>
+
+        <p>터미널을 열고 아래 명령어를 실행하세요:</p>
+        <div class="cmd">
+          <button class="cmd-copy" type="button" onclick="copyCommand(this)">Copy</button>
+          curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+        </div>
+
+        <div class="info-box info-box--tip">
+          <p><strong>Tip:</strong> 설치가 완료되면 <code>crux --version</code>을 실행하여 정상 설치를 확인할 수 있습니다.</p>
+        </div>
+      </section>
+
+      <!-- Step 2 -->
+      <section class="docs-section" id="create-token">
+        <h2>Step 2 &mdash; Create a CLI Token</h2>
+        <div class="step-card">
+          <div class="step-num step-num--accent">2</div>
+          <div class="step-body">
+            <h3>CLI 토큰 발급</h3>
+            <p>대시보드에서 CLI 인증용 토큰을 생성합니다. 이 토큰은 CLI가 서버와 통신할 때 사용됩니다.</p>
+          </div>
+        </div>
+
+        <h3>토큰 발급 방법</h3>
+        <ol>
+          <li><a href="/login">Crux 대시보드</a>에 로그인합니다.</li>
+          <li>상단 탭에서 <strong>Settings</strong>를 클릭합니다.</li>
+          <li><strong>Create CLI token</strong> 버튼을 클릭합니다.</li>
+          <li>생성된 토큰을 복사해둡니다.</li>
+        </ol>
+
+        <div class="info-box info-box--warn">
+          <p><strong>Important:</strong> 토큰은 생성 시 <strong>한 번만</strong> 표시됩니다. 반드시 복사해두세요. 토큰은 30일 후 만료됩니다.</p>
+        </div>
+      </section>
+
+      <!-- Step 3 -->
+      <section class="docs-section" id="run-setup">
+        <h2>Step 3 &mdash; Run Setup</h2>
+        <div class="step-card">
+          <div class="step-num step-num--green">3</div>
+          <div class="step-body">
+            <h3>프로젝트 연결</h3>
+            <p>분석할 레포지토리에서 setup 명령을 실행합니다. 디바이스 등록, 프로젝트 연결, 로컬 세션 업로드가 자동으로 처리됩니다.</p>
+          </div>
+        </div>
+
+        <p>분석할 레포지토리 디렉토리에서 실행하세요:</p>
+        <div class="cmd">
+          <button class="cmd-copy" type="button" onclick="copyCommand(this)">Copy</button>
+          crux setup
+        </div>
+        <p>실행하면 앞서 복사한 토큰 입력을 요청합니다. 토큰을 붙여넣으면 설정이 완료됩니다.</p>
+
+        <div class="info-box info-box--tip">
+          <p><strong>Tip:</strong> 자체 호스팅 서버를 사용하는 경우 <code>crux setup --server https://your-server.com</code>으로 서버 주소를 지정할 수 있습니다.</p>
+        </div>
+      </section>
+
+      <!-- CLI Commands -->
+      <section class="docs-section" id="cli-commands">
+        <h2>CLI Commands</h2>
+        <p>설정 완료 후 사용할 수 있는 주요 명령어입니다.</p>
+
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>Command</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>crux setup</code></td>
+              <td>디바이스 등록 및 프로젝트 연결을 진행합니다.</td>
+            </tr>
+            <tr>
+              <td><code>crux collect</code></td>
+              <td>로컬 Codex 세션을 수집하여 서버에 업로드합니다.</td>
+            </tr>
+            <tr>
+              <td><code>crux collect --watch</code></td>
+              <td>백그라운드에서 지속적으로 세션을 수집합니다.</td>
+            </tr>
+            <tr>
+              <td><code>crux collect --recent 30</code></td>
+              <td>최근 30일간의 세션을 일괄 수집합니다.</td>
+            </tr>
+            <tr>
+              <td><code>crux --version</code></td>
+              <td>설치된 CLI 버전을 확인합니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Dashboard -->
+      <section class="docs-section" id="dashboard">
+        <h2>Dashboard Guide</h2>
+        <p>대시보드는 4개의 주요 탭으로 구성됩니다.</p>
+
+        <h3>Reports</h3>
+        <p>수집된 Codex 세션의 분석 리포트를 확인합니다. 모델이 의도를 올바르게 이해했는지, 어디서 잘못 해석했는지를 설명합니다.</p>
+
+        <h3>Usage Analytics</h3>
+        <p>일별 토큰 사용량, 모델/프로바이더 커버리지, 응답 지연 시간, 도구 사용 패턴 등의 사용 통계를 확인합니다.</p>
+
+        <h3>Sessions</h3>
+        <p>CLI에서 수집된 원시 Codex 세션 목록입니다. 분석 엔진의 입력 데이터로 활용됩니다.</p>
+
+        <h3>Settings</h3>
+        <p>CLI 토큰 발급 및 관리, 설정 스냅샷, 최근 활동 기록을 확인합니다.</p>
+      </section>
+
+      <!-- FAQ -->
+      <section class="docs-section" id="faq">
+        <h2>FAQ</h2>
+
+        <h3>온보딩을 건너뛰었는데 다시 볼 수 있나요?</h3>
+        <p>이 문서의 Step 1~3을 따라하면 온보딩과 동일한 설정을 완료할 수 있습니다. 대시보드에서 직접 토큰을 발급받고 CLI로 setup을 실행하면 됩니다.</p>
+
+        <h3>토큰을 잃어버렸어요.</h3>
+        <p>대시보드의 Settings 탭에서 새 토큰을 발급받으세요. 이전 토큰은 Settings &gt; Issued CLI tokens에서 취소할 수 있습니다.</p>
+
+        <h3>여러 프로젝트를 연결할 수 있나요?</h3>
+        <p>네. 각 레포지토리 디렉토리에서 <code>crux setup</code>을 실행하면 됩니다. 동일한 토큰으로 여러 프로젝트를 연결할 수 있습니다.</p>
+
+        <h3>데이터는 어떻게 수집되나요?</h3>
+        <p>CLI가 로컬 Codex 세션 파일을 읽어 서버에 업로드합니다. <code>crux collect --watch</code>를 사용하면 백그라운드에서 자동으로 수집됩니다. 업로드 없이 수동으로만 수집하려면 <code>crux collect</code>를 직접 실행하세요.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span class="footer-copy">Crux &middot; Understand What Your Codex Agent Actually Did</span>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Royaltyprogram/aiops" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="/healthz">Status</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script>
+    /* ── Copy command ── */
+    function copyCommand(btn) {
+      const block = btn.closest('.cmd');
+      const text = block.textContent.replace('Copy', '').trim();
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+      });
+    }
+
+    /* ── Sidebar active tracking ── */
+    (function() {
+      var links = document.querySelectorAll('#sidebarNav a');
+      var sections = [];
+      links.forEach(function(a) {
+        var id = a.getAttribute('href').slice(1);
+        var el = document.getElementById(id);
+        if (el) sections.push({ id: id, el: el, link: a });
+      });
+
+      function update() {
+        var scrollY = window.scrollY + 120;
+        var current = sections[0];
+        for (var i = 0; i < sections.length; i++) {
+          if (sections[i].el.offsetTop <= scrollY) {
+            current = sections[i];
+          }
+        }
+        links.forEach(function(a) { a.classList.remove('is-active'); });
+        if (current) current.link.classList.add('is-active');
+      }
+
+      window.addEventListener('scroll', update, { passive: true });
+      update();
+    })();
+  </script>
+
+</body>
+
+</html>
