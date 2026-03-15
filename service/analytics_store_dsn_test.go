@@ -45,3 +45,15 @@ func TestAnalyticsStoreOnServerCloseClosesDB(t *testing.T) {
 	require.NoError(t, store.OnServerClose(context.Background()))
 	require.Error(t, store.Ping(context.Background()))
 }
+
+func TestAnalyticsStoreDDLUsesMySQLCompatibleKeyTypes(t *testing.T) {
+	metaDDL := analyticsStoreMetaTableDDL("mysql")
+	recordDDL := analyticsStoreRecordTableDDL("mysql")
+
+	require.Contains(t, metaDDL, "meta_key VARCHAR(191) PRIMARY KEY")
+	require.Contains(t, metaDDL, "meta_value LONGTEXT NOT NULL")
+	require.Contains(t, recordDDL, "record_type VARCHAR(191) NOT NULL")
+	require.Contains(t, recordDDL, "scope_id VARCHAR(191) NOT NULL")
+	require.Contains(t, recordDDL, "record_id VARCHAR(191) NOT NULL")
+	require.Contains(t, recordDDL, "payload LONGTEXT NOT NULL")
+}

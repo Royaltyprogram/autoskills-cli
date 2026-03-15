@@ -22,6 +22,7 @@ type AnalyticsStore struct {
 	mu sync.RWMutex
 
 	db             *sql.DB
+	dbDialect      string
 	filePath       string
 	allowDemoUser  bool
 	bootstrapUsers []configs.BootstrapUser
@@ -217,8 +218,14 @@ func NewAnalyticsStore(conf *configs.Config) (*AnalyticsStore, error) {
 		return nil, err
 	}
 
+	dialect := strings.TrimSpace(conf.DB.Dialect)
+	if dialect == "" {
+		dialect = "sqlite3"
+	}
+
 	store := &AnalyticsStore{
 		db:               db,
+		dbDialect:        dialect,
 		filePath:         conf.App.StorePath,
 		allowDemoUser:    conf.AllowsDemoUser(),
 		bootstrapUsers:   append([]configs.BootstrapUser(nil), conf.Auth.BootstrapUsers...),
@@ -420,20 +427,37 @@ func (s *AnalyticsStore) initDB() error {
 
 	if _, err := s.db.ExecContext(
 		ctx,
-		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (meta_key TEXT PRIMARY KEY, meta_value TEXT NOT NULL)", analyticsStoreMetaTable),
+		analyticsStoreMetaTableDDL(s.dbDialect),
 	); err != nil {
 		return err
 	}
 	if _, err := s.db.ExecContext(
 		ctx,
-		fmt.Sprintf(
-			"CREATE TABLE IF NOT EXISTS %s (record_type TEXT NOT NULL, scope_id TEXT NOT NULL, record_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(record_type, scope_id, record_id))",
-			analyticsStoreRecordTable,
-		),
+		analyticsStoreRecordTableDDL(s.dbDialect),
 	); err != nil {
 		return err
 	}
 	return nil
+}
+
+func analyticsStoreMetaTableDDL(dialect string) string {
+	if strings.TrimSpace(dialect) == "mysql" {
+		return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (meta_key VARCHAR(191) PRIMARY KEY, meta_value LONGTEXT NOT NULL)", analyticsStoreMetaTable)
+	}
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (meta_key TEXT PRIMARY KEY, meta_value TEXT NOT NULL)", analyticsStoreMetaTable)
+}
+
+func analyticsStoreRecordTableDDL(dialect string) string {
+	if strings.TrimSpace(dialect) == "mysql" {
+		return fmt.Sprintf(
+			"CREATE TABLE IF NOT EXISTS %s (record_type VARCHAR(191) NOT NULL, scope_id VARCHAR(191) NOT NULL, record_id VARCHAR(191) NOT NULL, payload LONGTEXT NOT NULL, PRIMARY KEY(record_type, scope_id, record_id))",
+			analyticsStoreRecordTable,
+		)
+	}
+	return fmt.Sprintf(
+		"CREATE TABLE IF NOT EXISTS %s (record_type TEXT NOT NULL, scope_id TEXT NOT NULL, record_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(record_type, scope_id, record_id))",
+		analyticsStoreRecordTable,
+	)
 }
 
 type analyticsDBRecord struct {
