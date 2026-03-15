@@ -31,6 +31,15 @@ func TestApplyEnvOverridesRejectsInvalidRateLimit(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid HTTP_RATE_LIMIT_PER_MINUTE")
 }
 
+func TestApplyEnvOverridesRejectsInvalidBulkImportRateLimit(t *testing.T) {
+	t.Setenv("HTTP_BULK_IMPORT_RATE_LIMIT_PER_MINUTE", "burst")
+
+	cfg := &Config{}
+	err := applyEnvOverrides(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid HTTP_BULK_IMPORT_RATE_LIMIT_PER_MINUTE")
+}
+
 func TestApplyEnvOverridesLoadsBootstrapUsersFromFile(t *testing.T) {
 	usersFile := filepath.Join(t.TempDir(), "bootstrap-users.json")
 	require.NoError(t, os.WriteFile(usersFile, []byte(`[
@@ -211,9 +220,10 @@ func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
 			DSN:     "data/crux-local.db?_fk=1",
 		},
 		HTTP: HTTP{
-			AllowedCIDRs:      []string{"not-a-cidr"},
-			AdminAllowedCIDRs: []string{"bad-admin-cidr"},
-			TrustedProxyCIDRs: []string{"10.0.0.0/8", "also-bad"},
+			AllowedCIDRs:                 []string{"not-a-cidr"},
+			AdminAllowedCIDRs:            []string{"bad-admin-cidr"},
+			TrustedProxyCIDRs:            []string{"10.0.0.0/8", "also-bad"},
+			BulkImportRateLimitPerMinute: -1,
 		},
 		Auth: Auth{
 			BootstrapUsers: []BootstrapUser{
@@ -241,6 +251,7 @@ func TestConfigValidateRejectsInvalidCIDRsAndBootstrapUsers(t *testing.T) {
 	require.Contains(t, err.Error(), `HTTP.AllowedCIDRs contains invalid CIDR "not-a-cidr"`)
 	require.Contains(t, err.Error(), `HTTP.AdminAllowedCIDRs contains invalid CIDR "bad-admin-cidr"`)
 	require.Contains(t, err.Error(), `HTTP.TrustedProxyCIDRs contains invalid CIDR "also-bad"`)
+	require.Contains(t, err.Error(), "HTTP.BulkImportRateLimitPerMinute must be zero or greater")
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[0].Name is required")
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].Role must be one of: admin, member")
 	require.Contains(t, err.Error(), "Auth.BootstrapUsers[1].ID must be unique")

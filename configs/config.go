@@ -81,12 +81,13 @@ type GoogleAuth struct {
 }
 
 type HTTP struct {
-	AllowedOrigins     []string `koanf:"AllowedOrigins"`
-	AllowedCIDRs       []string `koanf:"AllowedCIDRs"`
-	AdminAllowedCIDRs  []string `koanf:"AdminAllowedCIDRs"`
-	TrustedProxyCIDRs  []string `koanf:"TrustedProxyCIDRs"`
-	RateLimitPerMinute int      `koanf:"RateLimitPerMinute"`
-	LogToStdout        bool     `koanf:"LogToStdout"`
+	AllowedOrigins               []string `koanf:"AllowedOrigins"`
+	AllowedCIDRs                 []string `koanf:"AllowedCIDRs"`
+	AdminAllowedCIDRs            []string `koanf:"AdminAllowedCIDRs"`
+	TrustedProxyCIDRs            []string `koanf:"TrustedProxyCIDRs"`
+	RateLimitPerMinute           int      `koanf:"RateLimitPerMinute"`
+	BulkImportRateLimitPerMinute int      `koanf:"BulkImportRateLimitPerMinute"`
+	LogToStdout                  bool     `koanf:"LogToStdout"`
 }
 
 type OpenAI struct {
@@ -176,6 +177,9 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTP.RateLimitPerMinute < 0 {
 		issues = append(issues, "HTTP.RateLimitPerMinute must be zero or greater")
+	}
+	if c.HTTP.BulkImportRateLimitPerMinute < 0 {
+		issues = append(issues, "HTTP.BulkImportRateLimitPerMinute must be zero or greater")
 	}
 	issues = append(issues, validateCIDRList("HTTP.AllowedCIDRs", c.HTTP.AllowedCIDRs)...)
 	issues = append(issues, validateCIDRList("HTTP.AdminAllowedCIDRs", c.HTTP.AdminAllowedCIDRs)...)
@@ -332,6 +336,13 @@ func applyEnvOverrides(cfg *Config) error {
 			return fmt.Errorf("invalid HTTP_RATE_LIMIT_PER_MINUTE: %w", err)
 		}
 		cfg.HTTP.RateLimitPerMinute = parsed
+	}
+	if value, ok := lookupEnv("HTTP_BULK_IMPORT_RATE_LIMIT_PER_MINUTE"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid HTTP_BULK_IMPORT_RATE_LIMIT_PER_MINUTE: %w", err)
+		}
+		cfg.HTTP.BulkImportRateLimitPerMinute = parsed
 	}
 	if value, ok := lookupEnv("HTTP_LOG_TO_STDOUT"); ok {
 		parsed, err := strconv.ParseBool(value)

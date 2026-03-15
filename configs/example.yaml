@@ -54,6 +54,7 @@ HTTP:
   TrustedProxyCIDRs:
     - 10.0.0.0/8
   RateLimitPerMinute: 60
+  BulkImportRateLimitPerMinute: 120
   LogToStdout: true
 
 OpenAI:

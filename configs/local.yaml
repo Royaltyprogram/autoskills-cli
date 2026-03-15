@@ -48,4 +48,5 @@ HTTP:
   AdminAllowedCIDRs: []
   TrustedProxyCIDRs: []
   RateLimitPerMinute: 120
+  BulkImportRateLimitPerMinute: 240
   LogToStdout: true
