@@ -1,0 +1,10 @@
+{
+  "bundle_name": "crux-0.1.0-beta.2-a9f2436-darwin-arm64",
+  "archive_name": "crux-0.1.0-beta.2-a9f2436-darwin-arm64.tar.gz",
+  "version": "0.1.0-beta.2-a9f2436",
+  "commit": "a9f2436",
+  "build_date": "2026-03-15T09:03:30Z",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "sha256": "0f1367c1fc7842d9d2e8118ccf914c7540c44831cfbeba51342e382c259dd891"
+}
