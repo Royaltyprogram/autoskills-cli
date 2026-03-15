@@ -32,6 +32,9 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_VERSION_LABEL: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.event.inputs.version || (github.ref == 'refs/heads/main' && 'beta' || '') }}
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -145,7 +148,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          VERSION_LABEL: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.event.inputs.version || '' }}
+          VERSION_LABEL: ${{ env.RELEASE_VERSION_LABEL }}
         run: make beta-cli-bundle
 
       - name: Verify beta bundle
@@ -179,7 +182,7 @@ jobs:
 
       - name: Build release index
         env:
-          VERSION_LABEL: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.event.inputs.version || '' }}
+          VERSION_LABEL: ${{ env.RELEASE_VERSION_LABEL }}
         run: make build-release-index
 
       - name: Upload release index artifact
@@ -192,7 +195,7 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
     needs: release-index
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -218,8 +221,10 @@ jobs:
       - name: Publish GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION_LABEL: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.event.inputs.version || '' }}
-          DRAFT: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.draft == 'true' && '1' || '0') || '' }}
-          PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.prerelease == 'true' && '1' || '0') || '' }}
-          LATEST_MODE: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.latest == 'true' && 'true' || 'false') || '' }}
+          VERSION_LABEL: ${{ env.RELEASE_VERSION_LABEL }}
+          RELEASE_TITLE: ${{ github.ref == 'refs/heads/main' && 'Crux beta' || '' }}
+          TARGET_COMMITISH: ${{ github.sha }}
+          DRAFT: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.draft == 'true' && '1' || '0') || '0' }}
+          PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.prerelease == 'true' && '1' || '0') || (github.ref == 'refs/heads/main' && '1' || '0') }}
+          LATEST_MODE: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.latest == 'true' && 'true' || 'false') || (github.ref == 'refs/heads/main' && 'false' || '') }}
         run: make publish-github-release

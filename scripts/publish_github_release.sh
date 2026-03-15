@@ -11,6 +11,7 @@ NOTES_FILE="${RELEASE_NOTES_FILE:-}"
 DRAFT="${DRAFT:-0}"
 PRERELEASE="${PRERELEASE:-0}"
 LATEST_MODE="${LATEST_MODE:-}"
+TARGET="${TARGET_COMMITISH:-}"
 GH_BIN="${CRUX_GH_BIN:-gh}"
 
 usage() {
@@ -25,6 +26,7 @@ Options:
   --repo <owner/name>   GitHub repository override
   --title <text>        release title override
   --notes-file <path>   release notes markdown file
+  --target <ref>        target branch or commit for the release tag
   --draft               create or update as draft
   --prerelease          create or update as prerelease
   --latest <true|false> set latest flag when creating a new release
@@ -33,6 +35,7 @@ Options:
 Environment:
   VERSION_LABEL         default version tag
   RELEASE_DIR           directory containing built release assets
+  TARGET_COMMITISH      target branch or commit for the release tag
   GITHUB_REPOSITORY     default repo in owner/name form
   GITHUB_TOKEN or GH_TOKEN must be available for gh auth
 EOF
@@ -177,6 +180,11 @@ while [[ $# -gt 0 ]]; do
       TITLE="$2"
       shift 2
       ;;
+    --target)
+      [[ $# -ge 2 ]] || die "--target requires a value"
+      TARGET="$2"
+      shift 2
+      ;;
     --notes-file)
       [[ $# -ge 2 ]] || die "--notes-file requires a value"
       NOTES_FILE="$2"
@@ -242,6 +250,9 @@ if release_exists "$REPO" "$VERSION_LABEL"; then
     --title "$TITLE"
     --notes-file "$NOTES_FILE"
   )
+  if [[ -n "$TARGET" ]]; then
+    edit_args+=(--target "$TARGET")
+  fi
   if [[ "$DRAFT" -eq 1 ]]; then
     edit_args+=(--draft)
   fi
@@ -256,6 +267,9 @@ else
     --title "$TITLE"
     --notes-file "$NOTES_FILE"
   )
+  if [[ -n "$TARGET" ]]; then
+    create_args+=(--target "$TARGET")
+  fi
   if [[ "$DRAFT" -eq 1 ]]; then
     create_args+=(--draft)
   fi

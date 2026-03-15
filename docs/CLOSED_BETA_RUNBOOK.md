@@ -241,7 +241,7 @@ Output:
 
 `publish-github-release` expects the `gh` CLI to be authenticated and uploads those assets to the matching GitHub Release tag.
 
-The GitHub Actions beta workflow is also wired to publish the release automatically on tag pushes.
+The GitHub Actions beta workflow now updates a rolling `beta` prerelease automatically on `main` pushes and still publishes versioned releases on tag pushes.
 
 For manual GitHub Actions runs, `workflow_dispatch` now accepts `version`, `draft`, `prerelease`, and `latest` inputs so you can build and publish the same release flow without pushing the tag first.
 

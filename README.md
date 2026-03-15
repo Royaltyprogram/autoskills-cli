@@ -199,7 +199,7 @@ VERSION_LABEL=0.1.0-beta.1 make publish-github-release
 
 `publish-github-release` uploads the versioned bundle archives, checksums, per-platform manifests, and the consolidated release-index file.
 
-The GitHub Actions workflow can also publish automatically when you push a tag such as `0.1.0-beta.1`.
+The GitHub Actions workflow now updates a rolling `beta` prerelease on every `main` push and still publishes a versioned release automatically when you push a tag such as `0.1.0-beta.1`.
 
 If you use `workflow_dispatch` in GitHub Actions, you can now pass `version`, `draft`, `prerelease`, and `latest` inputs and reuse the same publish path without creating the tag first.
 
@@ -276,7 +276,7 @@ docker run --rm -p 8082:8082 \
   crux-beta
 ```
 
-The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta`, executes both the local-mode and real `APP_MODE=prod` smoke flows, uploads the verified server binaries and logs, builds beta CLI bundles for `linux/amd64`, `darwin/amd64`, and `darwin/arm64` with matching checksum and manifest artifacts, and then publishes a consolidated release-index artifact.
+The repository also includes `.github/workflows/beta-ci.yml`, which runs `make ci-beta`, executes both the local-mode and real `APP_MODE=prod` smoke flows, uploads the verified server binaries and logs, builds beta CLI bundles for `linux/amd64`, `darwin/amd64`, and `darwin/arm64` with matching checksum and manifest artifacts, publishes a rolling `beta` prerelease from `main`, and still creates versioned releases from tags.
 
 For a stricter closed beta rollout, you can also restrict network access in-app:
 

@@ -117,6 +117,8 @@ best = None
 for item in releases:
     if item.get("draft"):
         continue
+    if item.get("prerelease"):
+        continue
     tag = (item.get("tag_name") or "").strip()
     if not tag:
         continue
@@ -133,7 +135,7 @@ if best is not None:
 PY
 )"
   elif command -v jq >/dev/null 2>&1; then
-    version="$(jq -r '[.[] | select(.draft != true and (.tag_name // "") != "")] | sort_by(.published_at // "", .created_at // "", .tag_name // "") | last | .tag_name // empty' "$tmpfile")"
+    version="$(jq -r '[.[] | select(.draft != true and .prerelease != true and (.tag_name // "") != "")] | sort_by(.published_at // "", .created_at // "", .tag_name // "") | last | .tag_name // empty' "$tmpfile")"
   else
     version="$(tr ',' '\n' <"$tmpfile" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
   fi
