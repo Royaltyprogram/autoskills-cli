@@ -13,7 +13,7 @@ import (
 	"github.com/Royaltyprogram/aiops/service"
 )
 
-//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/landing.html assets/dashboard.css assets/dashboard.js assets/logo.svg
+//go:embed assets/admin.html assets/admin.js assets/dashboard.html assets/landing.html assets/dashboard.css assets/dashboard.js assets/logo.svg assets/logo.ico
 var uiFS embed.FS
 
 type DashboardRoute struct {
@@ -28,6 +28,7 @@ func (r *DashboardRoute) RegisterRoute(router *echo.Group) {
 	router.GET("/", r.landing)
 	router.GET("/dashboard", r.dashboard)
 	router.GET("/admin", r.admin)
+	router.GET("/favicon.ico", r.favicon)
 	router.GET("/assets/:name", r.asset)
 }
 
@@ -63,12 +64,20 @@ func (r *DashboardRoute) admin(c *echo.Context) error {
 	return c.HTML(http.StatusOK, string(page))
 }
 
+func (r *DashboardRoute) favicon(c *echo.Context) error {
+	return r.serveAsset(c, "logo.ico")
+}
+
 func (r *DashboardRoute) asset(c *echo.Context) error {
 	name := c.Param("name")
 	if name == "" || path.Base(name) != name {
 		return echo.ErrNotFound
 	}
 
+	return r.serveAsset(c, name)
+}
+
+func (r *DashboardRoute) serveAsset(c *echo.Context, name string) error {
 	body, err := uiFS.ReadFile(path.Join("assets", name))
 	if err != nil {
 		return echo.ErrNotFound
