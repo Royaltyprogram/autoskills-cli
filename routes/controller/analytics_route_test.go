@@ -47,6 +47,18 @@ func isBenignRouteConnError(err error) bool {
 		strings.Contains(msg, "connection reset by peer")
 }
 
+func requireTokenByKind(t *testing.T, items []response.CLITokenItemResp, kind string) response.CLITokenItemResp {
+	t.Helper()
+
+	for _, item := range items {
+		if item.Kind == kind {
+			return item
+		}
+	}
+	t.Fatalf("missing cli token kind %q", kind)
+	return response.CLITokenItemResp{}
+}
+
 func waitForDashboardResearchStatus(
 	t *testing.T,
 	echo *echo.Echo,
@@ -498,6 +510,7 @@ func TestAnalyticsRouteGoogleLoginAndCLITokenFlow(t *testing.T) {
 
 	tokenListResp := getJSON[response.CLITokenListResp](t, echo, "", "/api/v1/auth/cli-tokens", nil, sessionCookie)
 	require.Len(t, tokenListResp.Items, 1)
+	require.Equal(t, service.TokenKindCLIEnrollment, tokenListResp.Items[0].Kind)
 	require.Equal(t, "active", tokenListResp.Items[0].Status)
 
 	cliLoginResp := postJSON[response.CLILoginResp](t, echo, cliTokenResp.Token, http.MethodPost, "/api/v1/auth/cli/login", request.CLILoginReq{
@@ -508,14 +521,22 @@ func TestAnalyticsRouteGoogleLoginAndCLITokenFlow(t *testing.T) {
 		Tools:      []string{"codex"},
 	})
 	require.Equal(t, "registered", cliLoginResp.Status)
+	require.Equal(t, "Bearer", cliLoginResp.TokenType)
+	require.NotEmpty(t, cliLoginResp.AccessToken)
+	require.NotEmpty(t, cliLoginResp.RefreshToken)
 	require.Equal(t, "demo-org", cliLoginResp.OrgID)
 	require.Equal(t, "demo-user", cliLoginResp.UserID)
 	require.Equal(t, "admin", cliLoginResp.UserRole)
 	require.Equal(t, "active", cliLoginResp.UserStatus)
 
 	tokenListResp = getJSON[response.CLITokenListResp](t, echo, "", "/api/v1/auth/cli-tokens", nil, sessionCookie)
-	require.Len(t, tokenListResp.Items, 1)
-	require.NotNil(t, tokenListResp.Items[0].LastUsedAt)
+	require.Len(t, tokenListResp.Items, 3)
+	enrollmentToken := requireTokenByKind(t, tokenListResp.Items, service.TokenKindCLIEnrollment)
+	require.Equal(t, "consumed", enrollmentToken.Status)
+	require.NotNil(t, enrollmentToken.LastUsedAt)
+	require.NotNil(t, enrollmentToken.ConsumedAt)
+	require.Equal(t, "active", requireTokenByKind(t, tokenListResp.Items, service.TokenKindDeviceAccess).Status)
+	require.Equal(t, "active", requireTokenByKind(t, tokenListResp.Items, service.TokenKindDeviceRefresh).Status)
 
 	revokeResp := postJSON[response.CLITokenRevokeResp](t, echo, "", http.MethodPost, "/api/v1/auth/cli-tokens/revoke", request.RevokeCLITokenReq{
 		TokenID: cliTokenResp.TokenID,
@@ -523,8 +544,10 @@ func TestAnalyticsRouteGoogleLoginAndCLITokenFlow(t *testing.T) {
 	require.Equal(t, "revoked", revokeResp.Status)
 
 	revokedTokenList := getJSON[response.CLITokenListResp](t, echo, "", "/api/v1/auth/cli-tokens", nil, sessionCookie)
-	require.Len(t, revokedTokenList.Items, 1)
-	require.Equal(t, "revoked", revokedTokenList.Items[0].Status)
+	require.Len(t, revokedTokenList.Items, 3)
+	for _, item := range revokedTokenList.Items {
+		require.Equal(t, "revoked", item.Status)
+	}
 
 	logoutRec := postJSONRecorder(t, echo, "", http.MethodPost, "/api/v1/auth/logout", map[string]any{}, sessionCookie)
 	decodeOK[response.LogoutResp](t, logoutRec)
@@ -538,6 +561,89 @@ func TestAnalyticsRouteGoogleLoginAndCLITokenFlow(t *testing.T) {
 	rec := httptest.NewRecorder()
 	echo.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestAnalyticsRouteCLIRefreshRotatesDeviceTokens(t *testing.T) {
+	conf := &configs.Config{}
+	conf.App.StorePath = filepath.Join(t.TempDir(), "crux-store.json")
+	closeGoogle := configureGoogleAuthControllerTest(t, conf, googleAuthTestUser{
+		Code:     "demo-login",
+		Subject:  "google-demo-subject",
+		Email:    "demo@example.com",
+		Name:     "Demo Operator",
+		Verified: true,
+	})
+	defer closeGoogle()
+
+	store, err := service.NewAnalyticsStore(conf)
+	require.NoError(t, err)
+
+	analyticsSvc := service.NewAnalyticsService(service.Options{
+		Config:            conf,
+		AnalyticsStore:    store,
+		ReportMinSessions: 1,
+	})
+
+	echo, err := routes.NewEcho(conf, nil, store)
+	require.NoError(t, err)
+
+	route := controller.NewAnalyticsRoute(controller.Options{
+		AnalyticsService: analyticsSvc,
+	})
+	route.RegisterRoute(echo.Group(""))
+
+	sessionCookie := loginWithGoogleControllerTest(t, echo, "demo-login")
+
+	cliTokenResp := postJSON[response.CLITokenIssueResp](t, echo, "", http.MethodPost, "/api/v1/auth/cli-tokens", request.IssueCLITokenReq{
+		Label: "Refreshable device",
+	}, sessionCookie)
+
+	cliLoginResp := postJSON[response.CLILoginResp](t, echo, cliTokenResp.Token, http.MethodPost, "/api/v1/auth/cli/login", request.CLILoginReq{
+		DeviceName: "refresh-macbook",
+		Hostname:   "refresh.local",
+		Platform:   "darwin/arm64",
+		CLIVersion: "0.1.0-dev",
+		Tools:      []string{"codex"},
+	})
+
+	refreshResp := postJSON[response.CLIRefreshResp](t, echo, "", http.MethodPost, "/api/v1/auth/cli/refresh", request.CLIRefreshReq{
+		RefreshToken: cliLoginResp.RefreshToken,
+	})
+	require.Equal(t, "Bearer", refreshResp.TokenType)
+	require.NotEmpty(t, refreshResp.AccessToken)
+	require.NotEmpty(t, refreshResp.RefreshToken)
+	require.NotEqual(t, cliLoginResp.AccessToken, refreshResp.AccessToken)
+	require.NotEqual(t, cliLoginResp.RefreshToken, refreshResp.RefreshToken)
+	require.Equal(t, cliLoginResp.AgentID, refreshResp.AgentID)
+
+	tokenListResp := getJSON[response.CLITokenListResp](t, echo, "", "/api/v1/auth/cli-tokens", nil, sessionCookie)
+	require.Len(t, tokenListResp.Items, 5)
+
+	activeAccess := 0
+	activeRefresh := 0
+	for _, item := range tokenListResp.Items {
+		if item.Kind == service.TokenKindDeviceAccess && item.Status == "active" {
+			activeAccess++
+		}
+		if item.Kind == service.TokenKindDeviceRefresh && item.Status == "active" {
+			activeRefresh++
+		}
+	}
+	require.Equal(t, 1, activeAccess)
+	require.Equal(t, 1, activeRefresh)
+
+	body, err := json.Marshal(request.CLIRefreshReq{
+		RefreshToken: cliLoginResp.RefreshToken,
+	})
+	require.NoError(t, err)
+
+	duplicateRefreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/cli/refresh", bytes.NewReader(body))
+	duplicateRefreshReq = duplicateRefreshReq.WithContext(context.Background())
+	duplicateRefreshReq.Header.Set("Content-Type", "application/json")
+	duplicateRefreshReq.Header.Set("User-Agent", "route-test-client")
+	duplicateRefreshRec := httptest.NewRecorder()
+	echo.ServeHTTP(duplicateRefreshRec, duplicateRefreshReq)
+	require.Equal(t, http.StatusUnauthorized, duplicateRefreshRec.Code)
 }
 
 func TestAnalyticsRouteGoogleSignupFlow(t *testing.T) {

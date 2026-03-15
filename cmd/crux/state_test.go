@@ -2,12 +2,18 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Royaltyprogram/aiops/dto/request"
+	"github.com/Royaltyprogram/aiops/dto/response"
+	"github.com/Royaltyprogram/aiops/service"
 )
 
 func TestSaveStateWritesSecureTokenSchema(t *testing.T) {
@@ -68,4 +74,70 @@ func TestLoadStateReadsLegacyAPIToken(t *testing.T) {
 	info, err := os.Stat(statePath)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestAPIClientRefreshesExpiredDeviceAccessToken(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CRUX_HOME", root)
+
+	refreshCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/config-snapshots":
+			if refreshCalls == 0 {
+				require.Equal(t, "old-access", r.Header.Get("X-Crux-Token"))
+				w.WriteHeader(http.StatusUnauthorized)
+				require.NoError(t, json.NewEncoder(w).Encode(envelope{
+					Code:    service.ErrCodeDeviceAccessTokenExpired,
+					Message: "device access token expired",
+				}))
+				return
+			}
+			require.Equal(t, "new-access", r.Header.Get("X-Crux-Token"))
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotListResp{}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/refresh":
+			var req request.CLIRefreshReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+			require.Equal(t, "old-refresh", req.RefreshToken)
+			refreshCalls++
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.CLIRefreshResp{
+					AccessToken:  "new-access",
+					RefreshToken: "new-refresh",
+					TokenType:    "Bearer",
+					AgentID:      "agent-1",
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	st := state{
+		ServerURL:    server.URL,
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		TokenType:    "Bearer",
+		AgentID:      "agent-1",
+	}
+	require.NoError(t, saveState(st))
+
+	client := newStateAPIClient(&st)
+	var resp response.ConfigSnapshotListResp
+	require.NoError(t, client.doJSON(http.MethodGet, "/api/v1/config-snapshots?project_id=project-1", nil, &resp))
+	require.Equal(t, 1, refreshCalls)
+	require.Equal(t, "new-access", st.AccessToken)
+	require.Equal(t, "new-refresh", st.RefreshToken)
+
+	loaded, err := loadState()
+	require.NoError(t, err)
+	require.Equal(t, "new-access", loaded.AccessToken)
+	require.Equal(t, "new-refresh", loaded.RefreshToken)
 }

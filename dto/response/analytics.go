@@ -43,12 +43,15 @@ type CLITokenIssueResp struct {
 
 type CLITokenItemResp struct {
 	TokenID     string     `json:"token_id"`
+	Kind        string     `json:"kind"`
 	TokenPrefix string     `json:"token_prefix"`
 	Label       string     `json:"label"`
 	Status      string     `json:"status"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 	LastUsedAt  *time.Time `json:"last_used_at"`
+	LastSeenAt  *time.Time `json:"last_seen_at"`
+	ConsumedAt  *time.Time `json:"consumed_at"`
 	RevokedAt   *time.Time `json:"revoked_at"`
 }
 
@@ -63,18 +66,32 @@ type CLITokenRevokeResp struct {
 }
 
 type CLILoginResp struct {
-	AgentID       string    `json:"agent_id"`
-	DeviceID      string    `json:"device_id"`
-	OrgID         string    `json:"org_id"`
-	OrgName       string    `json:"org_name"`
-	UserID        string    `json:"user_id"`
-	UserName      string    `json:"user_name"`
-	UserEmail     string    `json:"user_email"`
-	UserRole      string    `json:"user_role"`
-	UserStatus    string    `json:"user_status"`
-	Status        string    `json:"status"`
-	ConsentScopes []string  `json:"consent_scopes"`
-	RegisteredAt  time.Time `json:"registered_at"`
+	AccessToken      string     `json:"access_token"`
+	AccessExpiresAt  *time.Time `json:"access_expires_at"`
+	RefreshToken     string     `json:"refresh_token"`
+	RefreshExpiresAt *time.Time `json:"refresh_expires_at"`
+	TokenType        string     `json:"token_type"`
+	AgentID          string     `json:"agent_id"`
+	DeviceID         string     `json:"device_id"`
+	OrgID            string     `json:"org_id"`
+	OrgName          string     `json:"org_name"`
+	UserID           string     `json:"user_id"`
+	UserName         string     `json:"user_name"`
+	UserEmail        string     `json:"user_email"`
+	UserRole         string     `json:"user_role"`
+	UserStatus       string     `json:"user_status"`
+	Status           string     `json:"status"`
+	ConsentScopes    []string   `json:"consent_scopes"`
+	RegisteredAt     time.Time  `json:"registered_at"`
+}
+
+type CLIRefreshResp struct {
+	AccessToken      string     `json:"access_token"`
+	AccessExpiresAt  *time.Time `json:"access_expires_at"`
+	RefreshToken     string     `json:"refresh_token"`
+	RefreshExpiresAt *time.Time `json:"refresh_expires_at"`
+	TokenType        string     `json:"token_type"`
+	AgentID          string     `json:"agent_id"`
 }
 
 type AgentRegistrationResp struct {

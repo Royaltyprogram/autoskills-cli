@@ -13,12 +13,21 @@ import (
 const (
 	WebSessionCookieName = "crux_web_session"
 
-	TokenKindCLI        = "cli"
-	TokenKindStatic     = "static"
-	TokenKindWebSession = "web_session"
+	TokenKindCLI           = "cli"
+	TokenKindCLIEnrollment = "cli_enrollment"
+	TokenKindDeviceAccess  = "device_access"
+	TokenKindDeviceRefresh = "device_refresh"
+	TokenKindStatic        = "static"
+	TokenKindWebSession    = "web_session"
 
-	defaultCLITokenTTL     = 30 * 24 * time.Hour
-	defaultSessionTokenTTL = 24 * time.Hour
+	ErrCodeDeviceAccessTokenExpired  = 1022
+	ErrCodeDeviceRefreshTokenExpired = 1023
+	ErrCodeAgentBindingMismatch      = 1024
+
+	defaultCLITokenTTL           = 10 * time.Minute
+	defaultDeviceAccessTokenTTL  = 24 * time.Hour
+	defaultDeviceRefreshTokenTTL = 30 * 24 * time.Hour
+	defaultSessionTokenTTL       = 24 * time.Hour
 
 	defaultDemoOrgID    = "demo-org"
 	defaultDemoOrgName  = "Demo Org"
@@ -41,17 +50,22 @@ const (
 )
 
 type AccessToken struct {
-	ID          string
-	OrgID       string
-	UserID      string
-	Label       string
-	Kind        string
-	TokenPrefix string
-	TokenHash   string
-	CreatedAt   time.Time
-	ExpiresAt   *time.Time
-	LastUsedAt  *time.Time
-	RevokedAt   *time.Time
+	ID              string
+	OrgID           string
+	UserID          string
+	AgentID         string
+	Label           string
+	Kind            string
+	TokenPrefix     string
+	TokenHash       string
+	CreatedAt       time.Time
+	ExpiresAt       *time.Time
+	LastUsedAt      *time.Time
+	LastSeenAt      *time.Time
+	ConsumedAt      *time.Time
+	RevokedAt       *time.Time
+	ParentTokenID   string
+	RotationCounter int
 }
 
 type AuthIdentity struct {
@@ -59,10 +73,13 @@ type AuthIdentity struct {
 	TokenKind string
 	OrgID     string
 	UserID    string
+	AgentID   string
 	UserRole  string
 }
 
 type authContextKey struct{}
+
+const accessTokenValidationFailed = 1001
 
 func WithAuthIdentity(ctx context.Context, identity AuthIdentity) context.Context {
 	return context.WithValue(ctx, authContextKey{}, identity)
@@ -405,24 +422,48 @@ func (s *AnalyticsStore) findUserByAuthSubjectLocked(provider, subject string) *
 	return nil
 }
 
+type issueAccessTokenOptions struct {
+	Kind            string
+	OrgID           string
+	UserID          string
+	AgentID         string
+	Label           string
+	TTL             time.Duration
+	ParentTokenID   string
+	RotationCounter int
+}
+
 func (s *AnalyticsStore) issueAccessTokenLocked(kind, orgID, userID, label string, ttl time.Duration, now time.Time) (string, *AccessToken, error) {
-	token, err := newAccessTokenValue(kind)
+	return s.issueAccessTokenWithOptionsLocked(issueAccessTokenOptions{
+		Kind:   kind,
+		OrgID:  orgID,
+		UserID: userID,
+		Label:  label,
+		TTL:    ttl,
+	}, now)
+}
+
+func (s *AnalyticsStore) issueAccessTokenWithOptionsLocked(opts issueAccessTokenOptions, now time.Time) (string, *AccessToken, error) {
+	token, err := newAccessTokenValue(opts.Kind)
 	if err != nil {
 		return "", nil, err
 	}
 
 	record := &AccessToken{
-		ID:          s.nextID("token"),
-		OrgID:       orgID,
-		UserID:      userID,
-		Label:       strings.TrimSpace(label),
-		Kind:        kind,
-		TokenPrefix: tokenPrefix(token),
-		TokenHash:   hashSecret(token),
-		CreatedAt:   now,
+		ID:              s.nextID("token"),
+		OrgID:           opts.OrgID,
+		UserID:          opts.UserID,
+		AgentID:         strings.TrimSpace(opts.AgentID),
+		Label:           strings.TrimSpace(opts.Label),
+		Kind:            opts.Kind,
+		TokenPrefix:     tokenPrefix(token),
+		TokenHash:       hashSecret(token),
+		CreatedAt:       now,
+		ParentTokenID:   strings.TrimSpace(opts.ParentTokenID),
+		RotationCounter: opts.RotationCounter,
 	}
-	if ttl > 0 {
-		expiresAt := now.Add(ttl)
+	if opts.TTL > 0 {
+		expiresAt := now.Add(opts.TTL)
 		record.ExpiresAt = &expiresAt
 	}
 
@@ -431,9 +472,14 @@ func (s *AnalyticsStore) issueAccessTokenLocked(kind, orgID, userID, label strin
 }
 
 func (s *AnalyticsStore) ValidateAccessToken(token string) (*AuthIdentity, bool) {
+	identity, code := s.ValidateAccessTokenWithCode(token)
+	return identity, code == 0 && identity != nil
+}
+
+func (s *AnalyticsStore) ValidateAccessTokenWithCode(token string) (*AuthIdentity, int) {
 	secretHash := hashSecret(strings.TrimSpace(token))
 	if secretHash == "" {
-		return nil, false
+		return nil, accessTokenValidationFailed
 	}
 
 	now := time.Now().UTC()
@@ -448,15 +494,31 @@ func (s *AnalyticsStore) ValidateAccessToken(token string) (*AuthIdentity, bool)
 		if subtle.ConstantTimeCompare([]byte(record.TokenHash), []byte(secretHash)) != 1 {
 			continue
 		}
-		if record.RevokedAt != nil {
-			return nil, false
+		if record.RevokedAt != nil || record.ConsumedAt != nil {
+			return nil, accessTokenValidationFailed
 		}
 		if record.ExpiresAt != nil && now.After(record.ExpiresAt.UTC()) {
-			return nil, false
+			switch record.Kind {
+			case TokenKindDeviceAccess:
+				return nil, ErrCodeDeviceAccessTokenExpired
+			case TokenKindDeviceRefresh:
+				return nil, ErrCodeDeviceRefreshTokenExpired
+			default:
+				return nil, accessTokenValidationFailed
+			}
 		}
 		user, ok := s.users[record.UserID]
 		if !ok || !userCanAuthenticate(user) {
-			return nil, false
+			return nil, accessTokenValidationFailed
+		}
+		if requiresAgentBinding(record.Kind) {
+			agent, ok := s.agents[record.AgentID]
+			if !ok || agent == nil {
+				return nil, accessTokenValidationFailed
+			}
+			if agent.OrgID != record.OrgID || agent.UserID != record.UserID {
+				return nil, accessTokenValidationFailed
+			}
 		}
 
 		return &AuthIdentity{
@@ -464,11 +526,108 @@ func (s *AnalyticsStore) ValidateAccessToken(token string) (*AuthIdentity, bool)
 			TokenKind: record.Kind,
 			OrgID:     record.OrgID,
 			UserID:    record.UserID,
+			AgentID:   record.AgentID,
 			UserRole:  normalizeUserRole(user.Role),
-		}, true
+		}, 0
 	}
 
-	return nil, false
+	return nil, accessTokenValidationFailed
+}
+
+func (s *AnalyticsStore) revokeAccessTokenChainLocked(rootTokenID string, now time.Time) bool {
+	if strings.TrimSpace(rootTokenID) == "" {
+		return false
+	}
+
+	modified := false
+	queue := []string{rootTokenID}
+	seen := map[string]struct{}{}
+
+	for len(queue) > 0 {
+		tokenID := queue[0]
+		queue = queue[1:]
+		if _, ok := seen[tokenID]; ok {
+			continue
+		}
+		seen[tokenID] = struct{}{}
+
+		record := s.accessTokens[tokenID]
+		if record != nil && record.RevokedAt == nil {
+			revokedAt := now
+			record.RevokedAt = &revokedAt
+			modified = true
+		}
+
+		for _, candidate := range s.accessTokens {
+			if candidate == nil || strings.TrimSpace(candidate.ParentTokenID) != tokenID {
+				continue
+			}
+			queue = append(queue, candidate.ID)
+		}
+	}
+
+	return modified
+}
+
+func (s *AnalyticsStore) findAccessTokenBySecretHashLocked(secretHash string) *AccessToken {
+	secretHash = strings.TrimSpace(secretHash)
+	if secretHash == "" {
+		return nil
+	}
+	for _, record := range s.accessTokens {
+		if record == nil {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(record.TokenHash), []byte(secretHash)) == 1 {
+			return record
+		}
+	}
+	return nil
+}
+
+func (s *AnalyticsStore) accessTokenChainRootLocked(tokenID string) string {
+	tokenID = strings.TrimSpace(tokenID)
+	if tokenID == "" {
+		return ""
+	}
+
+	current := tokenID
+	seen := map[string]struct{}{}
+	for current != "" {
+		if _, ok := seen[current]; ok {
+			break
+		}
+		seen[current] = struct{}{}
+
+		record := s.accessTokens[current]
+		if record == nil || strings.TrimSpace(record.ParentTokenID) == "" {
+			return current
+		}
+		current = strings.TrimSpace(record.ParentTokenID)
+	}
+
+	return tokenID
+}
+
+func (s *AnalyticsStore) revokeAgentTokensLocked(agentID string, now time.Time) bool {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return false
+	}
+
+	modified := false
+	for _, token := range s.accessTokens {
+		if token == nil || token.AgentID != agentID || token.RevokedAt != nil {
+			continue
+		}
+		if token.Kind != TokenKindDeviceAccess && token.Kind != TokenKindDeviceRefresh {
+			continue
+		}
+		revokedAt := now
+		token.RevokedAt = &revokedAt
+		modified = true
+	}
+	return modified
 }
 
 func accessTokenStatus(record *AccessToken, now time.Time) string {
@@ -477,6 +636,9 @@ func accessTokenStatus(record *AccessToken, now time.Time) string {
 	}
 	if record.RevokedAt != nil {
 		return "revoked"
+	}
+	if record.ConsumedAt != nil {
+		return "consumed"
 	}
 	if record.ExpiresAt != nil && now.After(record.ExpiresAt.UTC()) {
 		return "expired"
@@ -539,11 +701,31 @@ func bootstrapUserID(email string) string {
 
 func newAccessTokenValue(kind string) (string, error) {
 	prefix := "agt_web"
-	if kind == TokenKindCLI {
+	switch kind {
+	case TokenKindCLI:
 		prefix = "agt_cli"
+	case TokenKindCLIEnrollment:
+		prefix = "agt_enr"
+	case TokenKindDeviceAccess:
+		prefix = "agt_dva"
+	case TokenKindDeviceRefresh:
+		prefix = "agt_dvr"
 	}
 
 	return prefix + "_" + randomHex(24), nil
+}
+
+func requiresAgentBinding(kind string) bool {
+	return kind == TokenKindDeviceAccess || kind == TokenKindDeviceRefresh
+}
+
+func isCLITokenKind(kind string) bool {
+	switch kind {
+	case TokenKindCLI, TokenKindCLIEnrollment, TokenKindDeviceAccess, TokenKindDeviceRefresh:
+		return true
+	default:
+		return false
+	}
 }
 
 func tokenPrefix(token string) string {

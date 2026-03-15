@@ -32,6 +32,7 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.GET("/auth/cli-tokens", r.listCLITokens)
 	api.POST("/auth/cli-tokens/revoke", r.revokeCLIToken)
 	api.POST("/auth/cli/login", r.authenticateCLI)
+	api.POST("/auth/cli/refresh", r.refreshCLI)
 	api.POST("/agents/register", r.registerAgent)
 	api.POST("/projects/register", r.registerProject)
 	api.POST("/config-snapshots", r.uploadConfigSnapshot)
@@ -123,6 +124,14 @@ func (r *AnalyticsRoute) authenticateCLI(c *echo.Context) error {
 		return err
 	}
 	return common.WrapResp(c)(r.AnalyticsService.AuthenticateCLI(c.Request().Context(), &req))
+}
+
+func (r *AnalyticsRoute) refreshCLI(c *echo.Context) error {
+	var req request.CLIRefreshReq
+	if err := c.Bind(&req); err != nil {
+		return err
+	}
+	return common.WrapResp(c)(r.AnalyticsService.RefreshCLI(c.Request().Context(), &req))
 }
 
 func (r *AnalyticsRoute) registerAgent(c *echo.Context) error {

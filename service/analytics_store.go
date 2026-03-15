@@ -26,6 +26,8 @@ type AnalyticsStore struct {
 	allowDemoUser  bool
 	bootstrapUsers []configs.BootstrapUser
 	seq            uint64
+	lastSeenDirty  bool
+	lastSeenFlush  bool
 
 	organizations    map[string]*Organization
 	users            map[string]*User
@@ -305,6 +307,48 @@ func (s *AnalyticsStore) ImportStateJSON(data []byte) error {
 	s.mu.Unlock()
 
 	return s.ensureBootstrapData()
+}
+
+func (s *AnalyticsStore) MarkAccessTokenSeenAsync(tokenID string, seenAt time.Time) {
+	tokenID = strings.TrimSpace(tokenID)
+	if tokenID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	record := s.accessTokens[tokenID]
+	if record == nil {
+		s.mu.Unlock()
+		return
+	}
+	seenAt = seenAt.UTC()
+	if record.LastSeenAt != nil && !seenAt.After(record.LastSeenAt.UTC()) {
+		s.mu.Unlock()
+		return
+	}
+	record.LastSeenAt = cloneTime(&seenAt)
+	s.lastSeenDirty = true
+	if s.lastSeenFlush {
+		s.mu.Unlock()
+		return
+	}
+	s.lastSeenFlush = true
+	s.mu.Unlock()
+
+	go s.flushLastSeenAsync()
+}
+
+func (s *AnalyticsStore) flushLastSeenAsync() {
+	time.Sleep(500 * time.Millisecond)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.lastSeenDirty {
+		s.lastSeenDirty = false
+		_ = s.persistLocked()
+	}
+	s.lastSeenFlush = false
 }
 
 func (s *AnalyticsStore) nextID(prefix string) string {

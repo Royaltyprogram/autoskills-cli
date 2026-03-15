@@ -60,7 +60,7 @@ type auditEventInput struct {
 }
 
 func (s *AnalyticsService) CurrentSession(ctx context.Context) (*response.AuthSessionResp, error) {
-	identity, err := s.requireUserIdentity(ctx, TokenKindWebSession, TokenKindCLI)
+	identity, err := s.requireUserIdentity(ctx, TokenKindWebSession)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (s *AnalyticsService) CurrentSession(ctx context.Context) (*response.AuthSe
 }
 
 func (s *AnalyticsService) Logout(ctx context.Context) (*response.LogoutResp, error) {
-	identity, err := s.requireUserIdentity(ctx, TokenKindWebSession, TokenKindCLI)
+	identity, err := s.requireUserIdentity(ctx, TokenKindWebSession)
 	if err != nil {
 		return nil, err
 	}
@@ -132,10 +132,10 @@ func (s *AnalyticsService) IssueCLIToken(ctx context.Context, req *request.Issue
 
 	label := strings.TrimSpace(req.Label)
 	if label == "" {
-		label = "CLI login token"
+		label = "CLI enrollment token"
 	}
 
-	tokenValue, tokenRecord, err := s.AnalyticsStore.issueAccessTokenLocked(TokenKindCLI, identity.OrgID, identity.UserID, label, defaultCLITokenTTL, now)
+	tokenValue, tokenRecord, err := s.AnalyticsStore.issueAccessTokenLocked(TokenKindCLIEnrollment, identity.OrgID, identity.UserID, label, defaultCLITokenTTL, now)
 	if err != nil {
 		return nil, err
 	}
@@ -173,17 +173,20 @@ func (s *AnalyticsService) ListCLITokens(ctx context.Context) (*response.CLIToke
 
 	items := make([]response.CLITokenItemResp, 0)
 	for _, record := range s.AnalyticsStore.accessTokens {
-		if record.Kind != TokenKindCLI || record.OrgID != identity.OrgID || record.UserID != identity.UserID {
+		if !isCLITokenKind(record.Kind) || record.OrgID != identity.OrgID || record.UserID != identity.UserID {
 			continue
 		}
 		items = append(items, response.CLITokenItemResp{
 			TokenID:     record.ID,
+			Kind:        record.Kind,
 			TokenPrefix: record.TokenPrefix,
 			Label:       record.Label,
 			Status:      accessTokenStatus(record, now),
 			CreatedAt:   record.CreatedAt,
 			ExpiresAt:   record.ExpiresAt,
 			LastUsedAt:  record.LastUsedAt,
+			LastSeenAt:  record.LastSeenAt,
+			ConsumedAt:  record.ConsumedAt,
 			RevokedAt:   record.RevokedAt,
 		})
 	}
@@ -209,13 +212,20 @@ func (s *AnalyticsService) RevokeCLIToken(ctx context.Context, req *request.Revo
 	defer s.AnalyticsStore.mu.Unlock()
 
 	record, ok := s.AnalyticsStore.accessTokens[req.TokenID]
-	if !ok || record.Kind != TokenKindCLI {
+	if !ok || !isCLITokenKind(record.Kind) {
 		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown token_id"))
 	}
 	if record.OrgID != identity.OrgID || record.UserID != identity.UserID {
 		return nil, ecode.Forbidden(1006, "token cannot be managed by this user")
 	}
-	record.RevokedAt = &now
+
+	rootTokenID := s.AnalyticsStore.accessTokenChainRootLocked(record.ID)
+	if rootTokenID == "" {
+		rootTokenID = record.ID
+	}
+	if !s.AnalyticsStore.revokeAccessTokenChainLocked(rootTokenID, now) && record.RevokedAt == nil {
+		record.RevokedAt = cloneTime(&now)
+	}
 	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
 		Type:    "auth.cli_token_revoked",
 		Message: "cli token revoked from dashboard",
@@ -234,7 +244,7 @@ func (s *AnalyticsService) RevokeCLIToken(ctx context.Context, req *request.Revo
 }
 
 func (s *AnalyticsService) AuthenticateCLI(ctx context.Context, req *request.CLILoginReq) (*response.CLILoginResp, error) {
-	identity, err := s.requireUserIdentity(ctx, TokenKindCLI)
+	identity, err := s.requireUserIdentity(ctx, TokenKindCLIEnrollment, TokenKindCLI)
 	if err != nil {
 		return nil, err
 	}
@@ -262,11 +272,17 @@ func (s *AnalyticsService) AuthenticateCLI(ctx context.Context, req *request.CLI
 	if len(consentScopes) == 0 {
 		consentScopes = []string{"config_snapshot", "session_summary", "execution_result"}
 	}
-	if record, ok := s.AnalyticsStore.accessTokens[identity.TokenID]; ok {
-		record.LastUsedAt = &now
+
+	tokenRecord, ok := s.AnalyticsStore.accessTokens[identity.TokenID]
+	if !ok {
+		return nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown token_id"))
+	}
+	tokenRecord.LastUsedAt = cloneTime(&now)
+	if tokenRecord.Kind == TokenKindCLIEnrollment {
+		tokenRecord.ConsumedAt = cloneTime(&now)
 	}
 
-	s.AnalyticsStore.agents[deviceID] = &Agent{
+	agent := &Agent{
 		ID:            deviceID,
 		OrgID:         identity.OrgID,
 		UserID:        identity.UserID,
@@ -277,6 +293,13 @@ func (s *AnalyticsService) AuthenticateCLI(ctx context.Context, req *request.CLI
 		Tools:         append([]string(nil), req.Tools...),
 		ConsentScopes: consentScopes,
 		RegisteredAt:  now,
+	}
+	s.AnalyticsStore.agents[deviceID] = agent
+	s.AnalyticsStore.revokeAgentTokensLocked(deviceID, now)
+
+	accessToken, accessRecord, refreshToken, refreshRecord, err := s.issueDeviceTokenPairLocked(identity, agent, tokenRecord.ID, 0, now)
+	if err != nil {
+		return nil, err
 	}
 
 	s.appendAuditLocked(ctx, identity.OrgID, auditEventInput{
@@ -291,19 +314,130 @@ func (s *AnalyticsService) AuthenticateCLI(ctx context.Context, req *request.CLI
 	}
 
 	return &response.CLILoginResp{
-		AgentID:       deviceID,
-		DeviceID:      deviceID,
-		OrgID:         org.ID,
-		OrgName:       org.Name,
-		UserID:        user.ID,
-		UserName:      user.Name,
-		UserEmail:     user.Email,
-		UserRole:      normalizeUserRole(user.Role),
-		UserStatus:    normalizeUserStatus(user.Status),
-		Status:        "registered",
-		ConsentScopes: consentScopes,
-		RegisteredAt:  now,
+		AccessToken:      accessToken,
+		AccessExpiresAt:  accessRecord.ExpiresAt,
+		RefreshToken:     refreshToken,
+		RefreshExpiresAt: refreshRecord.ExpiresAt,
+		TokenType:        "Bearer",
+		AgentID:          deviceID,
+		DeviceID:         deviceID,
+		OrgID:            org.ID,
+		OrgName:          org.Name,
+		UserID:           user.ID,
+		UserName:         user.Name,
+		UserEmail:        user.Email,
+		UserRole:         normalizeUserRole(user.Role),
+		UserStatus:       normalizeUserStatus(user.Status),
+		Status:           "registered",
+		ConsentScopes:    consentScopes,
+		RegisteredAt:     now,
 	}, nil
+}
+
+func (s *AnalyticsService) RefreshCLI(ctx context.Context, req *request.CLIRefreshReq) (*response.CLIRefreshResp, error) {
+	now := time.Now().UTC()
+	secretHash := hashSecret(req.RefreshToken)
+	if secretHash == "" {
+		return nil, ecode.Unauthorized(1001, "invalid refresh token")
+	}
+
+	s.AnalyticsStore.mu.Lock()
+	defer s.AnalyticsStore.mu.Unlock()
+
+	record := s.AnalyticsStore.findAccessTokenBySecretHashLocked(secretHash)
+	if record == nil || record.Kind != TokenKindDeviceRefresh {
+		return nil, ecode.Unauthorized(1001, "invalid refresh token")
+	}
+	if record.ExpiresAt != nil && now.After(record.ExpiresAt.UTC()) {
+		return nil, ecode.Unauthorized(ErrCodeDeviceRefreshTokenExpired, "device refresh token expired")
+	}
+	if record.RevokedAt != nil {
+		return nil, ecode.Unauthorized(1001, "invalid refresh token")
+	}
+	if record.ConsumedAt != nil {
+		if rootTokenID := s.AnalyticsStore.accessTokenChainRootLocked(record.ID); rootTokenID != "" {
+			s.AnalyticsStore.revokeAccessTokenChainLocked(rootTokenID, now)
+			_ = s.AnalyticsStore.persistLocked()
+		}
+		return nil, ecode.Unauthorized(1001, "refresh token has already been used")
+	}
+
+	user, ok := s.AnalyticsStore.users[record.UserID]
+	if !ok || !userCanAuthenticate(user) {
+		return nil, ecode.Unauthorized(1001, "invalid refresh token")
+	}
+
+	agent := s.AnalyticsStore.agents[record.AgentID]
+	if agent == nil || agent.OrgID != record.OrgID || agent.UserID != record.UserID {
+		return nil, ecode.Unauthorized(1001, "invalid refresh token")
+	}
+
+	record.LastUsedAt = cloneTime(&now)
+	record.ConsumedAt = cloneTime(&now)
+	s.AnalyticsStore.revokeAccessTokenChainLocked(record.ID, now)
+
+	identity := AuthIdentity{
+		TokenID:   record.ID,
+		TokenKind: record.Kind,
+		OrgID:     record.OrgID,
+		UserID:    record.UserID,
+		AgentID:   record.AgentID,
+		UserRole:  normalizeUserRole(user.Role),
+	}
+
+	accessToken, accessRecord, refreshToken, refreshRecord, err := s.issueDeviceTokenPairLocked(identity, agent, record.ID, record.RotationCounter+1, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.AnalyticsStore.persistLocked(); err != nil {
+		return nil, err
+	}
+
+	return &response.CLIRefreshResp{
+		AccessToken:      accessToken,
+		AccessExpiresAt:  accessRecord.ExpiresAt,
+		RefreshToken:     refreshToken,
+		RefreshExpiresAt: refreshRecord.ExpiresAt,
+		TokenType:        "Bearer",
+		AgentID:          agent.ID,
+	}, nil
+}
+
+func (s *AnalyticsService) issueDeviceTokenPairLocked(identity AuthIdentity, agent *Agent, parentTokenID string, rotationCounter int, now time.Time) (string, *AccessToken, string, *AccessToken, error) {
+	if agent == nil {
+		return "", nil, "", nil, ecode.NotFound.WithCause(ecode.NewInvalidParamsErr("unknown agent_id"))
+	}
+
+	deviceLabel := firstNonEmpty(strings.TrimSpace(agent.DeviceName), agent.ID)
+	refreshToken, refreshRecord, err := s.AnalyticsStore.issueAccessTokenWithOptionsLocked(issueAccessTokenOptions{
+		Kind:            TokenKindDeviceRefresh,
+		OrgID:           identity.OrgID,
+		UserID:          identity.UserID,
+		AgentID:         agent.ID,
+		Label:           "Device refresh for " + deviceLabel,
+		TTL:             defaultDeviceRefreshTokenTTL,
+		ParentTokenID:   parentTokenID,
+		RotationCounter: rotationCounter,
+	}, now)
+	if err != nil {
+		return "", nil, "", nil, err
+	}
+
+	accessToken, accessRecord, err := s.AnalyticsStore.issueAccessTokenWithOptionsLocked(issueAccessTokenOptions{
+		Kind:            TokenKindDeviceAccess,
+		OrgID:           identity.OrgID,
+		UserID:          identity.UserID,
+		AgentID:         agent.ID,
+		Label:           "Device access for " + deviceLabel,
+		TTL:             defaultDeviceAccessTokenTTL,
+		ParentTokenID:   refreshRecord.ID,
+		RotationCounter: rotationCounter,
+	}, now)
+	if err != nil {
+		return "", nil, "", nil, err
+	}
+
+	return accessToken, accessRecord, refreshToken, refreshRecord, nil
 }
 
 func (s *AnalyticsService) requireUserIdentity(ctx context.Context, allowedKinds ...string) (AuthIdentity, error) {

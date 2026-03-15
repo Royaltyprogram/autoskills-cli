@@ -21,6 +21,10 @@ type CLILoginReq struct {
 	DeviceID      string   `json:"device_id"`
 }
 
+type CLIRefreshReq struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
 type RegisterAgentReq struct {
 	OrgID         string   `json:"org_id" validate:"required"`
 	OrgName       string   `json:"org_name"`

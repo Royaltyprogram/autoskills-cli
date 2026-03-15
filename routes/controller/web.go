@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -106,5 +107,6 @@ func (r *DashboardRoute) webSessionIdentity(c *echo.Context) (service.AuthIdenti
 	if identity.TokenKind != service.TokenKindWebSession {
 		return service.AuthIdentity{}, false
 	}
+	r.AnalyticsService.AnalyticsStore.MarkAccessTokenSeenAsync(identity.TokenID, time.Now().UTC())
 	return *identity, true
 }

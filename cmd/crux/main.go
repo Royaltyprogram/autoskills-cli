@@ -80,6 +80,7 @@ type sessionBatchIngestResp struct {
 type apiClient struct {
 	baseURL string
 	token   string
+	state   *state
 	http    *http.Client
 }
 
@@ -363,7 +364,7 @@ func runSetup(args []string) error {
 		} else {
 			fmt.Fprintf(os.Stderr, "Uploading an initial snapshot and the latest %d local Codex sessions\n", *recent)
 		}
-		client := newAPIClient(st.ServerURL, st.accessToken())
+		client := newStateAPIClient(&st)
 		resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, uploadRecent, collectSnapshotModeChanged)
 		if err != nil {
 			return err
@@ -452,7 +453,7 @@ func runSnapshot(args []string) error {
 		RecentConfigChanges: []string{"snapshot_collected_by_cli"},
 		CapturedAt:          time.Now().UTC(),
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 	var resp response.ConfigSnapshotResp
 	if err := client.doJSON(http.MethodPost, "/api/v1/config-snapshots", req, &resp); err != nil {
 		return err
@@ -485,7 +486,7 @@ func runSession(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 
 	items := make([]response.SessionIngestResp, 0, len(reqs))
 	for _, req := range reqs {
@@ -523,7 +524,7 @@ func runSnapshots(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 
 	var resp response.ConfigSnapshotListResp
 	if err := client.doJSON(http.MethodGet, "/api/v1/config-snapshots?project_id="+url.QueryEscape(st.workspaceID()), nil, &resp); err != nil {
@@ -543,7 +544,7 @@ func runSessions(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 
 	var resp response.SessionSummaryListResp
 	path := fmt.Sprintf("/api/v1/session-summaries?project_id=%s&limit=%d", url.QueryEscape(st.workspaceID()), *limit)
@@ -563,7 +564,7 @@ func runReports(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 	path := "/api/v1/reports?project_id=" + url.QueryEscape(st.workspaceID())
 	var resp response.ReportListResp
 	if err := client.doJSON(http.MethodGet, path, nil, &resp); err != nil {
@@ -582,7 +583,7 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 
 	var overview response.DashboardOverviewResp
 	if err := client.doJSON(http.MethodGet, "/api/v1/dashboard/overview?org_id="+url.QueryEscape(st.OrgID), nil, &overview); err != nil {
@@ -613,7 +614,7 @@ func runWorkspace(args []string) error {
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 
 	var resp response.ProjectListResp
 	if err := client.doJSON(http.MethodGet, "/api/v1/projects?org_id="+url.QueryEscape(st.OrgID), nil, &resp); err != nil {
@@ -634,7 +635,7 @@ func runAudit(args []string) error {
 	}
 	path := "/api/v1/audits?org_id=" + url.QueryEscape(st.OrgID)
 
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 	var resp response.AuditListResp
 	if err := client.doJSON(http.MethodGet, path, nil, &resp); err != nil {
 		return err
@@ -785,7 +786,7 @@ func loginAndSaveState(opts loginOptions) (state, response.CLILoginResp, error) 
 }
 
 func connectAndSaveWorkspace(st state, opts connectOptions) (state, response.ProjectRegistrationResp, string, error) {
-	client := newAPIClient(st.ServerURL, st.accessToken())
+	client := newStateAPIClient(&st)
 
 	repoRoot, err := normalizeRepoPath(opts.RepoPath)
 	if err != nil {
@@ -829,7 +830,31 @@ func newAPIClient(baseURL, token string) *apiClient {
 	}
 }
 
+func newStateAPIClient(st *state) *apiClient {
+	client := newAPIClient("", "")
+	if st == nil {
+		return client
+	}
+	client.baseURL = strings.TrimRight(st.ServerURL, "/")
+	client.state = st
+	return client
+}
+
 func (c *apiClient) doJSON(method, path string, body any, out any) error {
+	if err := c.doJSONOnce(method, path, body, out, c.authToken()); err != nil {
+		var apiErr *apiError
+		if c.state == nil || !errors.As(err, &apiErr) || apiErr.Code != service.ErrCodeDeviceAccessTokenExpired || strings.TrimSpace(c.state.RefreshToken) == "" || path == "/api/v1/auth/cli/refresh" {
+			return err
+		}
+		if refreshErr := c.refreshAccessToken(); refreshErr != nil {
+			return refreshErr
+		}
+		return c.doJSONOnce(method, path, body, out, c.authToken())
+	}
+	return nil
+}
+
+func (c *apiClient) doJSONOnce(method, path string, body any, out any, token string) error {
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -843,8 +868,8 @@ func (c *apiClient) doJSON(method, path string, body any, out any) error {
 	if err != nil {
 		return err
 	}
-	if c.token != "" {
-		req.Header.Set("X-Crux-Token", c.token)
+	if token != "" {
+		req.Header.Set("X-Crux-Token", token)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -879,6 +904,43 @@ func (c *apiClient) doJSON(method, path string, body any, out any) error {
 		return nil
 	}
 	return json.Unmarshal(env.Data, out)
+}
+
+func (c *apiClient) authToken() string {
+	if c.state != nil {
+		return c.state.accessToken()
+	}
+	return strings.TrimSpace(c.token)
+}
+
+func (c *apiClient) refreshAccessToken() error {
+	if c.state == nil {
+		return errors.New("device token refresh requires cli state")
+	}
+	if strings.TrimSpace(c.state.RefreshToken) == "" {
+		return errors.New("device token refresh requires a refresh token")
+	}
+
+	var resp response.CLIRefreshResp
+	if err := c.doJSONOnce(http.MethodPost, "/api/v1/auth/cli/refresh", request.CLIRefreshReq{
+		RefreshToken: c.state.RefreshToken,
+	}, &resp, ""); err != nil {
+		return err
+	}
+	if strings.TrimSpace(resp.AccessToken) == "" {
+		return errors.New("device token refresh returned an empty access token")
+	}
+
+	c.state.AccessToken = strings.TrimSpace(resp.AccessToken)
+	c.state.APIToken = c.state.AccessToken
+	c.state.RefreshToken = strings.TrimSpace(resp.RefreshToken)
+	c.state.TokenType = defaultString(strings.TrimSpace(resp.TokenType), c.state.TokenType)
+	c.state.AccessExpiresAt = cloneTime(resp.AccessExpiresAt)
+	c.state.RefreshExpiresAt = cloneTime(resp.RefreshExpiresAt)
+	if strings.TrimSpace(resp.AgentID) != "" {
+		c.state.AgentID = strings.TrimSpace(resp.AgentID)
+	}
+	return saveState(*c.state)
 }
 
 func loadState() (state, error) {
