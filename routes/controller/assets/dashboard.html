@@ -202,7 +202,18 @@
                 <div class="section-title">Browse every report at a glance</div>
                 <div class="section-desc">Pick any report to view its full summary.</div>
               </div>
-              <div class="report-card-grid" id="allReportGrid"></div>
+              <div class="report-list-toolbar">
+                <span class="report-list-count" id="allReportCount">0 reports</span>
+                <div class="report-list-views">
+                  <button class="report-view-btn is-active" type="button" data-action="switch-report-view" data-view="list" aria-label="List view">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="14" height="2.5" rx="0.5" fill="currentColor"/><rect x="1" y="6.75" width="14" height="2.5" rx="0.5" fill="currentColor"/><rect x="1" y="11.5" width="14" height="2.5" rx="0.5" fill="currentColor"/></svg>
+                  </button>
+                  <button class="report-view-btn" type="button" data-action="switch-report-view" data-view="grid" aria-label="Grid view">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="report-list-view" id="allReportGrid"></div>
             </div>
           </section>
         </div>

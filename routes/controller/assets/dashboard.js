@@ -3730,6 +3730,10 @@ function renderAllReports(reports) {
     return;
   }
   const items = toArray(reports);
+  const countEl = $("allReportCount");
+  if (countEl) {
+    countEl.textContent = items.length + (items.length === 1 ? " report" : " reports");
+  }
   if (!items.length) {
     target.innerHTML = emptyState(
       "No reports yet",
@@ -3739,16 +3743,32 @@ function renderAllReports(reports) {
   }
 
   target.innerHTML = items
-    .map((item) => {
+    .map((item, idx) => {
       const isActive =
         String(item && item.id ? item.id : "") === String(state.activeReportID);
       const isSuperseded = item.status === "superseded";
       const date = formatDateTime(item.created_at);
+      const summary = String(item.summary || item.explanation || item.reason || "").trim();
+      const confidence = String(item.confidence || "").trim();
+      const confidencePill = confidence ? pill(titleize(confidence), "sky") : "";
+      const statusPill = isSuperseded ? pill("Superseded", "warn") : "";
       return `
-        <button class="report-card${isActive ? " is-selected" : ""}${isSuperseded ? " is-superseded" : ""}"
+        <button class="report-list-card${isActive ? " is-selected" : ""}${isSuperseded ? " is-superseded" : ""}"
                 type="button" data-action="open-report" data-report-id="${escapeAttr(item.id)}">
-          <span class="report-card-title">${escapeHTML(item.title || "Feedback report")}</span>
-          <span class="report-card-meta">${escapeHTML(date)}${isSuperseded ? " &middot; superseded" : ""}</span>
+          <span class="report-list-card-index">${idx + 1}</span>
+          <span class="report-list-card-body">
+            <span class="report-list-card-title">${escapeHTML(item.title || "Feedback report")}</span>
+            ${summary ? `<span class="report-list-card-summary">${escapeHTML(summary)}</span>` : ""}
+            <span class="report-list-card-footer">
+              <span class="report-list-card-date">${escapeHTML(date)}</span>
+              ${confidencePill}${statusPill}
+            </span>
+          </span>
+          <span class="report-list-card-right">
+            <svg class="report-list-card-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
         </button>
       `;
     })
@@ -4458,6 +4478,17 @@ function handleActionClick(event) {
     case "switch-report-panel":
       setActiveReportPanel(button.dataset.reportPanel || "actions");
       break;
+    case "switch-report-view": {
+      const view = button.dataset.view || "list";
+      const grid = $("allReportGrid");
+      if (grid) {
+        grid.classList.toggle("is-grid-view", view === "grid");
+      }
+      document.querySelectorAll("[data-action='switch-report-view']").forEach(function (b) {
+        b.classList.toggle("is-active", b.dataset.view === view);
+      });
+      break;
+    }
     case "toggle-report-panel":
       setActiveReportPanel(button.dataset.targetPanel || "history");
       break;
