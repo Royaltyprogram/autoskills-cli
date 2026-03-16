@@ -68,7 +68,7 @@ func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `data-action="copy-command"`)
 	require.Contains(t, rec.Body.String(), "Issued CLI tokens")
 	require.Contains(t, rec.Body.String(), "Create CLI token")
-	require.Contains(t, rec.Body.String(), "curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh")
+	require.Contains(t, rec.Body.String(), "curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh")
 	require.Contains(t, rec.Body.String(), "crux setup")
 	require.Contains(t, rec.Body.String(), `data-action="issue-cli-token"`)
 	require.Contains(t, rec.Body.String(), "Latest trace analysis")

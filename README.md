@@ -199,6 +199,16 @@ VERSION_LABEL=0.1.0-beta.1 make publish-github-release
 
 `publish-github-release` uploads the versioned bundle archives, checksums, per-platform manifests, and the consolidated release-index file.
 
+To build and publish backend server bundles for GitHub Releases:
+
+```bash
+cp .env.server-release.example .env
+# edit .env
+./scripts/build_and_publish_server_release.sh
+```
+
+That script loads values from `.env` by default, builds `crux-server-<version>-<os>-<arch>.tar.gz`, uploads it to the matching GitHub Release, and if the release already exists it only uploads server assets without rewriting the existing release notes. Use `ENV_FILE=/path/to/file.env` if you want a different env file.
+
 The GitHub Actions workflow now updates a rolling `beta` prerelease on every `main` push and still publishes a versioned release automatically when you push a tag such as `0.1.0-beta.1`.
 
 If you use `workflow_dispatch` in GitHub Actions, you can now pass `version`, `draft`, `prerelease`, and `latest` inputs and reuse the same publish path without creating the tag first.
@@ -302,3 +312,6 @@ The cloud research agent is intentionally narrow in this MVP:
 - the dashboard and CLI no longer create or execute local patch plans
 
 Set `OPENAI_API_KEY` on the server process to enable live feedback report generation. The config loader maps `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_RESPONSES_MODEL` into the `OpenAI` config section, and `OPENAI_API_KEY_FILE` is also supported for file-based secrets.
+
+# auto upload the release 
+./scripts/build_and_publish_server_release.sh

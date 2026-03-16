@@ -27,3 +27,4 @@ wire_gen.go
 resources/bin
 node_modules/
 .claude/worktrees/
+.env

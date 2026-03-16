@@ -35,6 +35,9 @@ verify: ci-beta
 beta-cli-bundle:
 	./scripts/build_beta_bundle.sh
 
+server-release-bundle:
+	./scripts/build_server_bundle.sh
+
 verify-beta-bundle:
 	./scripts/verify_beta_bundle.sh "$(BUNDLE)"
 
@@ -46,6 +49,9 @@ build-release-index:
 
 publish-github-release:
 	./scripts/publish_github_release.sh
+
+publish-server-release:
+	./scripts/build_and_publish_server_release.sh
 
 store-export: build
 	./output/crux store-export --output "$(OUTPUT)"
