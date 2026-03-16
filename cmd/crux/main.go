@@ -284,7 +284,7 @@ Advanced commands:
   store-import      import a runtime analytics store backup into the configured database
 
 Install and onboard:
-  curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
   crux setup`)
 }
 

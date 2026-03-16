@@ -25,8 +25,8 @@ Environment overrides:
   CRUX_NODE_DIST_BASE_URL  Node.js distribution base URL (default: https://nodejs.org/dist)
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-  CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
+  CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
 EOF
 }
 

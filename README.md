@@ -82,7 +82,7 @@ This path updates `~/.local/bin/crux` to the current repo build under `~/.local/
 For beta or production user machines, install the released CLI and run `crux` directly instead of `go run`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
 crux setup
 ```
 
@@ -231,8 +231,8 @@ The installed CLI answers `crux version`, and `make build` now embeds git versio
 For a one-command install from GitHub Releases:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
+CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
 ```
 
 The installer downloads the matching release bundle for the current platform, installs it under `~/.local/share/crux/<version>`, writes `~/.local/bin/crux`, does not require Go on the target machine, and installs a local Node.js runtime automatically when the machine does not already have a compatible one.

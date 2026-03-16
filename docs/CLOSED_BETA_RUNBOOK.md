@@ -75,8 +75,8 @@ Notes:
 For beta users who should install from GitHub Releases instead of an unpacked bundle:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
-CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/aiops/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
+CRUX_VERSION=0.1.0-beta.1 curl -fsSL https://raw.githubusercontent.com/Royaltyprogram/crux-cli/main/scripts/install.sh | sh
 ```
 
 The installer downloads the matching release bundle, installs it under `~/.local/share/crux/<version>`, and writes a wrapper to `~/.local/bin/crux`.
