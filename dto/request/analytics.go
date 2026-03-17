@@ -144,11 +144,6 @@ type SkillSetClientStateUpsertReq struct {
 	LastError      string     `json:"last_error,omitempty"`
 }
 
-type SkillSetResolveReq struct {
-	ProjectID string `json:"project_id" validate:"required"`
-	Action    string `json:"action" validate:"required"`
-}
-
 type DashboardOverviewReq struct {
 	OrgID string `query:"org_id" validate:"required"`
 }

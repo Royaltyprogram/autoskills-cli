@@ -3126,10 +3126,10 @@
   align-items: center;
   gap: 6px;
   padding: 8px 18px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--ink);
-  color: var(--bg);
+  background: #1a1a2e;
+  color: #ffffff;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -3142,13 +3142,13 @@
 }
 
 .skill-resolve-btn--secondary {
-  background: var(--surface);
-  color: var(--ink);
-  border-color: var(--line);
+  background: #ffffff;
+  color: #1a1a2e;
+  border-color: rgba(0, 0, 0, 0.15);
 }
 
 .skill-resolve-btn--secondary:hover {
-  background: var(--bg);
+  background: #f5f5f5;
 }
 
 .skill-resolve-pending {

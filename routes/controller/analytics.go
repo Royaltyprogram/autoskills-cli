@@ -51,7 +51,6 @@ func (r *AnalyticsRoute) RegisterRoute(router *echo.Group) {
 	api.GET("/reports", r.listReports)
 	api.GET("/skill-sets/latest", r.latestSkillSet)
 	api.POST("/skill-sets/client-state", r.upsertSkillSetClientState)
-	api.POST("/skill-sets/resolve", r.resolveSkillSetConflict)
 	api.GET("/audits", r.auditList)
 	api.GET("/admin/import-job-metrics", r.adminImportJobMetrics)
 	api.GET("/admin/users", r.listAdminUsers)
@@ -279,14 +278,6 @@ func (r *AnalyticsRoute) upsertSkillSetClientState(c *echo.Context) error {
 		return err
 	}
 	return common.WrapResp(c)(r.AnalyticsService.UpsertSkillSetClientState(c.Request().Context(), &req))
-}
-
-func (r *AnalyticsRoute) resolveSkillSetConflict(c *echo.Context) error {
-	var req request.SkillSetResolveReq
-	if err := c.Bind(&req); err != nil {
-		return err
-	}
-	return common.WrapResp(c)(r.AnalyticsService.ResolveSkillSetConflict(c.Request().Context(), &req))
 }
 
 func (r *AnalyticsRoute) listProjects(c *echo.Context) error {

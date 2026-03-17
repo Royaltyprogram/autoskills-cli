@@ -200,19 +200,18 @@ type ReportResearchStatus struct {
 }
 
 type SkillSetClientState struct {
-	ProjectID        string
-	OrgID            string
-	AgentID          string
-	BundleName       string
-	Mode             string
-	SyncStatus       string
-	AppliedVersion   string
-	AppliedHash      string
-	LastSyncedAt     *time.Time
-	PausedAt         *time.Time
-	LastError        string
-	ResolveDirective string
-	UpdatedAt        time.Time
+	ProjectID      string
+	OrgID          string
+	AgentID        string
+	BundleName     string
+	Mode           string
+	SyncStatus     string
+	AppliedVersion string
+	AppliedHash    string
+	LastSyncedAt   *time.Time
+	PausedAt       *time.Time
+	LastError      string
+	UpdatedAt      time.Time
 }
 
 type SkillSetDeploymentEvent struct {

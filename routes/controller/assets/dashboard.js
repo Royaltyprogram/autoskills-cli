@@ -1503,22 +1503,52 @@ function renderAutoSkillsTab(skillSet, reports) {
 
   /* ── Conflict resolve banner ── */
   const isConflict = syncStatus === "conflict";
-  const pendingDirective = String(clientState.resolve_directive || "").trim();
 
   if (isConflict) {
-    const conflictHeadline = pendingDirective
-      ? `Resolve directive "${pendingDirective}" is pending — waiting for CLI to pick it up`
-      : "Local modifications detected — skill bundle sync is blocked";
-    const conflictCopy = pendingDirective
-      ? "The CLI will automatically execute this resolve action on its next sync cycle."
-      : "The managed skill bundle on the CLI was modified locally. Choose how to resolve the conflict below, or run <code>crux skills resolve</code> on the CLI.";
-    const resolveButtonsHTML = pendingDirective
-      ? `<div class="skill-resolve-pending">${pill("Pending: " + pendingDirective, "sky")}</div>`
-      : `<div class="skill-resolve-actions">
-          <button class="skill-resolve-btn" type="button" data-action="resolve-skill-conflict" data-resolve-action="accept-remote">Accept remote</button>
-          <button class="skill-resolve-btn skill-resolve-btn--secondary" type="button" data-action="resolve-skill-conflict" data-resolve-action="keep-local">Keep local</button>
-          <button class="skill-resolve-btn skill-resolve-btn--secondary" type="button" data-action="resolve-skill-conflict" data-resolve-action="backup-and-sync">Backup &amp; sync</button>
-        </div>`;
+    const conflictHeadline = "Local modifications detected — resolve this on the CLI";
+    const conflictCopy = "Dashboard-triggered conflict resolution is disabled for this MVP. Run one of the commands below on the connected machine to inspect or fix the managed bundle.";
+    const resolveCommands = [
+      {
+        id: "skillResolveInspectCmd",
+        title: "Inspect the conflict",
+        note: "Review the local diff and available actions before changing anything.",
+        command: "crux skills resolve",
+        copyLabel: "inspect conflict command",
+      },
+      {
+        id: "skillResolveAcceptCmd",
+        title: "Accept remote",
+        note: "Discard local edits and restore the managed bundle from the server.",
+        command: "crux skills resolve --action accept-remote",
+        copyLabel: "accept remote command",
+      },
+      {
+        id: "skillResolveKeepLocalCmd",
+        title: "Keep local",
+        note: "Pause auto-sync and keep the local edits on this machine.",
+        command: "crux skills resolve --action keep-local",
+        copyLabel: "keep local command",
+      },
+      {
+        id: "skillResolveBackupCmd",
+        title: "Backup and sync",
+        note: "Back up the local edits first, then replace them with the remote bundle.",
+        command: "crux skills resolve --action backup-and-sync",
+        copyLabel: "backup and sync command",
+      },
+    ];
+    const resolveCommandsHTML = resolveCommands
+      .map((item) => `
+        <div class="step-list">
+          <div class="step-line"><strong>${escapeHTML(item.title)}</strong></div>
+          <div class="step-line">${escapeHTML(item.note)}</div>
+        </div>
+        <div class="action-row">
+          <button class="secondary-button small-btn" type="button" data-action="copy-command" data-copy-target="${escapeAttr(item.id)}" data-copy-label="${escapeAttr(item.copyLabel)}">Copy command</button>
+        </div>
+        <div class="command-shell" id="${escapeAttr(item.id)}">${escapeHTML(item.command)}</div>
+      `)
+      .join("");
 
     bannerEl.innerHTML = `
       <div class="skill-banner" data-tone="warn">
@@ -1529,7 +1559,7 @@ function renderAutoSkillsTab(skillSet, reports) {
         <div class="skill-banner-content">
           <div class="skill-banner-headline">${escapeHTML(conflictHeadline)}</div>
           <div class="skill-banner-copy">${conflictCopy}</div>
-          ${resolveButtonsHTML}
+          ${resolveCommandsHTML}
           ${syncError ? `<div class="skill-banner-error">${escapeHTML(syncError)}</div>` : ""}
         </div>
       </div>`;
@@ -4879,50 +4909,6 @@ async function cancelImportJob(jobID) {
   }
 }
 
-async function resolveSkillConflict(action) {
-  const resolveAction = String(action || "").trim();
-  if (!resolveAction || !state.selectedProjectID) {
-    return;
-  }
-
-  const labels = {
-    "accept-remote": "Accept remote version",
-    "keep-local": "Keep local changes",
-    "backup-and-sync": "Backup local & sync remote",
-  };
-  const label = labels[resolveAction] || resolveAction;
-
-  try {
-    await withBusy(async () => {
-      await requestJSON(
-        "/api/v1/skill-sets/resolve",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            project_id: state.selectedProjectID,
-            action: resolveAction,
-          }),
-        },
-        "Failed to issue resolve directive.",
-      );
-      await load({ skipBusy: true });
-      setStatus(`Resolve directive "${label}" sent. The CLI will apply it on next sync.`);
-    });
-  } catch (error) {
-    if (isUnauthorized(error)) {
-      redirectToLanding("Your session expired. Sign in again.");
-      return;
-    }
-    setStatus(
-      error instanceof Error
-        ? error.message
-        : "Failed to issue resolve directive.",
-      true,
-    );
-  }
-}
-
 async function signOut() {
   try {
     await requestJSON(
@@ -5280,9 +5266,6 @@ function handleActionClick(event) {
       break;
     case "toggle-report-detail":
       toggleReportDetail(button);
-      break;
-    case "resolve-skill-conflict":
-      resolveSkillConflict(button.dataset.resolveAction || "");
       break;
     case "close-full-text":
       closeFullTextModal();

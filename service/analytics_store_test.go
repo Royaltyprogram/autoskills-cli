@@ -73,18 +73,17 @@ func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 		},
 	}}
 	store.skillSetClients["project_1"] = &SkillSetClientState{
-		ProjectID:        "project_1",
-		OrgID:            "demo-org",
-		AgentID:          "agent-1",
-		BundleName:       managedSkillBundleName,
-		Mode:             "autopilot",
-		SyncStatus:       "conflict",
-		AppliedVersion:   "v123",
-		AppliedHash:      "hash-123",
-		LastSyncedAt:     cloneTime(&now),
-		LastError:        "managed skill bundle was modified locally",
-		ResolveDirective: "accept-remote",
-		UpdatedAt:        now,
+		ProjectID:      "project_1",
+		OrgID:          "demo-org",
+		AgentID:        "agent-1",
+		BundleName:     managedSkillBundleName,
+		Mode:           "autopilot",
+		SyncStatus:     "conflict",
+		AppliedVersion: "v123",
+		AppliedHash:    "hash-123",
+		LastSyncedAt:   cloneTime(&now),
+		LastError:      "managed skill bundle was modified locally",
+		UpdatedAt:      now,
 	}
 	require.NoError(t, store.persistLocked())
 	store.mu.Unlock()
@@ -110,7 +109,6 @@ func TestAnalyticsStorePersistenceRoundTrip(t *testing.T) {
 	require.InDelta(t, 0.68, loaded.skillSetVersions["project_1"][0].ShadowEvaluation.Score, 0.01)
 	require.NotNil(t, loaded.skillSetClients["project_1"])
 	require.Equal(t, "conflict", loaded.skillSetClients["project_1"].SyncStatus)
-	require.Equal(t, "accept-remote", loaded.skillSetClients["project_1"].ResolveDirective)
 }
 
 func TestAnalyticsStoreCollapsesProjectsIntoSharedWorkspaceOnLoad(t *testing.T) {

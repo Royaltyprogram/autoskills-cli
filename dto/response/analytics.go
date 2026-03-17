@@ -287,26 +287,17 @@ type SkillSetFileResp struct {
 }
 
 type SkillSetClientStateResp struct {
-	ProjectID        string     `json:"project_id"`
-	AgentID          string     `json:"agent_id"`
-	BundleName       string     `json:"bundle_name"`
-	Mode             string     `json:"mode"`
-	SyncStatus       string     `json:"sync_status"`
-	AppliedVersion   string     `json:"applied_version,omitempty"`
-	AppliedHash      string     `json:"applied_hash,omitempty"`
-	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
-	PausedAt         *time.Time `json:"paused_at,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	ResolveDirective string     `json:"resolve_directive,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-}
-
-type SkillSetResolveResp struct {
-	ProjectID        string    `json:"project_id"`
-	Action           string    `json:"action"`
-	ResolveDirective string    `json:"resolve_directive"`
-	Status           string    `json:"status"`
-	IssuedAt         time.Time `json:"issued_at"`
+	ProjectID      string     `json:"project_id"`
+	AgentID        string     `json:"agent_id"`
+	BundleName     string     `json:"bundle_name"`
+	Mode           string     `json:"mode"`
+	SyncStatus     string     `json:"sync_status"`
+	AppliedVersion string     `json:"applied_version,omitempty"`
+	AppliedHash    string     `json:"applied_hash,omitempty"`
+	LastSyncedAt   *time.Time `json:"last_synced_at,omitempty"`
+	PausedAt       *time.Time `json:"paused_at,omitempty"`
+	LastError      string     `json:"last_error,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type SkillSetDeploymentEventResp struct {
