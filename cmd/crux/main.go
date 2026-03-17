@@ -61,7 +61,7 @@ type stateDisk struct {
 }
 
 const sharedWorkspaceName = "Shared workspace"
-const defaultServerURL = "https://cruxai.ai"
+const defaultServerURL = "https://useautoskills.com"
 const reportAPISchemaVersion = "report-api.v1"
 
 var (

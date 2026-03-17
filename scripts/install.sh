@@ -14,7 +14,7 @@ When Node.js is missing or too old, the installer can provision a local runtime 
 
 Environment overrides:
   CRUX_VERSION           release tag to install (default: newest published release)
-  CRUX_REPO              GitHub repo in owner/name form (default: Royaltyprogram/aiops)
+  CRUX_REPO              GitHub repo in owner/name form (default: Royaltyprogram/crux-cli)
   CRUX_RELEASE_BASE_URL  release download base URL (default: https://github.com/<repo>/releases/download)
   CRUX_RELEASES_API_URL  releases API URL used when CRUX_VERSION is unset
   CRUX_GITHUB_TOKEN      optional token used for GitHub API requests
@@ -113,11 +113,10 @@ import sys
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     releases = json.load(handle)
 
-best = None
+stable_best = None
+any_best = None
 for item in releases:
     if item.get("draft"):
-        continue
-    if item.get("prerelease"):
         continue
     tag = (item.get("tag_name") or "").strip()
     if not tag:
@@ -127,15 +126,24 @@ for item in releases:
         item.get("created_at") or "",
         tag,
     )
-    if best is None or key > best[0]:
-        best = (key, tag)
+    if any_best is None or key > any_best[0]:
+        any_best = (key, tag)
+    if item.get("prerelease"):
+        continue
+    if stable_best is None or key > stable_best[0]:
+        stable_best = (key, tag)
 
+best = stable_best or any_best
 if best is not None:
     print(best[1])
 PY
 )"
   elif command -v jq >/dev/null 2>&1; then
-    version="$(jq -r '[.[] | select(.draft != true and .prerelease != true and (.tag_name // "") != "")] | sort_by(.published_at // "", .created_at // "", .tag_name // "") | last | .tag_name // empty' "$tmpfile")"
+    version="$(jq -r '
+      def by_newest: sort_by(.published_at // "", .created_at // "", .tag_name // "") | last | .tag_name // empty;
+      ([.[] | select(.draft != true and .prerelease != true and (.tag_name // "") != "")] | by_newest) //
+      ([.[] | select(.draft != true and (.tag_name // "") != "")] | by_newest)
+    ' "$tmpfile")"
   else
     version="$(tr ',' '\n' <"$tmpfile" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
   fi
@@ -271,7 +279,7 @@ install_node_runtime() {
 VERSION="${CRUX_VERSION:-}"
 INSTALL_ROOT="${CRUX_INSTALL_ROOT:-$HOME/.local/share/crux}"
 BIN_DIR="${CRUX_BIN_DIR:-$HOME/.local/bin}"
-REPO="${CRUX_REPO:-Royaltyprogram/aiops}"
+REPO="${CRUX_REPO:-Royaltyprogram/crux-cli}"
 RELEASE_BASE_URL="${CRUX_RELEASE_BASE_URL:-https://github.com/$REPO/releases/download}"
 RELEASES_API_URL="${CRUX_RELEASES_API_URL:-https://api.github.com/repos/$REPO/releases?per_page=20}"
 INSTALL_NODE="${CRUX_INSTALL_NODE:-auto}"

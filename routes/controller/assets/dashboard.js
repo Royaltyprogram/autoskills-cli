@@ -9,7 +9,7 @@ const STORAGE_KEYS = {
 const TAB_IDS = ["overview", "autoskills", "trends", "sessions", "cli"];
 const REPORT_PANEL_IDS = ["actions", "history", "all"];
 const WIZARD_STEPS = 4;
-const DEFAULT_SERVER_ORIGIN = "https://cruxai.ai";
+const DEFAULT_SERVER_ORIGIN = "https://useautoskills.com";
 
 const state = {
   busy: false,
