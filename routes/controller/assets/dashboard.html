@@ -157,6 +157,7 @@
 
       <nav class="dashboard-nav" aria-label="Dashboard views">
         <button class="tab-button is-active" type="button" data-action="switch-tab" data-tab="overview">Reports</button>
+        <button class="tab-button" type="button" data-action="switch-tab" data-tab="autoskills">Auto Skills</button>
         <button class="tab-button" type="button" data-action="switch-tab" data-tab="trends">Usage Analytics</button>
         <button class="tab-button" type="button" data-action="switch-tab" data-tab="sessions">Sessions</button>
         <button class="tab-button" type="button" data-action="switch-tab" data-tab="cli">Settings</button>
@@ -242,6 +243,48 @@
               <div class="list compact-list" id="importFailureList"></div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ── Auto Skills ── -->
+
+      <section class="tab-panel" data-tab-panel="autoskills" hidden>
+        <div class="skill-report-banner" id="skillReportBanner"></div>
+
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Latest update</div>
+            <div class="section-title">Why your skill set changed</div>
+            <div class="section-desc" id="skillChangeDesc">Crux explains every automatic update to your personal skill bundle so you always know what changed and why.</div>
+          </div>
+          <div id="skillChangeReport"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Generated bundle</div>
+            <div class="section-title">Current policy documents</div>
+            <div class="section-desc">The compiled skill files that make up your current personal policy layer.</div>
+          </div>
+          <div id="skillBundlePreview"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Deployment timeline</div>
+            <div class="section-title">Version history</div>
+            <div class="section-desc">Recent deployments, rollbacks, and sync events for your managed bundle.</div>
+          </div>
+          <div id="skillDeploymentTimeline"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <div class="section-kicker">Evaluation metrics</div>
+            <div class="section-title">Shadow score &amp; quality signals</div>
+            <div class="section-desc">Confidence, rule churn, and guardrail checks that decide whether a candidate bundle gets deployed.</div>
+          </div>
+          <div id="skillMetaGrid"></div>
         </div>
       </section>
 

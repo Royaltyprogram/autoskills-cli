@@ -72,6 +72,8 @@ func TestDashboardRouteServesWorkspaceDashboard(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "crux setup")
 	require.Contains(t, rec.Body.String(), `data-action="issue-cli-token"`)
 	require.Contains(t, rec.Body.String(), "Latest trace analysis")
+	require.Contains(t, rec.Body.String(), "Auto Skills")
+	require.Contains(t, rec.Body.String(), "Current policy documents")
 	require.Contains(t, rec.Body.String(), "Usage Analytics")
 	require.Contains(t, rec.Body.String(), "Backfill jobs and failure drill-down")
 	require.Contains(t, rec.Body.String(), "Recent failed imports")
@@ -115,6 +117,21 @@ func TestDashboardAssetRoutesServeSplitAssets(t *testing.T) {
 			path:        "/assets/dashboard.js",
 			contentType: "javascript",
 			bodySnippet: `data-action="cancel-import-job"`,
+		},
+		{
+			path:        "/assets/dashboard.js",
+			contentType: "javascript",
+			bodySnippet: `/api/v1/skill-sets/latest?project_id=`,
+		},
+		{
+			path:        "/assets/dashboard.js",
+			contentType: "javascript",
+			bodySnippet: `Shadow score`,
+		},
+		{
+			path:        "/assets/dashboard.js",
+			contentType: "javascript",
+			bodySnippet: `item.applied_version`,
 		},
 		{
 			path:        "/assets/admin.js",

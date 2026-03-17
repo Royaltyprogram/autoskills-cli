@@ -6,7 +6,7 @@ const STORAGE_KEYS = {
   activeReportID: "crux_dashboard_report_id",
   onboardingDone: "crux_onboarding_done",
 };
-const TAB_IDS = ["overview", "trends", "sessions", "cli"];
+const TAB_IDS = ["overview", "autoskills", "trends", "sessions", "cli"];
 const REPORT_PANEL_IDS = ["actions", "history", "all"];
 const WIZARD_STEPS = 4;
 const DEFAULT_SERVER_ORIGIN = "https://cruxai.ai";
@@ -21,6 +21,7 @@ const state = {
   selectedProjectID: "",
   reportIndex: new Map(),
   reportItems: [],
+  skillSetBundle: null,
   sessionItemsFull: [],
   session: null,
   wizardStep: 0,
@@ -483,6 +484,14 @@ function formatShortDate(value) {
   }).format(date);
 }
 
+function shortHash(value, length = 12) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return text.length <= length ? text : text.slice(0, length);
+}
+
 function formatCompactCount(value) {
   return new Intl.NumberFormat("en-US", {
     notation: "compact",
@@ -492,6 +501,14 @@ function formatCompactCount(value) {
 
 function formatPercent(value) {
   return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function formatFixedNumber(value, digits = 2) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) {
+    return Number(0).toFixed(digits);
+  }
+  return number.toFixed(digits);
 }
 
 function formatRate(value) {
@@ -681,6 +698,14 @@ function normalizeInlineText(value) {
     .replace(/\r\n/g, "\n")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function previewBlockText(value, maxLength = 560) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1)}...`;
 }
 
 function extractUserRequest(raw) {
@@ -1013,6 +1038,653 @@ function reportKindTone(kind) {
     return "good";
   }
   return "sky";
+}
+
+function skillSetStatusLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "ready") {
+    return "Ready";
+  }
+  if (raw === "no_reports") {
+    return "Awaiting reports";
+  }
+  if (raw === "no_candidate") {
+    return "Awaiting candidate";
+  }
+  if (raw === "unsupported") {
+    return "Unsupported";
+  }
+  if (!raw) {
+    return "Unknown";
+  }
+  return titleize(raw.replace(/_/g, " "));
+}
+
+function skillSetStatusTone(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "ready") {
+    return "good";
+  }
+  if (raw === "no_reports" || raw === "no_candidate") {
+    return "warn";
+  }
+  if (raw === "unsupported") {
+    return "danger";
+  }
+  return "sky";
+}
+
+function skillSetSyncLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (!raw) {
+    return "Not synced yet";
+  }
+  return titleize(raw.replace(/_/g, " "));
+}
+
+function skillSetSyncTone(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "synced" || raw === "unchanged" || raw === "rolled_back") {
+    return "good";
+  }
+  if (raw === "paused" || raw === "blocked") {
+    return "warn";
+  }
+  if (raw === "failed" || raw === "conflict") {
+    return "danger";
+  }
+  return "sky";
+}
+
+function skillSetDeploymentLabel(eventType) {
+  const raw = String(eventType || "").trim().toLowerCase();
+  if (raw === "skillset_deployed") {
+    return "Deployed";
+  }
+  if (raw === "skillset_sync_succeeded") {
+    return "Synced";
+  }
+  if (raw === "skillset_sync_failed") {
+    return "Sync failed";
+  }
+  if (raw === "skillset_rolled_back") {
+    return "Rolled back";
+  }
+  if (raw === "skillset_paused") {
+    return "Paused";
+  }
+  if (raw === "skillset_resumed") {
+    return "Resumed";
+  }
+  if (raw === "skillset_auto_blocked") {
+    return "Blocked";
+  }
+  return titleize(raw.replace(/^skillset_/, "").replace(/_/g, " ")) || "Updated";
+}
+
+function skillSetDeploymentTone(eventType, syncStatus) {
+  const raw = String(eventType || "").trim().toLowerCase();
+  if (
+    raw === "skillset_deployed" ||
+    raw === "skillset_sync_succeeded" ||
+    raw === "skillset_resumed" ||
+    raw === "skillset_rolled_back"
+  ) {
+    return "good";
+  }
+  if (raw === "skillset_paused" || raw === "skillset_auto_blocked") {
+    return "warn";
+  }
+  if (raw === "skillset_sync_failed") {
+    return "danger";
+  }
+  return skillSetSyncTone(syncStatus);
+}
+
+function skillSetDecisionLabel(decision) {
+  const raw = String(decision || "").trim().toLowerCase();
+  if (!raw) {
+    return "Pending";
+  }
+  if (raw === "shadow") {
+    return "Awaiting sync";
+  }
+  if (raw === "blocked") {
+    return "Blocked";
+  }
+  if (raw === "rolled_back") {
+    return "Rolled back";
+  }
+  if (raw === "deployed") {
+    return "Deployed";
+  }
+  return titleize(raw.replace(/_/g, " "));
+}
+
+function skillSetDecisionTone(decision) {
+  const raw = String(decision || "").trim().toLowerCase();
+  if (raw === "deployed") {
+    return "good";
+  }
+  if (raw === "shadow") {
+    return "sky";
+  }
+  if (raw === "blocked" || raw === "rolled_back") {
+    return "warn";
+  }
+  return "sky";
+}
+
+function skillSetShadowGuardrailLabel(guardrail) {
+  const raw = String(guardrail || "").trim().toLowerCase();
+  if (!raw) {
+    return "Pending";
+  }
+  if (raw === "passed") {
+    return "Passed";
+  }
+  if (raw === "low_confidence") {
+    return "Low confidence";
+  }
+  if (raw === "low_score") {
+    return "Low score";
+  }
+  if (raw === "high_churn") {
+    return "High churn";
+  }
+  return titleize(raw);
+}
+
+function skillSetShadowLines(evaluation) {
+  const record = evaluation && typeof evaluation === "object" ? evaluation : null;
+  if (!record) {
+    return [];
+  }
+  const score = Number(record.score || 0);
+  const averageConfidence = Number(record.average_confidence || 0);
+  const changedDocuments = Number(record.changed_document_count || 0);
+  const addedRules = Number(record.added_rule_count || 0);
+  const removedRules = Number(record.removed_rule_count || 0);
+  const ruleChurn = Number(record.rule_churn || 0);
+  const guardrail = skillSetShadowGuardrailLabel(record.guardrail || "");
+  return [
+    `Shadow score ${formatFixedNumber(score)} with ${formatPercent(averageConfidence)} average report confidence.`,
+    `${formatCount(changedDocuments)} changed document${changedDocuments === 1 ? "" : "s"} and ${formatCount(ruleChurn)} rule change${ruleChurn === 1 ? "" : "s"} (${formatCount(addedRules)} added / ${formatCount(removedRules)} removed).`,
+    `Guardrail: ${guardrail}.`,
+  ];
+}
+
+function skillSetDeploymentSummary(item) {
+  const record = item && typeof item === "object" ? item : {};
+  const summary = normalizeInlineText(record.summary || "");
+  if (summary) {
+    return summary;
+  }
+  const currentVersion = normalizeInlineText(record.applied_version || "");
+  const previousVersion = normalizeInlineText(record.previous_version || "");
+  const rawType = String(record.event_type || "").trim().toLowerCase();
+  if (rawType === "skillset_deployed" && currentVersion && previousVersion) {
+    return `Deployed ${currentVersion} after replacing ${previousVersion}.`;
+  }
+  if (rawType === "skillset_deployed" && currentVersion) {
+    return `Deployed ${currentVersion} to the connected workspace.`;
+  }
+  if (rawType === "skillset_rolled_back" && currentVersion) {
+    return previousVersion
+      ? `Rolled back from ${previousVersion} to ${currentVersion}.`
+      : `Rolled back to ${currentVersion}.`;
+  }
+  if (rawType === "skillset_sync_failed") {
+    return normalizeInlineText(record.last_error || "Managed bundle sync failed.");
+  }
+  return "Managed bundle state changed.";
+}
+
+function renderSkillSetDeploymentHistory(items) {
+  const history = toArray(items)
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 6);
+  if (!history.length) {
+    return `
+      <div class="skillset-history-empty">
+        History will appear here after the connected CLI reports its first managed bundle state transition.
+      </div>
+    `;
+  }
+  return `
+    <div class="skillset-history-list">
+      ${history
+        .map((item) => {
+          const occurredAt = item.occurred_at
+            ? formatDateTime(item.occurred_at)
+            : "Unknown time";
+          const label = skillSetDeploymentLabel(item.event_type);
+          const tone = skillSetDeploymentTone(item.event_type, item.sync_status);
+          const summary = skillSetDeploymentSummary(item);
+          const version = normalizeInlineText(item.applied_version || "");
+          return `
+            <article class="skillset-history-item" data-tone="${escapeAttr(tone)}">
+              <div class="skillset-history-top">
+                ${pill(label, tone)}
+                <div class="skillset-history-time">${escapeHTML(occurredAt)}</div>
+              </div>
+              <div class="skillset-history-summary">${escapeHTML(summary)}</div>
+              ${
+                version
+                  ? `<div class="skillset-history-meta">Version ${escapeHTML(version)}</div>`
+                  : ""
+              }
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderSkillSetLatestDiff(diff) {
+  const record = diff && typeof diff === "object" ? diff : {};
+  const changedFiles = toArray(record.changed_files)
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 4);
+  if (!changedFiles.length) {
+    return "";
+  }
+  return `
+    <details class="skillset-details">
+      <summary>View latest diff</summary>
+      <div class="skillset-diff-list">
+        ${changedFiles
+          .map((item) => {
+            const path = normalizeInlineText(item.path || "");
+            const added = toArray(item.added)
+              .map((entry) => normalizeInlineText(entry))
+              .filter(Boolean)
+              .slice(0, 4);
+            const removed = toArray(item.removed)
+              .map((entry) => normalizeInlineText(entry))
+              .filter(Boolean)
+              .slice(0, 4);
+            return `
+              <article class="skillset-diff-file">
+                <div class="skillset-diff-path">${escapeHTML(path || "changed-file")}</div>
+                ${
+                  added.length
+                    ? `<div class="skillset-diff-block">
+                        <div class="skillset-diff-label">Added</div>
+                        <ul class="skillset-diff-lines skillset-diff-lines-add">${added
+                          .map((entry) => `<li>${escapeHTML(entry)}</li>`)
+                          .join("")}</ul>
+                      </div>`
+                    : ""
+                }
+                ${
+                  removed.length
+                    ? `<div class="skillset-diff-block">
+                        <div class="skillset-diff-label">Removed</div>
+                        <ul class="skillset-diff-lines skillset-diff-lines-remove">${removed
+                          .map((entry) => `<li>${escapeHTML(entry)}</li>`)
+                          .join("")}</ul>
+                      </div>`
+                    : ""
+                }
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    </details>
+  `;
+}
+
+function skillSetReportLines(bundle, reports) {
+  const reportIDs = new Set(
+    toArray(bundle && bundle.based_on_report_ids)
+      .map((item) => String(item || "").trim())
+      .filter(Boolean),
+  );
+  return toArray(reports)
+    .filter((item) => reportIDs.has(String((item && item.id) || "").trim()))
+    .map((item) =>
+      normalizeInlineText(
+        (item && (item.reason || item.summary || item.title)) || "",
+      ),
+    )
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function renderAutoSkillsTab(skillSet, reports) {
+  const bannerEl = $("skillReportBanner");
+  const changeEl = $("skillChangeReport");
+  const bundleEl = $("skillBundlePreview");
+  const timelineEl = $("skillDeploymentTimeline");
+  const metaEl = $("skillMetaGrid");
+  const descEl = $("skillChangeDesc");
+  if (!bannerEl || !changeEl || !bundleEl || !timelineEl || !metaEl) {
+    return;
+  }
+
+  const bundle = skillSet && typeof skillSet === "object" ? skillSet : {};
+  const clientState =
+    bundle.client_state && typeof bundle.client_state === "object"
+      ? bundle.client_state
+      : {};
+  const status = String(bundle.status || "").trim().toLowerCase();
+  const version = String(bundle.version || "").trim();
+  const appliedVersion = String(clientState.applied_version || "").trim();
+  const syncStatus = String(clientState.sync_status || "").trim().toLowerCase();
+  const syncMode = String(clientState.mode || "").trim().toLowerCase();
+  const files = toArray(bundle.files);
+  const mdFiles = files.filter((item) =>
+    String((item && item.path) || "").trim().toLowerCase().endsWith(".md"),
+  );
+  const generatedDocs = mdFiles
+    .map((item) => String((item && item.path) || "").trim())
+    .filter((path) => path && path !== "SKILL.md")
+    .slice(0, 6);
+  const summaryItems = toArray(bundle.summary)
+    .map((item) => normalizeInlineText(item))
+    .filter(Boolean)
+    .slice(0, 4);
+  const deploymentHistory = toArray(bundle.deployment_history);
+  const versionHistory = toArray(bundle.version_history);
+  const latestVersionRecord =
+    versionHistory[0] && typeof versionHistory[0] === "object"
+      ? versionHistory[0]
+      : {};
+  const deploymentDecision = String(latestVersionRecord.deployment_decision || "")
+    .trim()
+    .toLowerCase();
+  const decisionReason = normalizeInlineText(
+    latestVersionRecord.decision_reason || "",
+  );
+  const shadowEvaluation =
+    latestVersionRecord.shadow_evaluation &&
+    typeof latestVersionRecord.shadow_evaluation === "object"
+      ? latestVersionRecord.shadow_evaluation
+      : null;
+  const shadowScore = Number((shadowEvaluation && shadowEvaluation.score) || 0);
+  const averageConfidence = Number(
+    (shadowEvaluation && shadowEvaluation.average_confidence) || 0,
+  );
+  const changedDocumentCount = Number(
+    (shadowEvaluation && shadowEvaluation.changed_document_count) || 0,
+  );
+  const addedRuleCount = Number(
+    (shadowEvaluation && shadowEvaluation.added_rule_count) || 0,
+  );
+  const removedRuleCount = Number(
+    (shadowEvaluation && shadowEvaluation.removed_rule_count) || 0,
+  );
+  const shadowGuardrailRaw = String(
+    (shadowEvaluation && shadowEvaluation.guardrail) || "",
+  )
+    .trim()
+    .toLowerCase();
+  const shadowGuardrail = skillSetShadowGuardrailLabel(shadowGuardrailRaw);
+  const shadowLines = skillSetShadowLines(shadowEvaluation);
+  const latestDiff =
+    bundle.latest_diff && typeof bundle.latest_diff === "object"
+      ? bundle.latest_diff
+      : {};
+  const latestDiffSummary = toArray(latestDiff.summary)
+    .map((item) => normalizeInlineText(item))
+    .filter(Boolean)
+    .slice(0, 4);
+  const reportLines = skillSetReportLines(bundle, reports);
+  const generatedAt = bundle.generated_at ? formatDateTime(bundle.generated_at) : "Not yet";
+  const compiledHash = shortHash(bundle.compiled_hash || "");
+  const reportCount = toArray(bundle.based_on_report_ids).length;
+  const previousVersion = normalizeInlineText(
+    latestDiff.from_version ||
+      ((versionHistory[1] && versionHistory[1].version) || ""),
+  );
+  const lastSyncedAt = clientState.last_synced_at
+    ? formatDateTime(clientState.last_synced_at)
+    : "Not reported yet";
+  const updatedAt = clientState.updated_at ? formatDateTime(clientState.updated_at) : "Not reported yet";
+  const clientHash = shortHash(clientState.applied_hash || "");
+  const syncError = normalizeInlineText(clientState.last_error || "");
+
+  /* ── Banner ── */
+  if (!state.selectedProjectID) {
+    bannerEl.innerHTML = `
+      <div class="skill-banner" data-tone="empty">
+        <div class="skill-banner-content">
+          <div class="skill-banner-headline">No connected workspace</div>
+          <div class="skill-banner-copy">Run <code>crux setup</code> in a repository and upload sessions. The first managed bundle will appear after reports are generated.</div>
+        </div>
+      </div>`;
+    changeEl.innerHTML = "";
+    bundleEl.innerHTML = "";
+    timelineEl.innerHTML = "";
+    metaEl.innerHTML = "";
+    return;
+  }
+
+  if (status !== "ready") {
+    const statusLabel = skillSetStatusLabel(status || "no_reports");
+    const statusTone = skillSetStatusTone(status || "no_reports");
+    const headline =
+      status === "no_candidate"
+        ? "Reports exist, but the managed bundle is still being composed."
+        : status === "unsupported"
+          ? "This server does not expose managed skill bundles yet."
+          : "The managed bundle will appear after enough reports are available.";
+    const copy =
+      status === "no_candidate"
+        ? "Crux has report evidence, but the latest analysis pass has not produced a stable multi-file bundle yet."
+        : status === "unsupported"
+          ? "Update the deployed server/dashboard pair before relying on automatic bundle visibility in the UI."
+          : "Keep uploading Codex sessions. Once recent workflow reports accumulate, Crux will compile a canonical bundle here.";
+
+    bannerEl.innerHTML = `
+      <div class="skill-banner" data-tone="${escapeAttr(statusTone)}">
+        <div class="skill-banner-pills">${pill(statusLabel, statusTone)}${reportLines.length ? pill(`${formatCount(reportLines.length)} evidence lane${reportLines.length === 1 ? "" : "s"}`, "sky") : ""}</div>
+        <div class="skill-banner-content">
+          <div class="skill-banner-headline">${escapeHTML(headline)}</div>
+          <div class="skill-banner-copy">${escapeHTML(copy)}</div>
+        </div>
+      </div>`;
+    if (descEl) {
+      descEl.textContent = "Crux will explain every automatic update once the first managed bundle is compiled.";
+    }
+    changeEl.innerHTML = `
+      <div class="action-lane-group">
+        ${actionLane("Observed", reportLines, "No report-level evidence is available yet.", "warn")}
+        ${actionLane("Next", ["Upload more sessions", "Refresh the dashboard after the next analysis pass"], "The next report refresh will populate this section.", "accent")}
+      </div>`;
+    bundleEl.innerHTML = emptyState("No bundle yet", "The managed bundle will appear here after the first candidate is compiled.");
+    timelineEl.innerHTML = emptyState("No deployments yet", "Deployment events will appear here once the first bundle is synced to the CLI.");
+    metaEl.innerHTML = "";
+    return;
+  }
+
+  /* ── Conflict resolve banner ── */
+  const isConflict = syncStatus === "conflict";
+  const pendingDirective = String(clientState.resolve_directive || "").trim();
+
+  if (isConflict) {
+    const conflictHeadline = pendingDirective
+      ? `Resolve directive "${pendingDirective}" is pending — waiting for CLI to pick it up`
+      : "Local modifications detected — skill bundle sync is blocked";
+    const conflictCopy = pendingDirective
+      ? "The CLI will automatically execute this resolve action on its next sync cycle."
+      : "The managed skill bundle on the CLI was modified locally. Choose how to resolve the conflict below, or run <code>crux skills resolve</code> on the CLI.";
+    const resolveButtonsHTML = pendingDirective
+      ? `<div class="skill-resolve-pending">${pill("Pending: " + pendingDirective, "sky")}</div>`
+      : `<div class="skill-resolve-actions">
+          <button class="skill-resolve-btn" type="button" data-action="resolve-skill-conflict" data-resolve-action="accept-remote">Accept remote</button>
+          <button class="skill-resolve-btn skill-resolve-btn--secondary" type="button" data-action="resolve-skill-conflict" data-resolve-action="keep-local">Keep local</button>
+          <button class="skill-resolve-btn skill-resolve-btn--secondary" type="button" data-action="resolve-skill-conflict" data-resolve-action="backup-and-sync">Backup &amp; sync</button>
+        </div>`;
+
+    bannerEl.innerHTML = `
+      <div class="skill-banner" data-tone="warn">
+        <div class="skill-banner-pills">
+          ${pill("Conflict", "warn")}
+          ${syncMode ? pill(titleize(syncMode), syncMode === "frozen" ? "warn" : "sky") : ""}
+        </div>
+        <div class="skill-banner-content">
+          <div class="skill-banner-headline">${escapeHTML(conflictHeadline)}</div>
+          <div class="skill-banner-copy">${conflictCopy}</div>
+          ${resolveButtonsHTML}
+          ${syncError ? `<div class="skill-banner-error">${escapeHTML(syncError)}</div>` : ""}
+        </div>
+      </div>`;
+  } else {
+
+  /* ── Status banner (ready state) ── */
+  const bannerHeadline = deploymentDecision === "blocked"
+    ? "Candidate generated but deployment is blocked"
+    : previousVersion
+      ? `${previousVersion} \u2192 ${version || "latest"}`
+      : version
+        ? `Version ${version} active`
+        : "Skill bundle active";
+
+  bannerEl.innerHTML = `
+    <div class="skill-banner" data-tone="good">
+      <div class="skill-banner-pills">
+        ${pill("Autobuild ready", "good")}
+        ${syncStatus ? pill(skillSetSyncLabel(syncStatus), skillSetSyncTone(syncStatus)) : ""}
+        ${deploymentDecision ? pill(skillSetDecisionLabel(deploymentDecision), skillSetDecisionTone(deploymentDecision)) : ""}
+        ${syncMode ? pill(titleize(syncMode), syncMode === "frozen" ? "warn" : "sky") : ""}
+      </div>
+      <div class="skill-banner-content">
+        <div class="skill-banner-headline">${escapeHTML(bannerHeadline)}</div>
+        <div class="skill-banner-stats">
+          <span class="skill-banner-stat"><strong>Applied</strong> ${escapeHTML(appliedVersion || version || "Pending")}</span>
+          <span class="skill-banner-stat"><strong>Synced</strong> ${escapeHTML(lastSyncedAt)}</span>
+          <span class="skill-banner-stat"><strong>Reports merged</strong> ${escapeHTML(formatCount(reportCount))}</span>
+        </div>
+      </div>
+      <div class="skill-banner-aside">
+        <div class="skill-banner-cli-note">Manage via CLI: <code>crux skills status</code> · <code>crux skills pause</code> · <code>crux skills rollback</code></div>
+      </div>
+    </div>`;
+  }
+
+  /* ── Change report ── */
+  if (descEl) {
+    descEl.textContent = syncError
+      ? syncError
+      : summaryItems[0]
+        ? summaryItems[0]
+        : "Crux merged the latest workflow evidence into a canonical skill bundle for this workspace.";
+  }
+
+  changeEl.innerHTML = `
+    <div class="skill-change-card">
+      <div class="action-lane-group">
+        ${actionLane("Changed because", reportLines, "Recent report evidence will appear here once the next bundle is compiled.", "warn")}
+        ${actionLane("Decision", decisionReason ? [decisionReason] : [], "Deployment decision reasoning will appear after the first managed bundle transition is evaluated.", deploymentDecision === "blocked" || deploymentDecision === "rolled_back" ? "warn" : "sky")}
+        ${actionLane("Shadow evaluation", shadowLines, "Structured shadow metrics will appear after the first candidate is evaluated.", deploymentDecision === "blocked" || (shadowGuardrailRaw && shadowGuardrailRaw !== "passed") ? "warn" : "sky")}
+        ${actionLane("Latest diff", latestDiffSummary, "The first stored bundle version does not have a previous diff yet.", "sky")}
+        ${actionLane("Expected impact", summaryItems, "Expected impact will appear here once the bundle includes report-backed changes.", "good")}
+      </div>
+      ${renderSkillSetLatestDiff(latestDiff)}
+    </div>`;
+
+  /* ── Bundle preview ── */
+  if (!files.length) {
+    bundleEl.innerHTML = emptyState("No files in bundle", "Generated documents will appear here once the compiler emits the bundle.");
+  } else {
+    const docTabs = files.slice(0, 8);
+    bundleEl.innerHTML = `
+      <div class="skill-bundle-strip">
+        ${docTabs
+          .map((file, idx) => {
+            const path = String((file && file.path) || "").trim();
+            return `<button class="skill-bundle-tab${idx === 0 ? " is-active" : ""}" type="button" data-action="switch-skill-doc" data-skill-doc-index="${idx}">${escapeHTML(path || "file-" + idx)}</button>`;
+          })
+          .join("")}
+      </div>
+      <div class="skill-bundle-panels">
+        ${docTabs
+          .map((file, idx) => {
+            const path = String((file && file.path) || "").trim();
+            const content = previewBlockText(file && file.content ? file.content : "");
+            const bytes = Number((file && file.bytes) || 0);
+            return `
+              <div class="skill-bundle-panel${idx === 0 ? " is-active" : ""}" data-skill-doc-panel="${idx}">
+                <div class="skill-bundle-panel-head">
+                  <span class="skill-bundle-panel-path">${escapeHTML(path || "generated-file")}</span>
+                  <span class="skill-bundle-panel-meta">${escapeHTML(formatCount(bytes))} bytes</span>
+                </div>
+                <pre class="skill-bundle-panel-body">${escapeHTML(content || "No preview available.")}</pre>
+              </div>`;
+          })
+          .join("")}
+      </div>`;
+  }
+
+  /* ── Deployment timeline ── */
+  if (!deploymentHistory.length) {
+    timelineEl.innerHTML = emptyState("No deployment events yet", "Version transitions will appear here as the bundle is synced and updated.");
+  } else {
+    timelineEl.innerHTML = `
+      <div class="skill-timeline">
+        ${deploymentHistory
+          .slice(0, 12)
+          .map((item) => {
+            const label = skillSetDeploymentLabel(item.event_type);
+            const tone = skillSetDeploymentTone(item.event_type, item.sync_status);
+            const summary = skillSetDeploymentSummary(item);
+            const occurredAt = item.occurred_at ? formatDateTime(item.occurred_at) : "";
+            const ver = String(item.applied_version || "").trim();
+            return `
+              <div class="skill-timeline-item" data-tone="${escapeAttr(tone)}">
+                <div class="skill-timeline-dot"></div>
+                <div class="skill-timeline-body">
+                  <div class="skill-timeline-top">
+                    ${pill(label, tone)}
+                    ${ver ? `<span class="skill-timeline-version">${escapeHTML(ver)}</span>` : ""}
+                    <span class="skill-timeline-time">${escapeHTML(occurredAt)}</span>
+                  </div>
+                  <div class="skill-timeline-summary">${escapeHTML(summary)}</div>
+                </div>
+              </div>`;
+          })
+          .join("")}
+      </div>`;
+  }
+
+  /* ── Evaluation metrics ── */
+  const metaCards = [
+    { label: "Applied version", value: appliedVersion || "Not reported yet" },
+    { label: "Server version", value: version || "Pending" },
+    { label: "Previous version", value: previousVersion || "None yet" },
+    { label: "Decision", value: skillSetDecisionLabel(deploymentDecision) },
+    { label: "Generated", value: generatedAt },
+    { label: "Last synced", value: lastSyncedAt },
+    { label: "Reported hash", value: clientHash || compiledHash || "Pending" },
+    { label: "Latest CLI report", value: updatedAt },
+    { label: "Versions stored", value: formatCount(versionHistory.length) },
+  ];
+  if (shadowEvaluation) {
+    metaCards.push(
+      { label: "Shadow score", value: formatFixedNumber(shadowScore) },
+      { label: "Avg confidence", value: formatPercent(averageConfidence) },
+      { label: "Changed docs", value: formatCount(changedDocumentCount) },
+      { label: "Rule churn", value: `${formatCount(addedRuleCount)}+ / ${formatCount(removedRuleCount)}-` },
+      { label: "Guardrail", value: shadowGuardrail },
+    );
+  }
+
+  metaEl.innerHTML = `
+    <div class="skill-meta-grid">
+      ${metaCards
+        .map(
+          (card) => `
+        <div class="skill-meta-card">
+          <div class="skill-meta-label">${escapeHTML(card.label)}</div>
+          <div class="skill-meta-value">${escapeHTML(card.value)}</div>
+        </div>`,
+        )
+        .join("")}
+    </div>`;
 }
 
 function tokenSummary(item) {
@@ -4207,6 +4879,50 @@ async function cancelImportJob(jobID) {
   }
 }
 
+async function resolveSkillConflict(action) {
+  const resolveAction = String(action || "").trim();
+  if (!resolveAction || !state.selectedProjectID) {
+    return;
+  }
+
+  const labels = {
+    "accept-remote": "Accept remote version",
+    "keep-local": "Keep local changes",
+    "backup-and-sync": "Backup local & sync remote",
+  };
+  const label = labels[resolveAction] || resolveAction;
+
+  try {
+    await withBusy(async () => {
+      await requestJSON(
+        "/api/v1/skill-sets/resolve",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: state.selectedProjectID,
+            action: resolveAction,
+          }),
+        },
+        "Failed to issue resolve directive.",
+      );
+      await load({ skipBusy: true });
+      setStatus(`Resolve directive "${label}" sent. The CLI will apply it on next sync.`);
+    });
+  } catch (error) {
+    if (isUnauthorized(error)) {
+      redirectToLanding("Your session expired. Sign in again.");
+      return;
+    }
+    setStatus(
+      error instanceof Error
+        ? error.message
+        : "Failed to issue resolve directive.",
+      true,
+    );
+  }
+}
+
 async function signOut() {
   try {
     await requestJSON(
@@ -4294,6 +5010,7 @@ async function load(options = {}) {
     if (projectID) {
       const [
         reportsData,
+        skillSetData,
         sessionData,
         insightsData,
         snapshotData,
@@ -4306,6 +5023,11 @@ async function load(options = {}) {
           {},
           "Failed to load workspace reports.",
         ),
+        requestJSON(
+          `/api/v1/skill-sets/latest?project_id=${encodeURIComponent(projectID)}`,
+          {},
+          "Failed to load the managed skill bundle.",
+        ).catch(() => ({ status: "unsupported" })),
         requestJSON(
           `/api/v1/session-summaries?project_id=${encodeURIComponent(projectID)}&limit=10`,
           {},
@@ -4339,6 +5061,7 @@ async function load(options = {}) {
       ]);
 
       reports = toArray(reportsData.items);
+      state.skillSetBundle = skillSetData || null;
       sessions = toArray(sessionData.items);
       insights = insightsData || {};
       snapshots = toArray(snapshotData.items);
@@ -4349,6 +5072,8 @@ async function load(options = {}) {
       reports.forEach((item) => {
         state.reportIndex.set(item.id, item);
       });
+    } else {
+      state.skillSetBundle = null;
     }
 
     state.reportItems = reports.slice();
@@ -4365,6 +5090,7 @@ async function load(options = {}) {
     }
 
     renderAgentStatus(overview, reports);
+    renderAutoSkillsTab(state.skillSetBundle, reports);
     renderOptimizationLoop(overview, reports);
     renderActionFocus(reports, sessions);
     renderActionItems(reports);
@@ -4517,6 +5243,17 @@ function handleActionClick(event) {
       }
       break;
     }
+    case "switch-skill-doc": {
+      const idx = Number(button.dataset.skillDocIndex || 0);
+      document.querySelectorAll(".skill-bundle-tab").forEach(function (tab) {
+        tab.classList.toggle("is-active", Number(tab.dataset.skillDocIndex || 0) === idx);
+      });
+      document.querySelectorAll(".skill-bundle-panel").forEach(function (panel) {
+        const active = Number(panel.dataset.skillDocPanel || 0) === idx;
+        panel.classList.toggle("is-active", active);
+      });
+      break;
+    }
     case "copy-command":
       copyCommand(
         button.dataset.copyTarget || "",
@@ -4543,6 +5280,9 @@ function handleActionClick(event) {
       break;
     case "toggle-report-detail":
       toggleReportDetail(button);
+      break;
+    case "resolve-skill-conflict":
+      resolveSkillConflict(button.dataset.resolveAction || "");
       break;
     case "close-full-text":
       closeFullTextModal();

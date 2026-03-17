@@ -56,7 +56,23 @@ func (r *DashboardRoute) login(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.HTML(http.StatusOK, string(page))
+	html := string(page)
+	if r.AnalyticsService != nil && r.AnalyticsService.IsDevMode() {
+		devButton := `<form method="POST" action="/api/v1/auth/dev/login" style="margin-top:12px">` +
+			`<button type="submit" class="provider-btn" style="background:var(--support-light);border-color:var(--support);">` +
+			`<svg class="provider-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l2-2-2-2"/><path d="M8 18l-2-2 2-2"/><path d="M14.5 4l-5 16"/></svg>` +
+			`Dev Login (no auth)</button></form>`
+		html = strings.Replace(html, `</div><!--dev-login-slot-->`, devButton+`</div>`, 1)
+		// Fallback: inject after the Google button's closing </a> inside login-providers
+		if !strings.Contains(html, devButton) {
+			html = strings.Replace(html, `</div>
+
+      <div class="login-divider">`, devButton+`</div>
+
+      <div class="login-divider">`, 1)
+		}
+	}
+	return c.HTML(http.StatusOK, html)
 }
 
 func (r *DashboardRoute) dashboard(c *echo.Context) error {
