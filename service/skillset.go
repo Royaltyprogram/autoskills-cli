@@ -41,6 +41,14 @@ type compiledSkillCategory struct {
 	Confidence    float64
 	ReportIDs     []string
 	EvidenceLines []string
+
+	// PreRefineRules and PreRefineAntiPatterns store the raw rules before
+	// LLM refinement.  They are persisted in the manifest so the next build
+	// can diff against them and only refine truly new items.
+	PreRefineRules        []string
+	PreRefineAntiPatterns []string
+	ReusableRuleMappings  []bool
+	ReusableAntiMappings  []bool
 }
 
 type compiledSkillManifest struct {
@@ -60,6 +68,15 @@ type compiledSkillManifestDocRef struct {
 	Title      string   `json:"title"`
 	Confidence float64  `json:"confidence"`
 	ReportIDs  []string `json:"report_ids,omitempty"`
+
+	// Pre-refine data: stored so the next build can diff and skip
+	// re-refining unchanged rules.
+	PreRefineRules        []string `json:"pre_refine_rules,omitempty"`
+	PreRefineAntiPatterns []string `json:"pre_refine_anti_patterns,omitempty"`
+	RefinedRules          []string `json:"refined_rules,omitempty"`
+	RefinedAntiPatterns   []string `json:"refined_anti_patterns,omitempty"`
+	ReusableRuleMappings  []bool   `json:"reusable_rule_mappings,omitempty"`
+	ReusableAntiMappings  []bool   `json:"reusable_anti_mappings,omitempty"`
 }
 
 type skillSetCandidateEvaluation struct {
@@ -165,11 +182,6 @@ func (s *AnalyticsService) UpsertSkillSetClientState(ctx context.Context, req *r
 	clientState.LastSyncedAt = cloneTime(req.LastSyncedAt)
 	clientState.PausedAt = cloneTime(req.PausedAt)
 	clientState.LastError = strings.TrimSpace(req.LastError)
-	// Clear the resolve directive once the CLI reports a non-conflict status,
-	// meaning the directive has been consumed and executed.
-	if clientState.ResolveDirective != "" && clientState.SyncStatus != "conflict" {
-		clientState.ResolveDirective = ""
-	}
 	clientState.UpdatedAt = now
 	s.AnalyticsStore.skillSetClients[req.ProjectID] = clientState
 	s.recordSkillSetDeploymentLocked(project, previousState, clientState)
@@ -188,72 +200,40 @@ func (s *AnalyticsService) UpsertSkillSetClientState(ctx context.Context, req *r
 	return toSkillSetClientStateResp(clientState), nil
 }
 
-func (s *AnalyticsService) ResolveSkillSetConflict(ctx context.Context, req *request.SkillSetResolveReq) (*response.SkillSetResolveResp, error) {
-	action := strings.TrimSpace(req.Action)
-	switch action {
-	case "accept-remote", "keep-local", "backup-and-sync":
-	default:
-		return nil, fmt.Errorf("unknown resolve action %q; use accept-remote, keep-local, or backup-and-sync", action)
-	}
-
-	s.AnalyticsStore.mu.Lock()
-	defer s.AnalyticsStore.mu.Unlock()
-
-	project, err := s.resolveProjectLocked(ctx, req.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizeProject(ctx, project); err != nil {
-		return nil, err
-	}
-
-	now := time.Now().UTC()
-	clientState := s.AnalyticsStore.skillSetClients[project.ID]
-	if clientState == nil {
-		clientState = &SkillSetClientState{
-			ProjectID: project.ID,
-			OrgID:     project.OrgID,
-			AgentID:   project.AgentID,
-		}
-	}
-	clientState.ResolveDirective = action
-	clientState.UpdatedAt = now
-	s.AnalyticsStore.skillSetClients[project.ID] = clientState
-
-	s.appendAuditLocked(ctx, project.OrgID, auditEventInput{
-		ProjectID: project.ID,
-		Type:      "skillset.resolve_directive",
-		Message:   "resolve directive issued from dashboard: " + action,
-		Result:    "success",
-		Reason:    action,
-	})
-	if err := s.AnalyticsStore.persistLocked(); err != nil {
-		return nil, err
-	}
-	return &response.SkillSetResolveResp{
-		ProjectID:        project.ID,
-		Action:           action,
-		ResolveDirective: action,
-		Status:           "pending",
-		IssuedAt:         now,
-	}, nil
+// skillSetBuildOptions configures optional behaviour for buildLatestSkillSetBundle.
+type skillSetBuildOptions struct {
+	RefineAgent     *SkillRefineAgent
+	PreviousVersion *SkillSetVersion
 }
 
-func buildLatestSkillSetBundle(projectID string, reports []*Report, refineAgent ...*SkillRefineAgent) (*response.SkillSetBundleResp, error) {
+func buildLatestSkillSetBundle(projectID string, reports []*Report, opts ...skillSetBuildOptions) (*response.SkillSetBundleResp, error) {
+	var options skillSetBuildOptions
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+
 	if len(reports) == 0 {
 		return newSkillSetStatusBundle(projectID, false), nil
 	}
 
 	categories := compileSkillCategories(reports)
-	if len(categories) > 0 && len(refineAgent) > 0 && refineAgent[0] != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), defaultSkillRefineRequestTimeout)
-		defer cancel()
-		if refined, err := refineAgent[0].RefineCategories(ctx, categories); err == nil {
-			categories = refined
-		}
-	}
 	if len(categories) == 0 {
 		return newSkillSetStatusBundle(projectID, true), nil
+	}
+
+	// Snapshot pre-refine rules before any LLM transformation.
+	for i := range categories {
+		categories[i].PreRefineRules = append([]string(nil), categories[i].Rules...)
+		categories[i].PreRefineAntiPatterns = append([]string(nil), categories[i].AntiPatterns...)
+		categories[i].ReusableRuleMappings = make([]bool, len(categories[i].Rules))
+		categories[i].ReusableAntiMappings = make([]bool, len(categories[i].AntiPatterns))
+	}
+
+	// Diff-based refinement: reuse previously refined text for unchanged
+	// rules and only send truly new rules through the LLM.
+	if options.RefineAgent != nil {
+		prev := extractPreviousRefineMap(options.PreviousVersion)
+		categories = diffAndRefineCategories(categories, prev, options.RefineAgent)
 	}
 
 	basedOnReportIDs := make([]string, 0, len(reports))
@@ -304,11 +284,17 @@ func buildLatestSkillSetBundle(projectID string, reports []*Report, refineAgent 
 	}
 	for _, category := range categories {
 		manifest.Documents = append(manifest.Documents, compiledSkillManifestDocRef{
-			Path:       category.Path,
-			Category:   category.Category,
-			Title:      category.Title,
-			Confidence: category.Confidence,
-			ReportIDs:  append([]string(nil), category.ReportIDs...),
+			Path:                  category.Path,
+			Category:              category.Category,
+			Title:                 category.Title,
+			Confidence:            category.Confidence,
+			ReportIDs:             append([]string(nil), category.ReportIDs...),
+			PreRefineRules:        append([]string(nil), category.PreRefineRules...),
+			PreRefineAntiPatterns: append([]string(nil), category.PreRefineAntiPatterns...),
+			RefinedRules:          append([]string(nil), category.Rules...),
+			RefinedAntiPatterns:   append([]string(nil), category.AntiPatterns...),
+			ReusableRuleMappings:  append([]bool(nil), category.ReusableRuleMappings...),
+			ReusableAntiMappings:  append([]bool(nil), category.ReusableAntiMappings...),
 		})
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -411,18 +397,17 @@ func toSkillSetClientStateResp(state *SkillSetClientState) *response.SkillSetCli
 		return nil
 	}
 	return &response.SkillSetClientStateResp{
-		ProjectID:        strings.TrimSpace(state.ProjectID),
-		AgentID:          strings.TrimSpace(state.AgentID),
-		BundleName:       strings.TrimSpace(state.BundleName),
-		Mode:             strings.TrimSpace(state.Mode),
-		SyncStatus:       strings.TrimSpace(state.SyncStatus),
-		AppliedVersion:   strings.TrimSpace(state.AppliedVersion),
-		AppliedHash:      strings.TrimSpace(state.AppliedHash),
-		LastSyncedAt:     cloneTime(state.LastSyncedAt),
-		PausedAt:         cloneTime(state.PausedAt),
-		LastError:        strings.TrimSpace(state.LastError),
-		ResolveDirective: strings.TrimSpace(state.ResolveDirective),
-		UpdatedAt:        state.UpdatedAt.UTC(),
+		ProjectID:      strings.TrimSpace(state.ProjectID),
+		AgentID:        strings.TrimSpace(state.AgentID),
+		BundleName:     strings.TrimSpace(state.BundleName),
+		Mode:           strings.TrimSpace(state.Mode),
+		SyncStatus:     strings.TrimSpace(state.SyncStatus),
+		AppliedVersion: strings.TrimSpace(state.AppliedVersion),
+		AppliedHash:    strings.TrimSpace(state.AppliedHash),
+		LastSyncedAt:   cloneTime(state.LastSyncedAt),
+		PausedAt:       cloneTime(state.PausedAt),
+		LastError:      strings.TrimSpace(state.LastError),
+		UpdatedAt:      state.UpdatedAt.UTC(),
 	}
 }
 
@@ -1133,6 +1118,243 @@ func timesMatch(left, right *time.Time) bool {
 	default:
 		return left.UTC().Equal(right.UTC())
 	}
+}
+
+// ── diff-based refinement helpers ──
+
+// previousCategoryRefineData holds the raw→refined mapping for a single
+// category from the previous skill set version.
+type previousCategoryRefineData struct {
+	// RuleMap maps a pre-refine rule string to its refined counterpart.
+	RuleMap map[string]string
+	// AntiPatternMap maps a pre-refine anti-pattern to its refined counterpart.
+	AntiPatternMap map[string]string
+}
+
+// extractPreviousRefineMap parses the previous SkillSetVersion's manifest
+// to build per-category raw→refined mappings.
+func extractPreviousRefineMap(prev *SkillSetVersion) map[string]*previousCategoryRefineData {
+	if prev == nil {
+		return nil
+	}
+
+	// The manifest is stored in the "00-manifest.json" file.
+	var manifestContent string
+	for _, f := range prev.Files {
+		if f.Path == "00-manifest.json" {
+			manifestContent = f.Content
+			break
+		}
+	}
+	if manifestContent == "" {
+		return nil
+	}
+
+	var manifest compiledSkillManifest
+	if err := json.Unmarshal([]byte(manifestContent), &manifest); err != nil {
+		return nil
+	}
+
+	result := make(map[string]*previousCategoryRefineData, len(manifest.Documents))
+	for _, doc := range manifest.Documents {
+		data := &previousCategoryRefineData{
+			RuleMap:        make(map[string]string, len(doc.PreRefineRules)),
+			AntiPatternMap: make(map[string]string, len(doc.PreRefineAntiPatterns)),
+		}
+		for i, raw := range doc.PreRefineRules {
+			if i < len(doc.RefinedRules) && i < len(doc.ReusableRuleMappings) && doc.ReusableRuleMappings[i] {
+				data.RuleMap[raw] = doc.RefinedRules[i]
+			}
+		}
+		for i, raw := range doc.PreRefineAntiPatterns {
+			if i < len(doc.RefinedAntiPatterns) && i < len(doc.ReusableAntiMappings) && doc.ReusableAntiMappings[i] {
+				data.AntiPatternMap[raw] = doc.RefinedAntiPatterns[i]
+			}
+		}
+		result[doc.Category] = data
+	}
+	return result
+}
+
+// diffAndRefineCategories applies diff-based refinement: rules that already
+// exist in the previous version are carried forward as-is; only truly new
+// rules are sent to the LLM refine agent.
+func diffAndRefineCategories(categories []compiledSkillCategory, prev map[string]*previousCategoryRefineData, agent *SkillRefineAgent) []compiledSkillCategory {
+	if prev == nil && agent == nil {
+		return categories
+	}
+
+	// Separate each category's rules into "reusable" (found in prev) and
+	// "new" (needs refinement).
+	type splitResult struct {
+		reusedRules []string // already-refined text, in order
+		reusedAntis []string
+		newRawRules []string // raw text that needs refining
+		newRawAntis []string
+		ruleIsNew   []bool // positional: true if the rule at this index is new
+		antiIsNew   []bool
+	}
+
+	splits := make([]splitResult, len(categories))
+	var needsRefine bool
+
+	for i, cat := range categories {
+		var sr splitResult
+		prevData := prev[cat.Category] // may be nil
+
+		for _, raw := range cat.PreRefineRules {
+			if prevData != nil {
+				if refined, ok := prevData.RuleMap[raw]; ok {
+					sr.reusedRules = append(sr.reusedRules, refined)
+					sr.ruleIsNew = append(sr.ruleIsNew, false)
+					continue
+				}
+			}
+			sr.newRawRules = append(sr.newRawRules, raw)
+			sr.ruleIsNew = append(sr.ruleIsNew, true)
+			needsRefine = true
+		}
+
+		for _, raw := range cat.PreRefineAntiPatterns {
+			if prevData != nil {
+				if refined, ok := prevData.AntiPatternMap[raw]; ok {
+					sr.reusedAntis = append(sr.reusedAntis, refined)
+					sr.antiIsNew = append(sr.antiIsNew, false)
+					continue
+				}
+			}
+			sr.newRawAntis = append(sr.newRawAntis, raw)
+			sr.antiIsNew = append(sr.antiIsNew, true)
+			needsRefine = true
+		}
+
+		splits[i] = sr
+	}
+
+	// If nothing new, just apply the reused refined text and return.
+	if !needsRefine {
+		for i := range categories {
+			categories[i].Rules = splits[i].reusedRules
+			categories[i].AntiPatterns = splits[i].reusedAntis
+			categories[i].ReusableRuleMappings = make([]bool, len(splits[i].reusedRules))
+			for j := range categories[i].ReusableRuleMappings {
+				categories[i].ReusableRuleMappings[j] = true
+			}
+			categories[i].ReusableAntiMappings = make([]bool, len(splits[i].reusedAntis))
+			for j := range categories[i].ReusableAntiMappings {
+				categories[i].ReusableAntiMappings[j] = true
+			}
+		}
+		return categories
+	}
+
+	// Build categories containing only new rules and send to the LLM.
+	type refinedNewItems struct {
+		Rules []string
+		Antis []string
+	}
+	newlyRefined := make(map[string]*refinedNewItems, len(categories))
+
+	toRefine := make([]compiledSkillCategory, 0, len(categories))
+	refineIndexMap := make([]int, 0, len(categories)) // maps toRefine index → original index
+	for i, sr := range splits {
+		if len(sr.newRawRules) == 0 && len(sr.newRawAntis) == 0 {
+			continue
+		}
+		toRefine = append(toRefine, compiledSkillCategory{
+			Category:     categories[i].Category,
+			Title:        categories[i].Title,
+			Rules:        sr.newRawRules,
+			AntiPatterns: sr.newRawAntis,
+		})
+		refineIndexMap = append(refineIndexMap, i)
+	}
+
+	refineSucceeded := false
+	if agent != nil && agent.CanRefine() && len(toRefine) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultSkillRefineRequestTimeout)
+		defer cancel()
+		refined, err := agent.RefineCategories(ctx, toRefine)
+		if err != nil {
+			refined = toRefine // fallback: use raw text
+		} else {
+			refineSucceeded = true
+		}
+		for j, ref := range refined {
+			origIdx := refineIndexMap[j]
+			newlyRefined[categories[origIdx].Category] = &refinedNewItems{
+				Rules: ref.Rules,
+				Antis: ref.AntiPatterns,
+			}
+		}
+	} else {
+		// No agent available — use raw text for new items.
+		for j := range toRefine {
+			origIdx := refineIndexMap[j]
+			newlyRefined[categories[origIdx].Category] = &refinedNewItems{
+				Rules: splits[origIdx].newRawRules,
+				Antis: splits[origIdx].newRawAntis,
+			}
+		}
+	}
+
+	// Merge: walk the original order, picking reused or newly-refined text.
+	for i, sr := range splits {
+		cat := categories[i].Category
+		nr := newlyRefined[cat]
+
+		var mergedRules []string
+		ruleMappingReusable := make([]bool, 0, len(sr.ruleIsNew))
+		var newRuleIdx int
+		for j, isNew := range sr.ruleIsNew {
+			if isNew {
+				if nr != nil && newRuleIdx < len(nr.Rules) {
+					mergedRules = append(mergedRules, nr.Rules[newRuleIdx])
+					ruleMappingReusable = append(ruleMappingReusable, refineSucceeded)
+				} else if newRuleIdx < len(sr.newRawRules) {
+					mergedRules = append(mergedRules, sr.newRawRules[newRuleIdx])
+					ruleMappingReusable = append(ruleMappingReusable, false)
+				}
+				newRuleIdx++
+			} else {
+				// reused: count how many non-new we've seen so far
+				reusedIdx := j - newRuleIdx
+				if reusedIdx < len(sr.reusedRules) {
+					mergedRules = append(mergedRules, sr.reusedRules[reusedIdx])
+					ruleMappingReusable = append(ruleMappingReusable, true)
+				}
+			}
+		}
+
+		var mergedAntis []string
+		antiMappingReusable := make([]bool, 0, len(sr.antiIsNew))
+		var newAntiIdx int
+		for j, isNew := range sr.antiIsNew {
+			if isNew {
+				if nr != nil && newAntiIdx < len(nr.Antis) {
+					mergedAntis = append(mergedAntis, nr.Antis[newAntiIdx])
+					antiMappingReusable = append(antiMappingReusable, refineSucceeded)
+				} else if newAntiIdx < len(sr.newRawAntis) {
+					mergedAntis = append(mergedAntis, sr.newRawAntis[newAntiIdx])
+					antiMappingReusable = append(antiMappingReusable, false)
+				}
+				newAntiIdx++
+			} else {
+				reusedIdx := j - newAntiIdx
+				if reusedIdx < len(sr.reusedAntis) {
+					mergedAntis = append(mergedAntis, sr.reusedAntis[reusedIdx])
+					antiMappingReusable = append(antiMappingReusable, true)
+				}
+			}
+		}
+
+		categories[i].Rules = mergedRules
+		categories[i].AntiPatterns = mergedAntis
+		categories[i].ReusableRuleMappings = ruleMappingReusable
+		categories[i].ReusableAntiMappings = antiMappingReusable
+	}
+
+	return categories
 }
 
 func compileSkillCategories(reports []*Report) []compiledSkillCategory {

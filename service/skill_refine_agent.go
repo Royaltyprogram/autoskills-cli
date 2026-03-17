@@ -38,6 +38,10 @@ type SkillRefineAgent struct {
 	apiKey string
 }
 
+func (a *SkillRefineAgent) CanRefine() bool {
+	return a != nil && strings.TrimSpace(a.apiKey) != ""
+}
+
 // NewSkillRefineAgent creates a refinement agent using the same OpenAI
 // configuration as the research agent.
 func NewSkillRefineAgent(conf *configs.Config) *SkillRefineAgent {
@@ -69,13 +73,13 @@ func NewSkillRefineAgent(conf *configs.Config) *SkillRefineAgent {
 // On failure or when the API key is empty, the original categories are
 // returned unchanged.
 func (a *SkillRefineAgent) RefineCategories(ctx context.Context, categories []compiledSkillCategory) ([]compiledSkillCategory, error) {
-	if a == nil || strings.TrimSpace(a.apiKey) == "" || len(categories) == 0 {
+	if !a.CanRefine() || len(categories) == 0 {
 		return categories, nil
 	}
 
 	prompt, err := buildSkillRefinePrompt(categories)
 	if err != nil {
-		return categories, nil
+		return categories, err
 	}
 
 	resp, err := a.client.Responses.New(ctx, responses.ResponseNewParams{
@@ -85,12 +89,12 @@ func (a *SkillRefineAgent) RefineCategories(ctx context.Context, categories []co
 		},
 	})
 	if err != nil {
-		return categories, nil
+		return categories, err
 	}
 
 	refined, err := parseSkillRefineResponse(resp.OutputText(), categories)
 	if err != nil {
-		return categories, nil
+		return categories, err
 	}
 	return refined, nil
 }
