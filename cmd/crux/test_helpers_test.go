@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -103,4 +104,45 @@ func sessionBatchResp(projectID string, items ...response.SessionBatchIngestItem
 		}
 	}
 	return resp
+}
+
+func serveNoopSkillSetBundleRequest(t *testing.T, w http.ResponseWriter, r *http.Request) bool {
+	t.Helper()
+
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/skill-sets/latest":
+		require.NoError(t, json.NewEncoder(w).Encode(envelope{
+			Code: 0,
+			Data: mustJSONRawMessage(t, response.SkillSetBundleResp{
+				SchemaVersion: skillSetBundleSchemaVersion,
+				ProjectID:     strings.TrimSpace(r.URL.Query().Get("project_id")),
+				Status:        "no_reports",
+				BundleName:    managedSkillBundleName,
+			}),
+		}))
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/skill-sets/client-state":
+		var req request.SkillSetClientStateUpsertReq
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.NoError(t, json.NewEncoder(w).Encode(envelope{
+			Code: 0,
+			Data: mustJSONRawMessage(t, response.SkillSetClientStateResp{
+				ProjectID:      req.ProjectID,
+				AgentID:        "agent-1",
+				BundleName:     firstNonEmpty(strings.TrimSpace(req.BundleName), managedSkillBundleName),
+				Mode:           req.Mode,
+				SyncStatus:     req.SyncStatus,
+				AppliedVersion: req.AppliedVersion,
+				AppliedHash:    req.AppliedHash,
+				LastSyncedAt:   req.LastSyncedAt,
+				PausedAt:       req.PausedAt,
+				LastError:      req.LastError,
+				UpdatedAt:      time.Now().UTC(),
+			}),
+		}))
+		return true
+	default:
+		return false
+	}
 }

@@ -41,6 +41,7 @@ type collectRunResp struct {
 	SessionFailures    []collectSessionFailure        `json:"session_failures,omitempty"`
 	Sessions           []response.SessionIngestResp   `json:"sessions,omitempty"`
 	ImportJob          *response.SessionImportJobResp `json:"import_job,omitempty"`
+	SkillSet           *skillSetSyncResp              `json:"skill_set,omitempty"`
 }
 
 type collectSessionFailure struct {
@@ -217,6 +218,12 @@ func runCollectOnce(st *state, client *apiClient, snapshotFile, profileID, tool,
 	resp.SessionFailures = failures
 	resp.Sessions = sessions
 	resp.ImportJob = importJob
+
+	skillSetResp, syncErr := syncLatestSkillSet(st, client, codexHome)
+	if syncErr != nil {
+		return collectRunResp{}, syncErr
+	}
+	resp.SkillSet = &skillSetResp
 	return resp, nil
 }
 

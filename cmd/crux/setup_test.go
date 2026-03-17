@@ -58,6 +58,9 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
@@ -169,6 +172,9 @@ func TestRunSetupBackfillsFullCodexHistoryOnFirstWorkspaceSetup(t *testing.T) {
 	sessionIDs := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
@@ -279,6 +285,9 @@ func TestRunSetupKeepsRecentIncrementalUploadWhenWorkspaceAlreadyConfigured(t *t
 	sessionIDs := make([]string, 0, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
@@ -362,6 +371,9 @@ func TestRunSetupReusesSavedLoginWithoutPromptingForCLIToken(t *testing.T) {
 	sessionIDs := make([]string, 0, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
@@ -494,6 +506,9 @@ func TestRunSetupEnablesBackgroundWhenInstalledBinaryAndLaunchctlAreAvailable(t 
 	var projectReq request.RegisterProjectReq
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
@@ -600,6 +615,9 @@ func TestRunWithoutArgsShowsStatusWhenConfigured(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/dashboard/overview":
@@ -671,6 +689,9 @@ func TestRunImportsListsWorkspaceScopedImportJobs(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-import-jobs":
@@ -732,6 +753,9 @@ func TestRunImportsSupportsCursorFailedOnlyProjectAndAgentFilters(t *testing.T) 
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-import-jobs":
@@ -798,6 +822,9 @@ func TestRunImportsCancelCancelsImportJob(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/import-9/cancel":
@@ -851,6 +878,9 @@ func TestRunWorkspaceIncludesLastUploadedSessionCursor(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects":
@@ -912,6 +942,9 @@ func TestRunSessionsIncludesLastUploadedSessionCursor(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-summaries":

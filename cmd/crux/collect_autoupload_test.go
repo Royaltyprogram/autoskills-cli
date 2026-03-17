@@ -39,6 +39,9 @@ func TestRunCollectUploadsSnapshotAndSession(t *testing.T) {
 	var sessionReq request.SessionSummaryReq
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/config-snapshots":
@@ -135,6 +138,9 @@ func TestRunCollectSkipsUnchangedSnapshotAndHandlesMissingSessions(t *testing.T)
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/config-snapshots":
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
@@ -194,6 +200,9 @@ func TestRunCollectUploadsAllNewSessionsAfterCursor(t *testing.T) {
 	sessionReqs := make([]request.SessionSummaryReq, 0, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == sessionSummaryBatchPath:
 			var batchReq request.SessionSummaryBatchReq
@@ -300,6 +309,9 @@ func TestRunCollectResetSessionsReuploadsFullLocalHistory(t *testing.T) {
 	sessionReqs := make([]request.SessionSummaryReq, 0, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == sessionSummaryBatchPath:
 			var batchReq request.SessionSummaryBatchReq
@@ -397,6 +409,9 @@ func TestRunCollectFallsBackToSingleSessionEndpointWhenBatchUnsupported(t *testi
 	sessionReqs := make([]request.SessionSummaryReq, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == sessionSummaryBatchPath:
 			batchAttempts++
@@ -477,6 +492,9 @@ func TestRunCollectUsesSessionImportJobForLargeBackfill(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
@@ -612,6 +630,9 @@ func TestRunCollectDetachThenResumeSessionImportJob(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			createCount++
@@ -780,6 +801,9 @@ func TestRunCollectReturnsErrorWhenSessionImportJobCanceled(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
@@ -902,6 +926,9 @@ func TestRunCollectShowsImportJobETAAndLatestFailure(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
@@ -1035,6 +1062,9 @@ func TestRunCollectFallsBackToBatchWhenImportJobUnsupported(t *testing.T) {
 	stagedSessions := make([]request.SessionSummaryReq, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			asyncAttempts++
@@ -1104,6 +1134,9 @@ func TestRunCollectSkipsInvalidSessionAndAdvancesCursor(t *testing.T) {
 	sessionReqs := make([]request.SessionSummaryReq, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == sessionSummaryBatchPath:
 			var batchReq request.SessionSummaryBatchReq
@@ -1206,6 +1239,9 @@ func TestRunCollectIncludesStructuredDebugFailureFields(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
 			w.WriteHeader(http.StatusBadRequest)
@@ -1274,6 +1310,9 @@ func TestRunCollectRetriesRateLimitedSessionUpload(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
 			requestCount++

@@ -151,6 +151,7 @@ type setupResp struct {
 	Login         response.CLILoginResp            `json:"login"`
 	Connect       response.ProjectRegistrationResp `json:"connect"`
 	Collect       *collectRunResp                  `json:"collect,omitempty"`
+	SkillSet      *skillSetSyncResp                `json:"skill_set,omitempty"`
 	Background    backgroundSetupResp              `json:"background"`
 }
 
@@ -197,6 +198,8 @@ func run(args []string) error {
 		return runSession(args[1:])
 	case "collect":
 		return runCollect(args[1:])
+	case "skills":
+		return runSkills(args[1:])
 	case "snapshots":
 		return runSnapshots(args[1:])
 	case "sessions":
@@ -268,6 +271,7 @@ Common commands:
   reports           list feedback reports for the shared workspace
   imports           list recent async session import jobs, or run crux imports cancel <job_id>
   collect           upload local usage data now and optionally keep collecting on an interval
+  skills            manage the auto-synced personal skill bundle on this machine
   sessions          list recent session summaries for the shared workspace
   snapshots         list config snapshots for the shared workspace
 
@@ -403,6 +407,7 @@ func runSetup(args []string) error {
 	}
 
 	var collectResp *collectRunResp
+	var skillSetResp *skillSetSyncResp
 	if *upload {
 		uploadRecent := *recent
 		if initialWorkspaceSetup {
@@ -419,6 +424,27 @@ func runSetup(args []string) error {
 			return err
 		}
 		collectResp = &resp
+		skillSetResp = collectResp.SkillSet
+	}
+
+	if skillSetResp == nil {
+		client := newStateAPIClient(&st)
+		resp, err := syncLatestSkillSet(&st, client, *codexHome)
+		if err != nil {
+			return err
+		}
+		skillSetResp = &resp
+	}
+
+	// Inject the crux-personal-skillset section into the global AGENTS.md
+	// so that every query automatically consults the user's personal skillset.
+	codexRoot, err := codexHomePath(*codexHome)
+	if err == nil {
+		if injErr := ensureAgentsMDSkillSetSection(codexRoot); injErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not update AGENTS.md with skillset section: %v\n", injErr)
+		} else {
+			fmt.Fprintln(os.Stderr, "Global AGENTS.md updated with crux-personal-skillset instructions")
+		}
 	}
 
 	fmt.Fprintln(os.Stderr, "Configuring background collection")
@@ -454,6 +480,7 @@ func runSetup(args []string) error {
 		Login:         loginResp,
 		Connect:       connectResp,
 		Collect:       collectResp,
+		SkillSet:      skillSetResp,
 		Background:    backgroundResp,
 	})
 }
