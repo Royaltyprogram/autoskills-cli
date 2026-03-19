@@ -104,7 +104,7 @@ func runCollect(args []string) error {
 	}
 
 	if !*watch {
-		resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, effectiveRecent, resolvedSnapshotMode, *detach)
+		resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, effectiveRecent, resolvedSnapshotMode, *detach, false)
 		if err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func runCollect(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, effectiveRecent, resolvedSnapshotMode, false)
+	resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, effectiveRecent, resolvedSnapshotMode, false, false)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func runCollect(args []string) error {
 				sessionChanges = nil
 				continue
 			}
-			resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode, false)
+			resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode, false, false)
 			if err != nil {
 				return err
 			}
@@ -162,7 +162,7 @@ func runCollect(args []string) error {
 				return err
 			}
 		case <-ticker.C:
-			resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode, false)
+			resp, err := runCollectOnce(&st, client, *snapshotFile, *profileID, *tool, *sessionFile, *codexHome, *recent, resolvedSnapshotMode, false, false)
 			if err != nil {
 				return err
 			}
@@ -194,7 +194,7 @@ func parseCollectSnapshotMode(raw string) (string, error) {
 	}
 }
 
-func runCollectOnce(st *state, client *apiClient, snapshotFile, profileID, tool, sessionFile, codexHome string, recent int, snapshotMode string, detach bool) (collectRunResp, error) {
+func runCollectOnce(st *state, client *apiClient, snapshotFile, profileID, tool, sessionFile, codexHome string, recent int, snapshotMode string, detach bool, forceImportJob bool) (collectRunResp, error) {
 	resp := collectRunResp{
 		CollectedAt:     time.Now().UTC(),
 		SnapshotStatus:  "skipped",
@@ -209,7 +209,7 @@ func runCollectOnce(st *state, client *apiClient, snapshotFile, profileID, tool,
 	resp.SnapshotStatus = snapshotStatus
 	resp.Snapshot = snapshot
 
-	sessionStatus, uploadedCount, sessions, failures, importJob, err := collectSessionsOnce(st, client, sessionFile, tool, codexHome, recent, detach)
+	sessionStatus, uploadedCount, sessions, failures, importJob, err := collectSessionsOnce(st, client, sessionFile, tool, codexHome, recent, detach, forceImportJob)
 	if err != nil {
 		return collectRunResp{}, err
 	}
@@ -292,7 +292,7 @@ func fetchLatestConfigSnapshot(client *apiClient, workspaceID string) (*response
 	return &snapshots.Items[0], nil
 }
 
-func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome string, recent int, detach bool) (string, int, []response.SessionIngestResp, []collectSessionFailure, *response.SessionImportJobResp, error) {
+func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome string, recent int, detach bool, forceImportJob bool) (string, int, []response.SessionIngestResp, []collectSessionFailure, *response.SessionImportJobResp, error) {
 	if strings.TrimSpace(filePath) != "" {
 		reqs, err := loadSessionSummaryInputs(filePath, tool, codexHome, recent)
 		if err != nil {
@@ -336,7 +336,7 @@ func collectSessionsOnce(st *state, client *apiClient, filePath, tool, codexHome
 		return "up_to_date", 0, nil, nil, nil, nil
 	}
 
-	if shouldUseSessionImportJob(len(pendingSessions)) {
+	if forceImportJob || shouldUseSessionImportJob(len(pendingSessions)) {
 		sessionStatus, uploadedCount, failures, importJob, asyncErr := uploadCodexParsedSessionImportJob(st, client, pendingSessions, tool, detach)
 		if asyncErr == nil {
 			if len(failures) == 0 {

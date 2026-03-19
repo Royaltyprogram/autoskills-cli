@@ -419,7 +419,7 @@ func runSetup(args []string) error {
 			fmt.Fprintf(os.Stderr, "Uploading an initial snapshot and the latest %d local Codex sessions\n", *recent)
 		}
 		client := newStateAPIClient(&st)
-		resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, uploadRecent, collectSnapshotModeChanged, false)
+		resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, uploadRecent, collectSnapshotModeChanged, false, initialWorkspaceSetup)
 		if err != nil {
 			return err
 		}

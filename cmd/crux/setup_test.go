@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,7 +55,11 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 	var loginReq request.CLILoginReq
 	var projectReq request.RegisterProjectReq
 	var snapshotReq request.ConfigSnapshotReq
-	var sessionReq request.SessionSummaryReq
+	jobID := "import-setup-1"
+	jobStatus := "receiving_chunks"
+	stagedSessions := make([]request.SessionSummaryReq, 0, 1)
+	var startedAt *time.Time
+	var completedAt *time.Time
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -98,15 +103,65 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 					CapturedAt:        snapshotReq.CapturedAt,
 				}),
 			}))
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
 				Code: 0,
-				Data: mustJSONRawMessage(t, response.SessionIngestResp{
-					SessionID:   sessionReq.SessionID,
-					ProjectID:   sessionReq.ProjectID,
-					RecordedAt:  sessionReq.Timestamp,
-					ReportCount: 1,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion: reportAPISchemaVersion,
+					JobID:         jobID,
+					ProjectID:     "project-1",
+					Status:        jobStatus,
+					CreatedAt:     time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/chunks":
+			var chunkReq request.SessionImportJobChunkReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&chunkReq))
+			stagedSessions = append(stagedSessions, chunkReq.Sessions...)
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(stagedSessions),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/complete":
+			jobStatus = "queued"
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(stagedSessions),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-import-jobs/"+jobID:
+			if jobStatus == "queued" {
+				now := time.Now().UTC()
+				startedAt = &now
+				completedAt = &now
+				jobStatus = "succeeded"
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:     reportAPISchemaVersion,
+					JobID:             jobID,
+					ProjectID:         "project-1",
+					Status:            jobStatus,
+					ReceivedSessions:  len(stagedSessions),
+					ProcessedSessions: len(stagedSessions),
+					UploadedSessions:  len(stagedSessions),
+					CreatedAt:         time.Now().UTC(),
+					StartedAt:         startedAt,
+					CompletedAt:       completedAt,
 				}),
 			}))
 		default:
@@ -148,8 +203,9 @@ func TestRunSetupLogsInConnectsAndCollects(t *testing.T) {
 	require.Equal(t, "codex", projectReq.DefaultTool)
 	require.Equal(t, map[string]float64{"go": 1}, projectReq.LanguageMix)
 	require.Equal(t, "project-1", snapshotReq.ProjectID)
-	require.Equal(t, "project-1", sessionReq.ProjectID)
-	require.Equal(t, "codex-session-setup", sessionReq.SessionID)
+	require.Len(t, stagedSessions, 1)
+	require.Equal(t, "project-1", stagedSessions[0].ProjectID)
+	require.Equal(t, "codex-session-setup", stagedSessions[0].SessionID)
 }
 
 func TestRunSetupBackfillsFullCodexHistoryOnFirstWorkspaceSetup(t *testing.T) {
@@ -170,6 +226,10 @@ func TestRunSetupBackfillsFullCodexHistoryOnFirstWorkspaceSetup(t *testing.T) {
 	})
 
 	sessionIDs := make([]string, 0, 2)
+	jobID := "import-setup-2"
+	jobStatus := "receiving_chunks"
+	var startedAt *time.Time
+	var completedAt *time.Time
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if serveNoopSkillSetBundleRequest(t, w, r) {
@@ -205,30 +265,67 @@ func TestRunSetupBackfillsFullCodexHistoryOnFirstWorkspaceSetup(t *testing.T) {
 					CapturedAt: time.Now().UTC(),
 				}),
 			}))
-		case r.Method == http.MethodPost && r.URL.Path == sessionSummaryBatchPath:
-			var batchReq request.SessionSummaryBatchReq
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&batchReq))
-			for _, sessionReq := range batchReq.Sessions {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion: reportAPISchemaVersion,
+					JobID:         jobID,
+					ProjectID:     "project-1",
+					Status:        jobStatus,
+					CreatedAt:     time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/chunks":
+			var chunkReq request.SessionImportJobChunkReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&chunkReq))
+			for _, sessionReq := range chunkReq.Sessions {
 				sessionIDs = append(sessionIDs, sessionReq.SessionID)
 			}
-			items := make([]response.SessionBatchIngestItemResp, 0, len(batchReq.Sessions))
-			for _, sessionReq := range batchReq.Sessions {
-				items = append(items, uploadedSessionBatchItem(sessionReq))
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(sessionIDs),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/complete":
+			jobStatus = "queued"
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(sessionIDs),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-import-jobs/"+jobID:
+			if jobStatus == "queued" {
+				now := time.Now().UTC()
+				startedAt = &now
+				completedAt = &now
+				jobStatus = "succeeded"
 			}
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
 				Code: 0,
-				Data: mustJSONRawMessage(t, sessionBatchResp("project-1", items...)),
-			}))
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
-			var sessionReq request.SessionSummaryReq
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
-			sessionIDs = append(sessionIDs, sessionReq.SessionID)
-			require.NoError(t, json.NewEncoder(w).Encode(envelope{
-				Code: 0,
-				Data: mustJSONRawMessage(t, response.SessionIngestResp{
-					SessionID:  sessionReq.SessionID,
-					ProjectID:  sessionReq.ProjectID,
-					RecordedAt: sessionReq.Timestamp,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:     reportAPISchemaVersion,
+					JobID:             jobID,
+					ProjectID:         "project-1",
+					Status:            jobStatus,
+					ReceivedSessions:  len(sessionIDs),
+					ProcessedSessions: len(sessionIDs),
+					UploadedSessions:  len(sessionIDs),
+					CreatedAt:         time.Now().UTC(),
+					StartedAt:         startedAt,
+					CompletedAt:       completedAt,
 				}),
 			}))
 		default:
@@ -254,6 +351,157 @@ func TestRunSetupBackfillsFullCodexHistoryOnFirstWorkspaceSetup(t *testing.T) {
 	require.Equal(t, "uploaded", payload.Collect.SessionStatus)
 	require.Equal(t, 2, payload.Collect.SessionUploaded)
 	require.Equal(t, []string{"codex-session-1", "codex-session-2"}, sessionIDs)
+}
+
+func TestRunSetupBackfillsAllSessionsAboveHundredThroughImportJobChunks(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOSKILLS_HOME", root)
+
+	repoPath := filepath.Join(root, "workspace")
+	require.NoError(t, os.MkdirAll(repoPath, 0o755))
+
+	codexHome := filepath.Join(root, ".codex")
+	baseTime := time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC)
+	totalSessions := 103
+	for idx := 1; idx <= totalSessions; idx++ {
+		writeCodexSessionFixture(t, filepath.Join(codexHome, "sessions", "2026", "03", "10", fmt.Sprintf("session-%03d.jsonl", idx)), baseTime.Add(time.Duration(idx)*time.Minute), []string{
+			fmt.Sprintf(`{"timestamp":"%s","type":"session_meta","payload":{"id":"codex-session-%03d","timestamp":"%s","model_provider":"openai"}}`, baseTime.Add(time.Duration(idx)*time.Minute).Format(time.RFC3339), idx, baseTime.Add(time.Duration(idx)*time.Minute).Format(time.RFC3339)),
+			fmt.Sprintf(`{"timestamp":"%s","type":"event_msg","payload":{"type":"user_message","message":"## My request for Codex:\nVerify setup backfill session %03d."}}`, baseTime.Add(time.Duration(idx)*time.Minute+time.Second).Format(time.RFC3339), idx),
+		})
+	}
+
+	jobID := "import-setup-103"
+	jobStatus := "receiving_chunks"
+	chunkSizes := make([]int, 0, 8)
+	sessionIDs := make([]string, 0, totalSessions)
+	var startedAt *time.Time
+	var completedAt *time.Time
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if serveNoopSkillSetBundleRequest(t, w, r) {
+			return
+		}
+
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/cli/login":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, testCLILoginResp("device-103", "org-1", "user-1")),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/register":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ProjectRegistrationResp{
+					ProjectID:   "project-1",
+					Status:      "connected",
+					ConnectedAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/config-snapshots":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotListResp{}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/config-snapshots":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.ConfigSnapshotResp{
+					SnapshotID: "snapshot-1",
+					ProjectID:  "project-1",
+					CapturedAt: time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion: reportAPISchemaVersion,
+					JobID:         jobID,
+					ProjectID:     "project-1",
+					Status:        jobStatus,
+					CreatedAt:     time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/chunks":
+			var chunkReq request.SessionImportJobChunkReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&chunkReq))
+			chunkSizes = append(chunkSizes, len(chunkReq.Sessions))
+			for _, sessionReq := range chunkReq.Sessions {
+				sessionIDs = append(sessionIDs, sessionReq.SessionID)
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(sessionIDs),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/complete":
+			jobStatus = "queued"
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(sessionIDs),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-import-jobs/"+jobID:
+			if jobStatus == "queued" {
+				now := time.Now().UTC()
+				startedAt = &now
+				completedAt = &now
+				jobStatus = "succeeded"
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:     reportAPISchemaVersion,
+					JobID:             jobID,
+					ProjectID:         "project-1",
+					Status:            jobStatus,
+					ReceivedSessions:  len(sessionIDs),
+					ProcessedSessions: len(sessionIDs),
+					UploadedSessions:  len(sessionIDs),
+					CreatedAt:         time.Now().UTC(),
+					StartedAt:         startedAt,
+					CompletedAt:       completedAt,
+				}),
+			}))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	output := captureStdout(t, func() {
+		require.NoError(t, run([]string{
+			"setup",
+			"--server", server.URL,
+			"--token", "setup-token",
+			"--repo-path", repoPath,
+			"--codex-home", codexHome,
+			"--background=false",
+		}))
+	})
+
+	var payload setupResp
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.NotNil(t, payload.Collect)
+	require.Equal(t, "uploaded", payload.Collect.SessionStatus)
+	require.Equal(t, totalSessions, payload.Collect.SessionUploaded)
+	require.Equal(t, []int{25, 25, 25, 25, 3}, chunkSizes)
+	require.Len(t, sessionIDs, totalSessions)
+	require.Equal(t, "codex-session-001", sessionIDs[0])
+	require.Equal(t, "codex-session-103", sessionIDs[len(sessionIDs)-1])
 }
 
 func TestRunSetupKeepsRecentIncrementalUploadWhenWorkspaceAlreadyConfigured(t *testing.T) {
@@ -369,6 +617,10 @@ func TestRunSetupReusesSavedLoginWithoutPromptingForCLIToken(t *testing.T) {
 	})
 
 	sessionIDs := make([]string, 0, 1)
+	jobID := "import-setup-3"
+	jobStatus := "receiving_chunks"
+	var startedAt *time.Time
+	var completedAt *time.Time
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if serveNoopSkillSetBundleRequest(t, w, r) {
@@ -404,17 +656,71 @@ func TestRunSetupReusesSavedLoginWithoutPromptingForCLIToken(t *testing.T) {
 					CapturedAt: time.Now().UTC(),
 				}),
 			}))
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-summaries":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs":
 			require.Equal(t, "saved-access", r.Header.Get("X-AutoSkills-Token"))
-			var sessionReq request.SessionSummaryReq
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&sessionReq))
-			sessionIDs = append(sessionIDs, sessionReq.SessionID)
 			require.NoError(t, json.NewEncoder(w).Encode(envelope{
 				Code: 0,
-				Data: mustJSONRawMessage(t, response.SessionIngestResp{
-					SessionID:  sessionReq.SessionID,
-					ProjectID:  sessionReq.ProjectID,
-					RecordedAt: sessionReq.Timestamp,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion: reportAPISchemaVersion,
+					JobID:         jobID,
+					ProjectID:     "project-1",
+					Status:        jobStatus,
+					CreatedAt:     time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/chunks":
+			require.Equal(t, "saved-access", r.Header.Get("X-AutoSkills-Token"))
+			var chunkReq request.SessionImportJobChunkReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&chunkReq))
+			for _, sessionReq := range chunkReq.Sessions {
+				sessionIDs = append(sessionIDs, sessionReq.SessionID)
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(sessionIDs),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/session-import-jobs/"+jobID+"/complete":
+			require.Equal(t, "saved-access", r.Header.Get("X-AutoSkills-Token"))
+			jobStatus = "queued"
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:    reportAPISchemaVersion,
+					JobID:            jobID,
+					ProjectID:        "project-1",
+					Status:           jobStatus,
+					ReceivedSessions: len(sessionIDs),
+					CreatedAt:        time.Now().UTC(),
+				}),
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/session-import-jobs/"+jobID:
+			require.Equal(t, "saved-access", r.Header.Get("X-AutoSkills-Token"))
+			if jobStatus == "queued" {
+				now := time.Now().UTC()
+				startedAt = &now
+				completedAt = &now
+				jobStatus = "succeeded"
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(envelope{
+				Code: 0,
+				Data: mustJSONRawMessage(t, response.SessionImportJobResp{
+					SchemaVersion:     reportAPISchemaVersion,
+					JobID:             jobID,
+					ProjectID:         "project-1",
+					Status:            jobStatus,
+					ReceivedSessions:  len(sessionIDs),
+					ProcessedSessions: len(sessionIDs),
+					UploadedSessions:  len(sessionIDs),
+					CreatedAt:         time.Now().UTC(),
+					StartedAt:         startedAt,
+					CompletedAt:       completedAt,
 				}),
 			}))
 		default:
