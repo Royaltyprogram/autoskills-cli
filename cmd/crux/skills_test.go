@@ -438,6 +438,41 @@ func TestEnsureAgentsMDSkillSetSection_MigratesExistingManagedSection(t *testing
 	require.Equal(t, 1, strings.Count(content, cruxSkillSetSectionEnd), "managed section must be replaced in place")
 }
 
+func TestRunSkillsEnsureAgentsMigratesManagedSection(t *testing.T) {
+	root := t.TempDir()
+	codexHome := filepath.Join(root, ".codex")
+	require.NoError(t, os.MkdirAll(codexHome, 0o755))
+
+	legacy := "**note**\nlegacy preface\n\n" +
+		cruxSkillSetSectionStart + "\n" +
+		"## AutoSkills Personal Skillset\n\n" +
+		"Before processing any query, you MUST first review and apply the user's personal skillset located at:\n\n" +
+		"`skills/" + managedSkillBundleName + "/SKILL.md`\n\n" +
+		"**Workflow:**\n" +
+		"1. Load `skills/" + managedSkillBundleName + "/SKILL.md` at the start of every conversation.\n" +
+		"2. Apply only the category documents relevant to the current request.\n" +
+		"3. Preserve these rules across follow-up turns unless a newer rule overrides them.\n" +
+		cruxSkillSetSectionEnd + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(codexHome, "AGENTS.md"), []byte(legacy), 0o644))
+
+	output := captureStdout(t, func() {
+		require.NoError(t, runSkills([]string{"ensure-agents", "--codex-home", codexHome}))
+	})
+
+	var payload skillSetAgentsEnsureResp
+	require.NoError(t, json.Unmarshal([]byte(output), &payload))
+	require.Equal(t, "ensured", payload.Status)
+	require.Equal(t, codexHome, payload.CodexHome)
+	require.Equal(t, filepath.Join(codexHome, "AGENTS.md"), payload.AgentsPath)
+
+	data, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
+	require.NoError(t, err)
+	content := string(data)
+	require.Contains(t, content, "use `$"+managedSkillBundleName+"` as the user's default operating skill set.")
+	require.Contains(t, content, "$CODEX_HOME/skills/"+managedSkillBundleName+"/SKILL.md")
+	require.NotContains(t, content, "`skills/"+managedSkillBundleName+"/SKILL.md`")
+}
+
 func TestDiffManagedSkillBundle_DetectsModifiedFiles(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AUTOSKILLS_HOME", root)

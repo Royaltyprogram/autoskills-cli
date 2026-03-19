@@ -80,6 +80,12 @@ type localSkillSetManifest struct {
 	BundleName   string `json:"bundle_name"`
 }
 
+type skillSetAgentsEnsureResp struct {
+	Status     string `json:"status"`
+	CodexHome  string `json:"codex_home"`
+	AgentsPath string `json:"agents_path"`
+}
+
 func runSkills(args []string) error {
 	if len(args) == 0 {
 		return runSkillsStatus(nil)
@@ -90,6 +96,8 @@ func runSkills(args []string) error {
 		return runSkillsStatus(args[1:])
 	case "sync":
 		return runSkillsSync(args[1:])
+	case "ensure-agents":
+		return runSkillsEnsureAgents(args[1:])
 	case "pause":
 		return runSkillsPause(args[1:])
 	case "resume":
@@ -135,6 +143,27 @@ func runSkillsSync(args []string) error {
 		return err
 	}
 	return prettyPrint(resp)
+}
+
+func runSkillsEnsureAgents(args []string) error {
+	fs := flag.NewFlagSet("skills ensure-agents", flag.ContinueOnError)
+	codexHome := fs.String("codex-home", "", "override Codex home used for managed skill bundles")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	codexRoot, err := codexHomePath(*codexHome)
+	if err != nil {
+		return err
+	}
+	if err := ensureAgentsMDSkillSetSection(codexRoot); err != nil {
+		return err
+	}
+	return prettyPrint(skillSetAgentsEnsureResp{
+		Status:     "ensured",
+		CodexHome:  codexRoot,
+		AgentsPath: filepath.Join(codexRoot, "AGENTS.md"),
+	})
 }
 
 func runSkillsPause(args []string) error {

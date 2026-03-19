@@ -109,6 +109,15 @@ chmod 755 "$TARGET_BIN"
 ln -sfn "$VERSION_DIR" "$CURRENT_LINK"
 create_wrapper "$BIN_PATH" "$CURRENT_LINK/crux"
 
+CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
+if [ -d "$CODEX_ROOT" ] || [ -f "$CODEX_ROOT/AGENTS.md" ]; then
+  if "$CURRENT_LINK/crux" skills ensure-agents --codex-home "$CODEX_ROOT" >/dev/null 2>&1; then
+    say "updated Codex AGENTS.md at $CODEX_ROOT/AGENTS.md"
+  else
+    say "warning: could not update Codex AGENTS.md at $CODEX_ROOT/AGENTS.md"
+  fi
+fi
+
 say "installed current repo build to $VERSION_DIR"
 say "wrapper updated at $BIN_PATH"
 say "next steps: crux reset && crux version"

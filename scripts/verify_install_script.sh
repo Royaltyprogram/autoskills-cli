@@ -118,11 +118,13 @@ trap cleanup EXIT
 STAGED_RELEASE_DIR="$TMPDIR_WORK/releases/$VERSION_LABEL"
 INSTALL_ROOT="$TMPDIR_WORK/install-root"
 BIN_DIR="$TMPDIR_WORK/bin"
-mkdir -p "$STAGED_RELEASE_DIR" "$INSTALL_ROOT" "$BIN_DIR"
+DEFAULT_HOME="$TMPDIR_WORK/home-default"
+mkdir -p "$STAGED_RELEASE_DIR" "$INSTALL_ROOT" "$BIN_DIR" "$DEFAULT_HOME"
 
 cp "$BUNDLE_PATH" "$STAGED_RELEASE_DIR/"
 cp "$CHECKSUM_PATH" "$STAGED_RELEASE_DIR/"
 
+HOME="$DEFAULT_HOME" \
 AUTOSKILLS_VERSION="$VERSION_LABEL" \
 AUTOSKILLS_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
 AUTOSKILLS_INSTALL_ROOT="$INSTALL_ROOT" \
@@ -148,6 +150,7 @@ VERSION_OUTPUT="$("$BIN_DIR/autoskills" version)"
 }
 
 # Re-run install to verify idempotent upgrade behavior for the same version.
+HOME="$DEFAULT_HOME" \
 AUTOSKILLS_VERSION="$VERSION_LABEL" \
 AUTOSKILLS_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
 AUTOSKILLS_INSTALL_ROOT="$INSTALL_ROOT" \
@@ -161,6 +164,49 @@ VERSION_OUTPUT="$("$BIN_DIR/autoskills" version)"
   echo "unexpected version output after reinstall: $VERSION_OUTPUT" >&2
   exit 1
 }
+
+MIGRATE_HOME="$TMPDIR_WORK/home-with-codex"
+MIGRATE_INSTALL_ROOT="$TMPDIR_WORK/install-root-with-codex"
+MIGRATE_BIN_DIR="$TMPDIR_WORK/bin-with-codex"
+mkdir -p "$MIGRATE_HOME/.codex" "$MIGRATE_INSTALL_ROOT" "$MIGRATE_BIN_DIR"
+cat >"$MIGRATE_HOME/.codex/AGENTS.md" <<'EOF'
+<!-- autoskills-personal-skillset:start -->
+## AutoSkills Personal Skillset
+
+Before processing any query, you MUST first review and apply the user's personal skillset located at:
+
+`skills/autoskills-personal-skillset/SKILL.md`
+
+**Workflow:**
+1. Load `skills/autoskills-personal-skillset/SKILL.md` at the start of every conversation.
+2. Apply only the category documents relevant to the current request.
+3. Preserve these rules across follow-up turns unless a newer rule overrides them.
+<!-- autoskills-personal-skillset:end -->
+EOF
+
+HOME="$MIGRATE_HOME" \
+AUTOSKILLS_VERSION="$VERSION_LABEL" \
+AUTOSKILLS_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
+AUTOSKILLS_INSTALL_ROOT="$MIGRATE_INSTALL_ROOT" \
+AUTOSKILLS_BIN_DIR="$MIGRATE_BIN_DIR" \
+AUTOSKILLS_AUTO_PATH=never \
+AUTOSKILLS_INSTALL_NODE=never \
+sh "$ROOT_DIR/scripts/install.sh" >/dev/null
+
+grep -F 'use `$autoskills-personal-skillset` as the user' "$MIGRATE_HOME/.codex/AGENTS.md" >/dev/null || {
+  echo "install script did not update Codex AGENTS.md managed section" >&2
+  exit 1
+}
+
+grep -F '$CODEX_HOME/skills/autoskills-personal-skillset/SKILL.md' "$MIGRATE_HOME/.codex/AGENTS.md" >/dev/null || {
+  echo "install script did not write the new Codex skill entry path" >&2
+  exit 1
+}
+
+if grep -F '`skills/autoskills-personal-skillset/SKILL.md`' "$MIGRATE_HOME/.codex/AGENTS.md" >/dev/null; then
+  echo "install script left the legacy Codex AGENTS.md instruction in place" >&2
+  exit 1
+fi
 
 NODE_VERSION_TAG="v20.11.1"
 NODE_PLATFORM="$(node_platform)"
@@ -186,6 +232,7 @@ chmod 755 "$NODE_STAGE_ROOT/$NODE_ARCHIVE_BASE/bin/node"
 tar -czf "$NODE_ARCHIVE_PATH" -C "$NODE_STAGE_ROOT" "$NODE_ARCHIVE_BASE"
 printf '%s  %s\n' "$(sha256_file "$NODE_ARCHIVE_PATH")" "$(basename "$NODE_ARCHIVE_PATH")" >"$NODE_CHECKSUM_PATH"
 
+HOME="$DEFAULT_HOME" \
 AUTOSKILLS_VERSION="$VERSION_LABEL" \
 AUTOSKILLS_RELEASE_BASE_URL="file://$TMPDIR_WORK/releases" \
 AUTOSKILLS_INSTALL_ROOT="$FORCED_INSTALL_ROOT" \

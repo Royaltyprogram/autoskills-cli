@@ -531,6 +531,15 @@ ln -sfn "$VERSION_DIR" "$CURRENT_LINK"
 create_wrapper "$BIN_PATH" "$CURRENT_LINK/autoskills" "$LOCAL_NODE_BIN"
 configure_shell_path "$BIN_DIR" "$AUTO_PATH"
 
+CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
+if [ -d "$CODEX_ROOT" ] || [ -f "$CODEX_ROOT/AGENTS.md" ]; then
+  if "$CURRENT_LINK/autoskills" skills ensure-agents --codex-home "$CODEX_ROOT" >/dev/null 2>&1; then
+    say "updated Codex AGENTS.md at $CODEX_ROOT/AGENTS.md"
+  else
+    say "warning: could not update Codex AGENTS.md at $CODEX_ROOT/AGENTS.md"
+  fi
+fi
+
 say "installed $VERSION to $VERSION_DIR"
 say "wrapper created at $BIN_PATH"
 say "release install uses a prebuilt autoskills binary; Go is not required"
