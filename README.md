@@ -22,7 +22,7 @@ The installer selects the newest published release that has a bundle for the cur
 
 ## Note 
 
-If there is no command awared at the terminal "autoskills" after running the script, run the following commands.
+If the command "autoskills" is not found after running the script, run the following commands.
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
