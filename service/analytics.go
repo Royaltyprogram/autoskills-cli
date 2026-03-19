@@ -24,13 +24,14 @@ type AnalyticsService struct {
 	reportMinSessions int
 	reportRefreshMu   sync.Mutex
 	reportRefreshLive map[string]bool
-	reportRefreshNext map[string]*reportRefreshJob
+	reportRefreshNext map[string][]*reportRefreshJob
 	sessionImportMu   sync.Mutex
 	sessionImportLive map[string]bool
 }
 
 const sharedWorkspaceName = "Shared workspace"
 const defaultReportMinSessions = 10
+const defaultReportSessionAnalysisCap = 100
 
 const (
 	sessionImportJobStatusReceiving = "receiving_chunks"
@@ -58,7 +59,7 @@ func NewAnalyticsService(opt Options) *AnalyticsService {
 		refineAgent:       NewSkillRefineAgent(opt.Config),
 		reportMinSessions: reportMinSessions,
 		reportRefreshLive: make(map[string]bool),
-		reportRefreshNext: make(map[string]*reportRefreshJob),
+		reportRefreshNext: make(map[string][]*reportRefreshJob),
 		sessionImportLive: make(map[string]bool),
 	}
 }
@@ -955,7 +956,7 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 		return nil, err
 	}
 
-	reports, refreshJob := s.prepareReportRefreshLocked(project, resp.SessionID, previousSessionCount)
+	reports, refreshJobs := s.prepareReportRefreshLocked(project, resp.SessionID, previousSessionCount)
 	resp.ReportCount = len(reports)
 	resp.LatestReportIDs = reportIDs(reports)
 	resp.ResearchStatus = cloneReportResearchStatusResp(s.AnalyticsStore.reportResearch[project.ID])
@@ -982,7 +983,7 @@ func (s *AnalyticsService) UploadSessionSummary(ctx context.Context, req *reques
 		return nil, err
 	}
 
-	s.enqueueReportRefresh(refreshJob)
+	s.enqueueReportRefresh(refreshJobs)
 	return resp, nil
 }
 
@@ -1049,9 +1050,9 @@ func (s *AnalyticsService) UploadSessionSummaries(ctx context.Context, req *requ
 	}
 
 	reports := s.currentReportsLocked(project.ID)
-	var refreshJob *reportRefreshJob
+	var refreshJobs []*reportRefreshJob
 	if successCount > 0 {
-		reports, refreshJob = s.prepareReportRefreshLocked(project, lastSuccessfulSessionID, previousSessionCount)
+		reports, refreshJobs = s.prepareReportRefreshLocked(project, lastSuccessfulSessionID, previousSessionCount)
 		audit := s.appendAuditLocked(ctx, project.OrgID, auditEventInput{
 			ProjectID: req.ProjectID,
 			Type:      "session.batch_ingested",
@@ -1079,7 +1080,7 @@ func (s *AnalyticsService) UploadSessionSummaries(ctx context.Context, req *requ
 	resp.LatestReportIDs = reportIDs(reports)
 	resp.ResearchStatus = cloneReportResearchStatusResp(s.AnalyticsStore.reportResearch[project.ID])
 
-	s.enqueueReportRefresh(refreshJob)
+	s.enqueueReportRefresh(refreshJobs)
 	return resp, nil
 }
 
@@ -1891,10 +1892,10 @@ func (s *AnalyticsService) runSessionImportJob(jobID string) {
 	}
 
 	reports := s.currentReportsLocked(project.ID)
-	var refreshJob *reportRefreshJob
+	var refreshJobs []*reportRefreshJob
 	var audit *AuditEvent
 	if successCount > 0 {
-		reports, refreshJob = s.prepareReportRefreshLocked(project, lastSuccessfulSessionID, previousSessionCount)
+		reports, refreshJobs = s.prepareReportRefreshLocked(project, lastSuccessfulSessionID, previousSessionCount)
 		audit = s.appendAuditLocked(context.Background(), project.OrgID, auditEventInput{
 			ProjectID: project.ID,
 			Type:      "session_import_job.completed",
@@ -1941,7 +1942,7 @@ func (s *AnalyticsService) runSessionImportJob(jobID string) {
 	s.AnalyticsStore.mu.Unlock()
 
 	_ = reports
-	s.enqueueReportRefresh(refreshJob)
+	s.enqueueReportRefresh(refreshJobs)
 }
 
 func (s *AnalyticsService) appendSessionImportAuditAsync(orgID, projectID, eventType, message, reason string) {
@@ -2900,7 +2901,7 @@ func (s *AnalyticsService) currentReportsLocked(projectID string) []*Report {
 	return items
 }
 
-func (s *AnalyticsService) prepareReportRefreshLocked(project *Project, triggerSessionID string, previousSessionCount int) ([]*Report, *reportRefreshJob) {
+func (s *AnalyticsService) prepareReportRefreshLocked(project *Project, triggerSessionID string, previousSessionCount int) ([]*Report, []*reportRefreshJob) {
 	sessions := s.AnalyticsStore.sessionSummaries[project.ID]
 	rawQueries := collectRawQueries(sessions)
 	currentReports := s.currentReportsLocked(project.ID)
@@ -2927,17 +2928,23 @@ func (s *AnalyticsService) prepareReportRefreshLocked(project *Project, triggerS
 		s.setReportResearchStatusLocked(project.ID, status)
 		return currentReports, nil
 	}
-	if !shouldRefreshReportsForSessionRange(previousSessionCount, sessionCount, s.reportMinSessions) {
+	checkpoints := reportRefreshCheckpointCounts(previousSessionCount, sessionCount, s.reportMinSessions, defaultReportSessionAnalysisCap)
+	if len(checkpoints) == 0 {
 		if currentStatus != nil && strings.EqualFold(strings.TrimSpace(currentStatus.State), "running") {
 			return currentReports, nil
 		}
 		preserveReportResearchHistory(&status, currentStatus)
-		status.State = "waiting_for_next_batch"
-		nextRefreshAt := nextReportRefreshSessionCount(sessionCount, s.reportMinSessions)
-		if len(currentReports) > 0 {
-			status.Summary = fmt.Sprintf("Collected %d sessions. The current feedback report stays active until %d sessions are collected for the next refresh.", sessionCount, nextRefreshAt)
+		if sessionCount >= defaultReportSessionAnalysisCap {
+			status.State = "capped_history_window"
+			status.Summary = fmt.Sprintf("Collected %d sessions. Cold-start feedback analysis is capped at the first %d sessions to control cost.", sessionCount, defaultReportSessionAnalysisCap)
 		} else {
-			status.Summary = fmt.Sprintf("Collected %d sessions. The next feedback analysis starts at %d sessions.", sessionCount, nextRefreshAt)
+			status.State = "waiting_for_next_batch"
+			nextRefreshAt := nextReportRefreshSessionCount(sessionCount, s.reportMinSessions)
+			if len(currentReports) > 0 {
+				status.Summary = fmt.Sprintf("Collected %d sessions. The current feedback report stays active until %d sessions are collected for the next refresh.", sessionCount, nextRefreshAt)
+			} else {
+				status.Summary = fmt.Sprintf("Collected %d sessions. The next feedback analysis starts at %d sessions.", sessionCount, nextRefreshAt)
+			}
 		}
 		s.setReportResearchStatusLocked(project.ID, status)
 		return currentReports, nil
@@ -2955,16 +2962,26 @@ func (s *AnalyticsService) prepareReportRefreshLocked(project *Project, triggerS
 		return currentReports, nil
 	}
 	status.State = "running"
-	status.Summary = fmt.Sprintf("Preparing the next feedback report with %s while uploaded sessions are analyzed in the background.", s.researchAgent.Provider)
+	if len(checkpoints) > 1 {
+		status.Summary = fmt.Sprintf("Preparing %d backfill feedback passes with %s while the first %d uploaded sessions are analyzed in %d-session steps.", len(checkpoints), s.researchAgent.Provider, checkpoints[len(checkpoints)-1], s.reportMinSessions)
+	} else {
+		status.Summary = fmt.Sprintf("Preparing the next feedback report with %s while uploaded sessions are analyzed in the background.", s.researchAgent.Provider)
+	}
 	status.StartedAt = cloneTime(&triggeredAt)
 	s.setReportResearchStatusLocked(project.ID, status)
-	return currentReports, &reportRefreshJob{
-		project:          cloneProject(project),
-		sessions:         cloneSessionSummaries(sessions),
-		snapshots:        cloneConfigSnapshots(s.AnalyticsStore.configSnapshots[project.ID]),
-		triggerSessionID: triggerSessionID,
-		triggeredAt:      triggeredAt,
+	orderedSessions := reportRefreshSessionsInChronologicalOrder(sessions)
+	snapshots := cloneConfigSnapshots(s.AnalyticsStore.configSnapshots[project.ID])
+	jobs := make([]*reportRefreshJob, 0, len(checkpoints))
+	for _, checkpoint := range checkpoints {
+		jobs = append(jobs, &reportRefreshJob{
+			project:          cloneProject(project),
+			sessions:         cloneSessionSummaries(orderedSessions[:checkpoint]),
+			snapshots:        cloneConfigSnapshots(snapshots),
+			triggerSessionID: triggerSessionID,
+			triggeredAt:      triggeredAt,
+		})
 	}
+	return currentReports, jobs
 }
 
 func shouldRefreshReportsForSessionCount(sessionCount, batchSize int) bool {
@@ -3002,38 +3019,43 @@ func preserveReportResearchHistory(dst, src *ReportResearchStatus) {
 	dst.LastDurationMS = src.LastDurationMS
 }
 
-func (s *AnalyticsService) enqueueReportRefresh(job *reportRefreshJob) {
-	if job == nil || job.project == nil {
+func (s *AnalyticsService) enqueueReportRefresh(jobs []*reportRefreshJob) {
+	if len(jobs) == 0 || jobs[0] == nil || jobs[0].project == nil {
 		return
 	}
 
 	s.reportRefreshMu.Lock()
-	projectID := job.project.ID
+	projectID := jobs[0].project.ID
 	if s.reportRefreshLive[projectID] {
-		s.reportRefreshNext[projectID] = job
+		s.reportRefreshNext[projectID] = append(s.reportRefreshNext[projectID], jobs...)
 		s.reportRefreshMu.Unlock()
 		return
 	}
 	s.reportRefreshLive[projectID] = true
 	s.reportRefreshMu.Unlock()
 
-	go func(current *reportRefreshJob) {
-		for current != nil {
-			s.runReportRefresh(current)
+	go func(queue []*reportRefreshJob) {
+		pending := append([]*reportRefreshJob(nil), queue...)
+		for len(pending) > 0 {
+			current := pending[0]
+			pending = pending[1:]
+			if current != nil {
+				s.runReportRefresh(current)
+			}
 
 			s.reportRefreshMu.Lock()
-			next := s.reportRefreshNext[projectID]
-			if next != nil {
+			if len(pending) == 0 && len(s.reportRefreshNext[projectID]) > 0 {
+				pending = append(pending, s.reportRefreshNext[projectID]...)
 				delete(s.reportRefreshNext, projectID)
-				s.reportRefreshMu.Unlock()
-				current = next
-				continue
 			}
-			delete(s.reportRefreshLive, projectID)
+			if len(pending) == 0 {
+				delete(s.reportRefreshLive, projectID)
+				s.reportRefreshMu.Unlock()
+				return
+			}
 			s.reportRefreshMu.Unlock()
-			current = nil
 		}
-	}(job)
+	}(jobs)
 }
 
 func (s *AnalyticsService) runReportRefresh(job *reportRefreshJob) {
@@ -3136,6 +3158,33 @@ func cloneProject(project *Project) *Project {
 	cloned.LanguageMix = cloneFloatMap(project.LanguageMix)
 	cloned.LastIngestedAt = cloneTime(project.LastIngestedAt)
 	return &cloned
+}
+
+func reportRefreshCheckpointCounts(previousSessionCount, sessionCount, batchSize, cap int) []int {
+	if sessionCount <= 0 || batchSize <= 0 || sessionCount <= previousSessionCount || cap <= 0 {
+		return nil
+	}
+	upperBound := minInt(sessionCount, cap)
+	start := nextReportRefreshSessionCount(previousSessionCount, batchSize)
+	if start <= 0 || start > upperBound {
+		return nil
+	}
+	checkpoints := make([]int, 0, ((upperBound-start)/batchSize)+1)
+	for checkpoint := start; checkpoint <= upperBound; checkpoint += batchSize {
+		checkpoints = append(checkpoints, checkpoint)
+	}
+	return checkpoints
+}
+
+func reportRefreshSessionsInChronologicalOrder(sessions []*SessionSummary) []*SessionSummary {
+	ordered := cloneSessionSummaries(sessions)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Timestamp.Equal(ordered[j].Timestamp) {
+			return strings.TrimSpace(ordered[i].ID) < strings.TrimSpace(ordered[j].ID)
+		}
+		return ordered[i].Timestamp.Before(ordered[j].Timestamp)
+	})
+	return ordered
 }
 
 func cloneSessionSummaries(items []*SessionSummary) []*SessionSummary {
