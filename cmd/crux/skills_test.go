@@ -374,7 +374,8 @@ func TestEnsureAgentsMDSkillSetSection_CreatesNewFile(t *testing.T) {
 	require.Contains(t, content, cruxSkillSetSectionStart)
 	require.Contains(t, content, cruxSkillSetSectionEnd)
 	require.Contains(t, content, managedSkillBundleName)
-	require.Contains(t, content, "SKILL.md")
+	require.Contains(t, content, "use `$"+managedSkillBundleName+"` as the user's default operating skill set.")
+	require.Contains(t, content, "$CODEX_HOME/skills/"+managedSkillBundleName+"/SKILL.md")
 }
 
 func TestEnsureAgentsMDSkillSetSection_AppendsToExisting(t *testing.T) {
@@ -406,6 +407,35 @@ func TestEnsureAgentsMDSkillSetSection_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, string(first), string(second), "calling twice must not duplicate the section")
+}
+
+func TestEnsureAgentsMDSkillSetSection_MigratesExistingManagedSection(t *testing.T) {
+	codexRoot := filepath.Join(t.TempDir(), ".codex")
+	require.NoError(t, os.MkdirAll(codexRoot, 0o755))
+
+	legacy := "**note**\nlegacy preface\n\n" +
+		cruxSkillSetSectionStart + "\n" +
+		"## AutoSkills Personal Skillset\n\n" +
+		"Before processing any query, you MUST first review and apply the user's personal skillset located at:\n\n" +
+		"`skills/" + managedSkillBundleName + "/SKILL.md`\n\n" +
+		"**Workflow:**\n" +
+		"1. Load `skills/" + managedSkillBundleName + "/SKILL.md` at the start of every conversation.\n" +
+		"2. Apply only the category documents relevant to the current request.\n" +
+		"3. Preserve these rules across follow-up turns unless a newer rule overrides them.\n" +
+		cruxSkillSetSectionEnd + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(codexRoot, "AGENTS.md"), []byte(legacy), 0o644))
+
+	require.NoError(t, ensureAgentsMDSkillSetSection(codexRoot))
+
+	data, err := os.ReadFile(filepath.Join(codexRoot, "AGENTS.md"))
+	require.NoError(t, err)
+	content := string(data)
+	require.True(t, strings.HasPrefix(content, "**note**\nlegacy preface\n\n"), "content before the managed section must be preserved")
+	require.Contains(t, content, "use `$"+managedSkillBundleName+"` as the user's default operating skill set.")
+	require.Contains(t, content, "$CODEX_HOME/skills/"+managedSkillBundleName+"/SKILL.md")
+	require.NotContains(t, content, "`skills/"+managedSkillBundleName+"/SKILL.md`")
+	require.Equal(t, 1, strings.Count(content, cruxSkillSetSectionStart), "managed section must be replaced in place")
+	require.Equal(t, 1, strings.Count(content, cruxSkillSetSectionEnd), "managed section must be replaced in place")
 }
 
 func TestDiffManagedSkillBundle_DetectsModifiedFiles(t *testing.T) {

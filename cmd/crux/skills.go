@@ -1477,24 +1477,27 @@ func cruxSkillSetAgentsSection() string {
 	return cruxSkillSetSectionStart + `
 ## AutoSkills Personal Skillset
 
-Before processing any query, you MUST first review and apply the user's personal skillset located at:
+Before processing any query, you MUST first use ` + "`$" + managedSkillBundleName + "`" + ` as the user's default operating skill set.
 
-` + "`skills/" + managedSkillBundleName + "/SKILL.md`" + `
+If direct file access is needed, use the skill entry point at:
+
+` + "`$CODEX_HOME/skills/" + managedSkillBundleName + "/SKILL.md`" + `
 
 This skillset contains standing instructions, collaboration preferences, and workflow rules
 that the user has accumulated over time. Treat these as the user's policy layer — they take
 precedence over generic defaults but yield to explicit per-query instructions.
 
 **Workflow:**
-1. Load ` + "`skills/" + managedSkillBundleName + "/SKILL.md`" + ` at the start of every conversation.
-2. Apply only the category documents relevant to the current request.
-3. Preserve these rules across follow-up turns unless a newer rule overrides them.
+1. Invoke ` + "`$" + managedSkillBundleName + "`" + ` at the start of every conversation.
+2. Use ` + "`$CODEX_HOME/skills/" + managedSkillBundleName + "/SKILL.md`" + ` only as a fallback when direct file access is required.
+3. Apply only the category documents relevant to the current request.
+4. Preserve these rules across follow-up turns unless a newer rule overrides them.
 ` + cruxSkillSetSectionEnd + "\n"
 }
 
 // ensureAgentsMDSkillSetSection ensures the global AGENTS.md in the codex home
-// directory contains the autoskills-personal-skillset instruction section. It is
-// idempotent — if the section already exists it returns without modification.
+// directory contains the latest autoskills-personal-skillset instruction section.
+// It is idempotent and also migrates older injected section bodies in place.
 func ensureAgentsMDSkillSetSection(codexRoot string) error {
 	agentsPath := filepath.Join(codexRoot, "AGENTS.md")
 
@@ -1504,18 +1507,29 @@ func ensureAgentsMDSkillSetSection(codexRoot string) error {
 	}
 
 	content := string(existing)
-	if strings.Contains(content, cruxSkillSetSectionStart) {
-		return nil // already present
-	}
-
 	section := cruxSkillSetAgentsSection()
-	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
-		content += "\n"
+	start := strings.Index(content, cruxSkillSetSectionStart)
+	switch {
+	case start >= 0:
+		end := strings.Index(content[start:], cruxSkillSetSectionEnd)
+		if end >= 0 {
+			end += start + len(cruxSkillSetSectionEnd)
+			if end < len(content) && content[end] == '\n' {
+				end++
+			}
+			content = content[:start] + section + content[end:]
+		} else {
+			content = content[:start] + section
+		}
+	default:
+		if len(content) > 0 && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if len(content) > 0 {
+			content += "\n"
+		}
+		content += section
 	}
-	if len(content) > 0 {
-		content += "\n"
-	}
-	content += section
 
 	if err := os.MkdirAll(filepath.Dir(agentsPath), 0o755); err != nil {
 		return err
