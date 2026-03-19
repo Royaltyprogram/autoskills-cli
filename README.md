@@ -20,7 +20,17 @@ AUTOSKILLS_VERSION=<release-tag> curl -fsSL https://raw.githubusercontent.com/Ro
 The installer selects the newest published release that has a bundle for the current platform (macOS and Linux supported).
 
 
-# How it works
+## Note 
+
+If there is no command awared at the terminal "autoskills" after running the script, run the following commands.
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
+exec zsh -l
+```
+
+## How it works
 
 <img width="943" height="446" alt="image" src="https://github.com/user-attachments/assets/ca56990a-29f3-4d2e-bd05-008ad4487341" />
 
