@@ -4,29 +4,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — AutoSkills</title>
+  <title>Sign in — AutoSkills</title>
   <link rel="icon" href="/assets/logo.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap"
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
   <style>
     :root {
-      --canvas-top: #0a0a0a;
-      --canvas-bottom: #0f0f0f;
-      --surface: rgba(18, 18, 18, 0.96);
-      --surface-soft: rgba(22, 22, 22, 0.94);
-      --line: rgba(255, 255, 255, 0.08);
-      --line-strong: rgba(255, 255, 255, 0.14);
-      --ink: #f0f0f0;
-      --muted: #888888;
-      --accent: #c8a96e;
-      --accent-deep: #d4b87a;
-      --support: #a0a0a0;
-      --support-light: rgba(255, 255, 255, 0.04);
-      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
-      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
-      --shadow-lg: 0 18px 42px rgba(0, 0, 0, 0.4);
+      --accent: #6366f1;
+      --canvas: #09090b;
+      --surface: rgba(24, 24, 27, 0.80);
+      --muted: #71717a;
+      --border: rgba(255, 255, 255, 0.06);
+      --glow: rgba(99, 102, 241, 0.15);
+      --text-secondary: #a1a1aa;
+      --ink: #fafafa;
+      --link: #818cf8;
     }
 
     * {
@@ -44,25 +39,51 @@
       font-family: 'Inter', -apple-system, sans-serif;
       font-size: 16px;
       line-height: 1.6;
-      background: linear-gradient(168deg, var(--canvas-top) 0%, #0d0d0d 40%, var(--canvas-bottom) 100%);
+      background: var(--canvas);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* ── BACKGROUND MESH ── */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -40%;
+      left: -20%;
+      width: 80%;
+      height: 80%;
+      background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      bottom: -30%;
+      right: -20%;
+      width: 70%;
+      height: 70%;
+      background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.05) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
     }
 
     /* ── NAV ── */
     .nav {
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      background: rgba(10, 10, 10, 0.82);
-      border-bottom: 1px solid var(--line);
+      position: relative;
+      z-index: 10;
+      border-bottom: 1px solid var(--border);
     }
 
     .nav-inner {
       max-width: 1120px;
       margin: 0 auto;
       padding: 0 24px;
-      height: 64px;
+      height: 48px;
       display: flex;
       align-items: center;
     }
@@ -76,18 +97,17 @@
     }
 
     .nav-logo {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
       object-fit: contain;
     }
 
     .nav-wordmark {
       font-family: 'Inter', sans-serif;
-      font-size: 17px;
-      font-weight: 300;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
     }
 
     /* ── LOGIN CARD ── */
@@ -97,16 +117,19 @@
       align-items: center;
       justify-content: center;
       padding: 48px 24px;
+      position: relative;
+      z-index: 1;
     }
 
     .login-card {
       width: 100%;
-      max-width: 420px;
+      max-width: 400px;
       padding: 40px 36px;
-      border-radius: 24px;
-      border: 1px solid var(--line);
+      border-radius: 16px;
       background: var(--surface);
-      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 0 0 1px var(--border), 0 0 40px rgba(99, 102, 241, 0.08);
     }
 
     .login-header {
@@ -116,63 +139,61 @@
 
     .login-header h1 {
       font-family: 'Inter', sans-serif;
-      font-size: 28px;
-      font-weight: 300;
+      font-size: 24px;
+      font-weight: 600;
       letter-spacing: -0.02em;
       margin-bottom: 8px;
       color: #ffffff;
     }
 
     .login-header p {
-      color: var(--muted);
-      font-size: 15px;
+      color: var(--text-secondary);
+      font-size: 14px;
       line-height: 1.5;
     }
 
-    .login-providers {
-      display: grid;
-      gap: 12px;
-    }
-
+    /* ── GOOGLE BUTTON ── */
     .provider-btn {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
+      gap: 10px;
       width: 100%;
-      padding: 14px 20px;
-      border: 1px solid var(--line-strong);
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--ink);
-      font: inherit;
-      font-size: 15px;
-      font-weight: 600;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #09090b;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
       cursor: pointer;
       text-decoration: none;
-      transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+      transition: background 0.15s, box-shadow 0.15s;
     }
 
     .provider-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-md);
-      background: rgba(255, 255, 255, 0.08);
+      background: #f4f4f5;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
     }
 
     .provider-icon {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       flex-shrink: 0;
     }
 
+    /* ── DIVIDER ── */
     .login-divider {
       display: flex;
       align-items: center;
       gap: 16px;
       margin: 24px 0;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
     .login-divider::before,
@@ -180,36 +201,50 @@
       content: '';
       flex: 1;
       height: 1px;
-      background: var(--line);
+      background: var(--border);
     }
 
-    .login-footer {
-      text-align: center;
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.5;
+    /* ── DEV LOGIN ── */
+    .dev-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px 20px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
 
-    .login-footer a {
-      color: var(--accent);
-      text-decoration: none;
-      font-weight: 600;
+    .dev-btn:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: var(--ink);
     }
 
-    .login-footer a:hover {
-      text-decoration: underline;
+    .dev-btn svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
     }
 
     /* ── STATUS ── */
     .status {
-      margin-top: 16px;
+      margin-top: 20px;
       padding: 10px 14px;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: var(--surface-soft);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(24, 24, 27, 0.6);
       font-size: 13px;
       line-height: 1.5;
-      color: var(--muted);
+      color: var(--text-secondary);
       text-align: center;
     }
 
@@ -218,25 +253,45 @@
     }
 
     .status[data-tone="error"] {
-      border-color: rgba(212, 90, 80, 0.25);
-      background: rgba(212, 90, 80, 0.06);
-      color: #d45a50;
+      border-color: rgba(239, 68, 68, 0.25);
+      background: rgba(239, 68, 68, 0.06);
+      color: #ef4444;
     }
 
-    /* ── FOOTER ── */
+    /* ── FOOTER TEXT ── */
+    .login-footer {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .login-footer a {
+      color: var(--link);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .login-footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* ── SITE FOOTER ── */
     .footer {
-      border-top: 1px solid var(--line);
-      background: rgba(10, 10, 10, 0.6);
+      position: relative;
+      z-index: 1;
+      border-top: 1px solid var(--border);
     }
 
     .footer-inner {
       max-width: 1120px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 20px 24px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--muted);
     }
 
@@ -262,31 +317,38 @@
   <div class="login-wrapper">
     <div class="login-card">
       <div class="login-header">
-        <h1>Welcome to AutoSkills</h1>
-        <p>Sign in to your account or create a new one.</p>
+        <h1>Sign in to AutoSkills</h1>
+        <p>Continue with your account to get started.</p>
       </div>
 
-      <div class="login-providers">
-        <a class="provider-btn" href="/api/v1/auth/google/start">
-          <svg class="provider-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-              fill="#4285F4" />
-            <path
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              fill="#34A853" />
-            <path
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-              fill="#FBBC05" />
-            <path
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-              fill="#EA4335" />
-          </svg>
-          Continue with Google
-        </a>
-      </div>
+      <a class="provider-btn" href="/api/v1/auth/google/start">
+        <svg class="provider-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+            fill="#4285F4" />
+          <path
+            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+            fill="#34A853" />
+          <path
+            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+            fill="#FBBC05" />
+          <path
+            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+            fill="#EA4335" />
+        </svg>
+        Continue with Google
+      </a>
 
-      <div class="login-divider">More providers coming soon</div>
+      <div class="login-divider">Dev</div>
+
+      <button class="dev-btn" id="dev-login-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path
+            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+        </svg>
+        Dev Login
+      </button>
 
       <div class="login-footer">
         By continuing, you agree to AutoSkills' terms of service.
@@ -307,10 +369,10 @@
   <script>
     (function () {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const authError = params.get("auth_error");
-        const authNotice = params.get("auth_notice");
-        const status = document.getElementById("status");
+        var params = new URLSearchParams(window.location.search);
+        var authError = params.get("auth_error");
+        var authNotice = params.get("auth_notice");
+        var status = document.getElementById("status");
         if (authError) {
           status.textContent = authError;
           status.dataset.tone = "error";
@@ -321,11 +383,28 @@
         if (authError || authNotice) {
           params.delete("auth_error");
           params.delete("auth_notice");
-          const nextQuery = params.toString();
-          const nextURL = nextQuery ? window.location.pathname + "?" + nextQuery : window.location.pathname;
+          var nextQuery = params.toString();
+          var nextURL = nextQuery ? window.location.pathname + "?" + nextQuery : window.location.pathname;
           window.history.replaceState({}, "", nextURL);
         }
       } catch (e) { }
+
+      var devBtn = document.getElementById("dev-login-btn");
+      if (devBtn) {
+        devBtn.addEventListener("click", function () {
+          devBtn.disabled = true;
+          devBtn.textContent = "Signing in\u2026";
+          fetch("/api/v1/auth/dev/login", { method: "POST", credentials: "same-origin", redirect: "follow" })
+            .then(function (r) { if (r.ok || r.redirected) { window.location.replace("/dashboard"); } else { throw new Error("Server returned " + r.status); } })
+            .catch(function (err) {
+              devBtn.disabled = false;
+              devBtn.textContent = "Dev Login";
+              var status = document.getElementById("status");
+              status.textContent = "Dev login failed: " + err.message;
+              status.dataset.tone = "error";
+            });
+        });
+      }
     })();
   </script>
 </body>

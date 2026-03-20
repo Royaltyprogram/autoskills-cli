@@ -8,29 +8,22 @@
   <link rel="icon" href="/assets/logo.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap"
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
   <style>
     :root {
-      --canvas-top: #0a0a0a;
-      --canvas-bottom: #0f0f0f;
-      --surface: rgba(18, 18, 18, 0.96);
-      --surface-soft: rgba(22, 22, 22, 0.94);
-      --line: rgba(255, 255, 255, 0.08);
-      --line-strong: rgba(255, 255, 255, 0.14);
+      --accent: #6366f1;
+      --accent-bright: #818cf8;
+      --canvas: #09090b;
+      --surface: rgba(24, 24, 27, 0.80);
+      --good: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --muted: #71717a;
+      --border: rgba(255, 255, 255, 0.06);
+      --text-secondary: #a1a1aa;
       --ink: #f0f0f0;
-      --muted: #888888;
-      --accent: #c8a96e;
-      --accent-deep: #d4b87a;
-      --accent-light: rgba(200, 169, 110, 0.10);
-      --support: #a0a0a0;
-      --support-light: rgba(255, 255, 255, 0.04);
-      --good: #6ec87a;
-      --good-light: rgba(110, 200, 122, 0.12);
-      --warn: #d4a54a;
-      --warn-light: rgba(212, 165, 74, 0.14);
-      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
-      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
     }
 
     * {
@@ -48,15 +41,9 @@
       color: var(--ink);
       font-family: 'Inter', -apple-system, sans-serif;
       font-size: 16px;
-      line-height: 1.6;
-      background: linear-gradient(168deg, var(--canvas-top) 0%, #0d0d0d 40%, var(--canvas-bottom) 100%);
+      line-height: 1.5;
+      background: var(--canvas);
       overflow-x: hidden;
-    }
-
-    .wrap {
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 0 24px;
     }
 
     /* ── NAV ── */
@@ -66,15 +53,15 @@
       z-index: 100;
       backdrop-filter: blur(16px) saturate(1.4);
       -webkit-backdrop-filter: blur(16px) saturate(1.4);
-      background: rgba(10, 10, 10, 0.82);
-      border-bottom: 1px solid var(--line);
+      background: rgba(9, 9, 11, 0.82);
+      border-bottom: 1px solid var(--border);
     }
 
     .nav-inner {
       max-width: 1120px;
       margin: 0 auto;
       padding: 0 24px;
-      height: 64px;
+      height: 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -89,17 +76,17 @@
     }
 
     .nav-logo {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
       object-fit: contain;
     }
 
     .nav-wordmark {
       font-family: 'Inter', sans-serif;
-      font-size: 17px;
-      font-weight: 300;
-      letter-spacing: 0.12em;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
@@ -112,7 +99,7 @@
 
     .nav-links a {
       text-decoration: none;
-      color: var(--muted);
+      color: var(--text-secondary);
       font-size: 14px;
       font-weight: 500;
       transition: color 0.2s;
@@ -128,17 +115,18 @@
     }
 
     .nav-cta {
-      padding: 8px 20px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #ffffff, #e0e0e0);
-      color: #0a0a0a !important;
-      font-weight: 600 !important;
-      transition: opacity 0.2s, transform 0.2s;
+      padding: 7px 18px;
+      border-radius: 8px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-secondary) !important;
+      font-weight: 500 !important;
+      transition: color 0.2s, border-color 0.2s;
     }
 
     .nav-cta:hover {
-      opacity: 0.88;
-      transform: translateY(-1px);
+      color: var(--ink) !important;
+      border-color: rgba(255, 255, 255, 0.14);
     }
 
     /* ── DOCS LAYOUT ── */
@@ -155,7 +143,7 @@
     /* ── SIDEBAR ── */
     .docs-sidebar {
       position: sticky;
-      top: 104px;
+      top: 88px;
     }
 
     .docs-sidebar-title {
@@ -178,11 +166,12 @@
       display: block;
       padding: 8px 12px;
       border-radius: 8px;
+      border-left: 2px solid transparent;
       font-size: 14px;
       font-weight: 500;
-      color: var(--muted);
+      color: var(--text-secondary);
       text-decoration: none;
-      transition: background 0.15s, color 0.15s;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
 
     .docs-sidebar-nav a:hover {
@@ -191,8 +180,9 @@
     }
 
     .docs-sidebar-nav a.is-active {
-      background: var(--accent-light);
-      color: var(--accent);
+      background: transparent;
+      border-left-color: var(--accent);
+      color: var(--accent-bright);
       font-weight: 600;
     }
 
@@ -204,7 +194,7 @@
     .docs-content h1 {
       font-family: 'Inter', sans-serif;
       font-size: clamp(28px, 4vw, 38px);
-      font-weight: 300;
+      font-weight: 600;
       line-height: 1.15;
       letter-spacing: -0.02em;
       margin-bottom: 8px;
@@ -213,7 +203,7 @@
 
     .docs-content .docs-lead {
       font-size: 17px;
-      color: var(--muted);
+      color: var(--text-secondary);
       line-height: 1.7;
       margin-bottom: 40px;
     }
@@ -225,7 +215,7 @@
     .docs-section h2 {
       font-family: 'Inter', sans-serif;
       font-size: 24px;
-      font-weight: 300;
+      font-weight: 600;
       line-height: 1.2;
       margin-bottom: 16px;
       padding-top: 24px;
@@ -240,7 +230,7 @@
     }
 
     .docs-section p {
-      color: var(--muted);
+      color: var(--text-secondary);
       font-size: 15px;
       line-height: 1.7;
       margin-bottom: 12px;
@@ -248,7 +238,7 @@
 
     .docs-section ul,
     .docs-section ol {
-      color: var(--muted);
+      color: var(--text-secondary);
       font-size: 15px;
       line-height: 1.7;
       margin-bottom: 12px;
@@ -266,27 +256,29 @@
     /* ── STEP CARDS ── */
     .step-card {
       display: grid;
-      grid-template-columns: 40px 1fr;
-      gap: 16px;
+      grid-template-columns: 24px 1fr;
+      gap: 14px;
       align-items: start;
       margin-bottom: 24px;
     }
 
     .step-num {
-      width: 40px;
-      height: 40px;
-      border-radius: 12px;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 15px;
-      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
       color: #fff;
       flex-shrink: 0;
+      margin-top: 1px;
     }
 
-    .step-num--teal {
-      background: var(--support);
+    .step-num--muted {
+      background: var(--muted);
     }
 
     .step-num--accent {
@@ -306,7 +298,7 @@
 
     .step-body p {
       font-size: 14px;
-      color: var(--muted);
+      color: var(--text-secondary);
       line-height: 1.6;
       margin-bottom: 8px;
     }
@@ -314,11 +306,12 @@
     /* ── COMMAND BLOCKS ── */
     .cmd {
       position: relative;
-      background: #000000;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 10px;
+      background: rgba(99, 102, 241, 0.06);
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--accent);
+      border-radius: 8px;
       padding: 14px 18px;
-      font-family: 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+      font-family: 'JetBrains Mono', monospace;
       font-size: 13px;
       line-height: 1.6;
       color: #e0e0e0;
@@ -332,41 +325,52 @@
       right: 8px;
       padding: 4px 10px;
       border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.7);
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.5);
+      font-family: 'Inter', sans-serif;
       font-size: 11px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, color 0.15s;
     }
 
     .cmd-copy:hover {
-      background: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.8);
     }
 
     /* ── INFO BOX ── */
     .info-box {
       padding: 16px 20px;
       border-radius: 12px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       background: var(--surface);
       margin-bottom: 16px;
     }
 
     .info-box--tip {
-      border-left: 3px solid var(--support);
-      background: var(--support-light);
+      border-left: 3px solid var(--accent);
+      background: rgba(99, 102, 241, 0.04);
     }
 
     .info-box--warn {
       border-left: 3px solid var(--warn);
-      background: var(--warn-light);
+      background: rgba(251, 191, 36, 0.04);
     }
 
     .info-box p {
       margin-bottom: 0;
       font-size: 14px;
+    }
+
+    .info-box code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
     }
 
     /* ── TABLE ── */
@@ -380,8 +384,8 @@
     .docs-table th,
     .docs-table td {
       text-align: left;
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--line);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
     }
 
     .docs-table th {
@@ -389,27 +393,29 @@
       font-weight: 700;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--muted);
-      background: var(--surface-soft);
+      color: var(--text-secondary);
+      background: var(--surface);
     }
 
     .docs-table td {
-      color: var(--muted);
+      color: var(--text-secondary);
     }
 
     .docs-table code {
-      font-family: 'SFMono-Regular', 'Menlo', monospace;
+      font-family: 'JetBrains Mono', monospace;
       font-size: 13px;
       padding: 2px 6px;
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(99, 102, 241, 0.06);
       color: var(--ink);
     }
 
     /* ── FOOTER ── */
     .footer {
-      border-top: 1px solid var(--line);
-      background: rgba(10, 10, 10, 0.6);
+      border-top: 1px solid var(--border);
+      background: rgba(9, 9, 11, 0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
     }
 
     .footer-inner {
@@ -446,6 +452,27 @@
       color: var(--ink);
     }
 
+    /* ── INLINE CODE ── */
+    .docs-section code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(99, 102, 241, 0.06);
+      color: var(--ink);
+    }
+
+    /* ── LINKS ── */
+    .docs-section a {
+      color: var(--accent-bright);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .docs-section a:hover {
+      color: var(--ink);
+    }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 768px) {
       .docs-layout {
@@ -458,7 +485,7 @@
         position: static;
         margin-bottom: 32px;
         padding-bottom: 20px;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--border);
       }
 
       .docs-sidebar-nav {
@@ -470,6 +497,13 @@
       .docs-sidebar-nav a {
         padding: 6px 12px;
         font-size: 13px;
+        border-left: none;
+        border-bottom: 2px solid transparent;
+      }
+
+      .docs-sidebar-nav a.is-active {
+        border-left-color: transparent;
+        border-bottom-color: var(--accent);
       }
     }
   </style>
@@ -518,7 +552,7 @@
       <section class="docs-section" id="install-cli">
         <h2>Step 1 &mdash; Install the CLI</h2>
         <div class="step-card">
-          <div class="step-num step-num--teal">1</div>
+          <div class="step-num step-num--muted">1</div>
           <div class="step-body">
             <h3>Install the CLI</h3>
             <p>Install the AutoSkills CLI on the machine you want to analyze. The CLI collects session data in the
