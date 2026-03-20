@@ -28,6 +28,7 @@ const state = {
   tokenImpact: null,
   session: null,
   settingsOpen: false,
+  overview: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -115,6 +116,35 @@ function startOnboardingPoll() {
   }, ONBOARDING_POLL_MS);
 }
 
+/* ── Progress poll ── */
+
+let progressPollTimer = null;
+const PROGRESS_POLL_MS = 4000;
+
+function shouldProgressPoll(overview) {
+  const job = overview?.active_import_job;
+  const research = overview?.research_status;
+  return (
+    (job && ACTIVE_IMPORT_STATUSES.includes(job.status)) ||
+    research?.state === "running"
+  );
+}
+
+function startProgressPoll() {
+  if (progressPollTimer != null) return;
+  progressPollTimer = setInterval(() => {
+    if (state.busy) return;
+    load();
+  }, PROGRESS_POLL_MS);
+}
+
+function stopProgressPoll() {
+  if (progressPollTimer != null) {
+    clearInterval(progressPollTimer);
+    progressPollTimer = null;
+  }
+}
+
 function showWizard() {
   $("onboardingInline").hidden = false;
   $("dashboardContent").hidden = true;
@@ -142,6 +172,155 @@ function buildSetupCommand(origin = window.location.origin || "") {
     return "autoskills setup";
   }
   return `autoskills setup --server ${normalizedOrigin}`;
+}
+
+/* ── Setup Progress ── */
+
+const ACTIVE_IMPORT_STATUSES = ["receiving_chunks", "queued", "running"];
+
+function deriveSetupStage(overview, skillSet) {
+  const job = overview?.active_import_job;
+  const research = overview?.research_status;
+  const jobActive =
+    job && ACTIVE_IMPORT_STATUSES.includes(job.status);
+  const researchRunning = research?.state === "running";
+  const hasReports = (overview?.active_reports || 0) > 0;
+  const hasSkillSet = skillSet?.version != null;
+
+  if (jobActive) return "uploading";
+  if (researchRunning) return "researching";
+  if (!hasReports) return "awaiting_report";
+  if (!hasSkillSet) return "building_skill";
+  return "ready";
+}
+
+function computeETA(job) {
+  if (!job?.started_at || !job.processed_sessions) return null;
+  const elapsed = (Date.now() - new Date(job.started_at).getTime()) / 1000;
+  if (elapsed < 1) return null;
+  const rate = job.processed_sessions / elapsed;
+  const total = job.total_sessions || job.received_sessions || 0;
+  const remaining = Math.max(0, total - job.processed_sessions);
+  const etaSec = remaining / rate;
+  if (etaSec < 5) return "almost done";
+  if (etaSec < 60) return `~${Math.round(etaSec)}s remaining`;
+  return `~${Math.round(etaSec / 60)}m remaining`;
+}
+
+let lastSetupStageKey = "";
+
+function renderSetupProgress(overview, skillSet, stage) {
+  const screen = $("setupProgressScreen");
+  const dashboard = $("dashboardContent");
+  if (!screen) return;
+
+  screen.hidden = false;
+  if (dashboard) dashboard.hidden = true;
+
+  const job = overview?.active_import_job;
+  const research = overview?.research_status;
+  const totalSessions = overview?.total_sessions || 0;
+
+  const stages = [
+    {
+      label: "STAGE 1",
+      title: "Connected",
+      state: "done",
+      copy: "Your workspace is linked.",
+      meta: "",
+    },
+    {
+      label: "STAGE 2",
+      title: "Uploading sessions",
+      state: stage === "uploading" ? "active" : (totalSessions > 0 || stage !== "uploading") && stage !== "uploading" ? "done" : "pending",
+      copy: "Codex session history is being imported.",
+      meta: "",
+    },
+    {
+      label: "STAGE 3",
+      title: "Generating report",
+      state: stage === "researching" ? "active" : stage === "uploading" ? "pending" : (overview?.active_reports || 0) > 0 ? "done" : "pending",
+      copy: "AI analyzes your sessions to find patterns.",
+      meta: "",
+    },
+    {
+      label: "STAGE 4",
+      title: "Building skill",
+      state: stage === "building_skill" ? "active" : stage === "ready" ? "done" : "pending",
+      copy: "Your personal skill bundle is being compiled.",
+      meta: "",
+    },
+    {
+      label: "STAGE 5",
+      title: "Ready",
+      state: stage === "ready" ? "done" : "pending",
+      copy: "Your workspace is fully operational.",
+      meta: "",
+    },
+  ];
+
+  // Compute meta for upload stage
+  if (job && ACTIVE_IMPORT_STATUSES.includes(job.status)) {
+    const total = job.total_sessions || job.received_sessions || 0;
+    const processed = job.processed_sessions || 0;
+    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+    const eta = computeETA(job);
+    let meta = `${processed} / ${total} sessions (${pct}%)`;
+    if (eta) meta += ` &middot; ${escapeHTML(eta)}`;
+    if (job.failed_sessions > 0) meta += ` &middot; ${job.failed_sessions} failed`;
+    stages[1].meta = meta;
+  } else if (totalSessions > 0) {
+    stages[1].meta = `${totalSessions} sessions imported`;
+  }
+
+  // Compute meta for research stage
+  if (research) {
+    if (research.state === "running") {
+      let meta = `Analyzing ${research.session_count || 0} sessions`;
+      if (research.last_duration_ms > 0) {
+        meta += ` &middot; ~${Math.round(research.last_duration_ms / 1000)}s estimated`;
+      }
+      stages[2].meta = meta;
+    } else if (research.report_count > 0) {
+      stages[2].meta = `${research.report_count} report(s) generated`;
+    }
+  }
+
+  // Compute meta for skill stage
+  if (skillSet?.version) {
+    stages[3].meta = `Version: ${escapeHTML(skillSet.version)}`;
+  }
+
+  // Diff check to avoid unnecessary DOM writes
+  const stageKey = stages.map((s) => `${s.state}:${s.meta}`).join("|");
+  if (stageKey === lastSetupStageKey) return;
+  lastSetupStageKey = stageKey;
+
+  const stepper = $("setupStepper");
+  if (!stepper) return;
+
+  stepper.innerHTML = stages
+    .map(
+      (s) => `
+    <div class="lifecycle-stage-card" data-state="${s.state}">
+      <div class="lifecycle-stage-top">
+        <span class="lifecycle-stage-index">${s.label}</span>
+        <div class="lifecycle-stage-state"></div>
+      </div>
+      <div class="lifecycle-stage-title">${escapeHTML(s.title)}</div>
+      <div class="lifecycle-stage-copy">${escapeHTML(s.copy)}</div>
+      ${s.meta ? `<div class="lifecycle-stage-meta">${s.meta}</div>` : ""}
+    </div>`,
+    )
+    .join("");
+}
+
+function hideSetupProgress() {
+  const screen = $("setupProgressScreen");
+  const dashboard = $("dashboardContent");
+  if (screen) screen.hidden = true;
+  if (dashboard) dashboard.hidden = false;
+  lastSetupStageKey = "";
 }
 
 /* ── Session ── */
@@ -1854,6 +2033,7 @@ async function load() {
     ]);
 
     const overview = overviewResp;
+    state.overview = overview;
     const projects = toArray(projectsResp?.items);
     const cliTokens = toArray(cliTokensResp?.items);
 
@@ -1885,21 +2065,37 @@ async function load() {
     state.skillSetBundle = skillSet;
     state.tokenImpact = tokenImpact;
 
-    // Render all sections
-    renderConnectionStatus(project, overview);
-    renderAutoSkillsHero(skillSet, []);
-    renderTokenImpact(tokenImpact);
-    renderDeployFrequency(skillSet);
-    renderTopModifiedRules(skillSet);
-    renderRecentActivity(skillSet);
-    renderWorkspaceMembers();
-    renderCLITokenCard(cliTokens);
-    renderCLITokens(cliTokens);
-    renderSidebar();
+    // Check if setup is still in progress
+    const setupStage = deriveSetupStage(overview, skillSet);
+    if (setupStage !== "ready") {
+      renderSetupProgress(overview, skillSet, setupStage);
+      renderConnectionStatus(project, overview);
+      setStatus("Setup in progress...");
+    } else {
+      hideSetupProgress();
+      // Render all sections
+      renderConnectionStatus(project, overview);
+      renderAutoSkillsHero(skillSet, []);
+      renderTokenImpact(tokenImpact);
+      renderDeployFrequency(skillSet);
+      renderTopModifiedRules(skillSet);
+      renderRecentActivity(skillSet);
+      renderWorkspaceMembers();
+      renderCLITokenCard(cliTokens);
+      renderCLITokens(cliTokens);
+      renderSidebar();
 
-    setStatus(
-      `Workspace loaded. ${overview.total_sessions || 0} sessions collected.`,
-    );
+      setStatus(
+        `Workspace loaded. ${overview.total_sessions || 0} sessions collected.`,
+      );
+    }
+
+    // Auto-poll while import or research is active
+    if (shouldProgressPoll(overview)) {
+      startProgressPoll();
+    } else {
+      stopProgressPoll();
+    }
   } catch (error) {
     if (isUnauthorized(error)) {
       redirectToLanding("Your session has expired. Please sign in again.");
@@ -2008,7 +2204,7 @@ async function boot() {
       return;
     }
     const inline = $("onboardingInline");
-    if (inline && !inline.hidden) {
+    if ((inline && !inline.hidden) || progressPollTimer != null) {
       load();
     }
   });

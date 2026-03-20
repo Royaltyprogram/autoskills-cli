@@ -1905,6 +1905,9 @@ button:focus-visible {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
+.lifecycle-stepper--five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
 
 .lifecycle-stage-card {
   position: relative;
@@ -3005,6 +3008,9 @@ button:focus-visible {
     border: none;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .lifecycle-stepper--five {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 
   .lifecycle-stage-card {
     min-height: auto;
@@ -3186,7 +3192,8 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .lifecycle-stepper {
+  .lifecycle-stepper,
+  .lifecycle-stepper--five {
     grid-template-columns: 1fr;
   }
 

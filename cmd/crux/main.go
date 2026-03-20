@@ -406,25 +406,45 @@ func runSetup(args []string) error {
 		return err
 	}
 
+	const quickSetupSessionCount = 15
+
 	var collectResp *collectRunResp
 	var skillSetResp *skillSetSyncResp
 	if *upload {
-		uploadRecent := *recent
-		if initialWorkspaceSetup {
-			uploadRecent = 0
-			fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the full local Codex session history")
-		} else if *recent == 1 {
-			fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the latest local Codex session")
-		} else {
-			fmt.Fprintf(os.Stderr, "Uploading an initial snapshot and the latest %d local Codex sessions\n", *recent)
-		}
 		client := newStateAPIClient(&st)
-		resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, uploadRecent, collectSnapshotModeChanged, false, initialWorkspaceSetup)
-		if err != nil {
-			return err
+		if initialWorkspaceSetup {
+			// Phase 1: upload recent sessions for quick first report
+			fmt.Fprintf(os.Stderr, "Uploading an initial snapshot and the %d most recent Codex sessions for a quick first report\n", quickSetupSessionCount)
+			resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, quickSetupSessionCount, collectSnapshotModeChanged, false, false)
+			if err != nil {
+				return err
+			}
+			collectResp = &resp
+			skillSetResp = collectResp.SkillSet
+
+			// Phase 2: backfill full history in background (detached)
+			if err := resetSessionUploadCursor(&st); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, "Starting full history backfill in background...")
+			_, backfillErr := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, 0, collectSnapshotModeSkip, true, true)
+			if backfillErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: background backfill failed to start: %v\n", backfillErr)
+			}
+		} else {
+			uploadRecent := *recent
+			if *recent == 1 {
+				fmt.Fprintln(os.Stderr, "Uploading an initial snapshot and the latest local Codex session")
+			} else {
+				fmt.Fprintf(os.Stderr, "Uploading an initial snapshot and the latest %d local Codex sessions\n", *recent)
+			}
+			resp, err := runCollectOnce(&st, client, "", "default", "codex", "", *codexHome, uploadRecent, collectSnapshotModeChanged, false, false)
+			if err != nil {
+				return err
+			}
+			collectResp = &resp
+			skillSetResp = collectResp.SkillSet
 		}
-		collectResp = &resp
-		skillSetResp = collectResp.SkillSet
 	}
 
 	if skillSetResp == nil {
